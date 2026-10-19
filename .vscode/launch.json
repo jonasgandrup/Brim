@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Sense}",
+            "name": "Debug Sense",
+            "target": "Sense",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug Sense"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Sense}",
+            "name": "Release Sense",
+            "target": "Sense",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release Sense"
+        }
+    ]
+}

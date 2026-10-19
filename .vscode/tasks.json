@@ -1,0 +1,8 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {"label": "Sense: Run", "type": "shell", "command": "./dev.sh", "group": {"kind": "build", "isDefault": true}, "problemMatcher": ["$swiftc"]},
+    {"label": "Sense: Build release", "type": "shell", "command": "./build.sh", "problemMatcher": ["$swiftc"]},
+    {"label": "Sense: Test", "type": "shell", "command": "./test.sh", "group": "test", "problemMatcher": ["$swiftc"]}
+  ]
+}
