@@ -14,13 +14,15 @@ final class Preferences {
     var includeMinimized: Bool { didSet { save("includeMinimized", includeMinimized) } }
     var mediaEnabled: Bool { didSet { save("mediaEnabled", mediaEnabled) } }
     var appearance: String { didSet { save("appearance", appearance); applyAppearance() } }
+    var chargingFeedback: Bool { didSet { save("chargingFeedback", chargingFeedback) } }
+    var chargeTarget: Int { didSet { save("chargeTarget", chargeTarget) } }
     var gramsPerUnit: Double { didSet { save("gramsPerUnit", gramsPerUnit) } }
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         defaults.register(defaults: ["notchEnabled": true, "switcherEnabled": false,
             "scaleEnabled": true, "lockEnabled": true, "lidEffectEnabled": true, "hoverToExpand": true,
             "showOnExternal": false, "shortcut": "command", "includeMinimized": true,
-            "mediaEnabled": false, "appearance": "system", "gramsPerUnit": 0.0])
+            "chargingFeedback": true, "chargeTarget": 80, "mediaEnabled": false, "appearance": "system", "gramsPerUnit": 0.0])
         notchEnabled = defaults.bool(forKey: "notchEnabled")
         switcherEnabled = defaults.bool(forKey: "switcherEnabled")
         scaleEnabled = defaults.bool(forKey: "scaleEnabled")
@@ -32,6 +34,8 @@ final class Preferences {
         includeMinimized = defaults.bool(forKey: "includeMinimized")
         mediaEnabled = defaults.bool(forKey: "mediaEnabled")
         appearance = defaults.string(forKey: "appearance") ?? "system"
+        chargingFeedback = defaults.bool(forKey: "chargingFeedback")
+        chargeTarget = min(100, max(50, defaults.integer(forKey: "chargeTarget")))
         gramsPerUnit = defaults.double(forKey: "gramsPerUnit")
     }
     private func save(_ key: String, _ value: Any) { defaults.set(value, forKey: key) }

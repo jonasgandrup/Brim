@@ -3,10 +3,16 @@ import AppKit
 import Observation
 import ScreenCaptureKit
 
-final class FloatingPanel: NSPanel {
+class FloatingPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
+
+final class IslandPanel: FloatingPanel {
+    override var canBecomeKey: Bool { true }
+}
+
+enum IslandTab { case music, files, clipboard, timer }
 
 /// Camera clearance is measured separately from the visible activity on either side.
 struct IslandLayout {
@@ -60,7 +66,14 @@ enum IslandPresentation: Equatable {
 final class NotchController {
     var expanded = false
     let shelf = FileShelf()
-    var shelfSelected = false
+    var selectedTab: IslandTab = .music
+    var shelfSelected: Bool {
+        get { selectedTab == .files }
+        set { selectedTab = newValue ? .files : .music }
+    }
+    let clipboard = ClipboardShelf()
+    let countdown = IslandTimer()
+    private var powerFeedback = PowerFeedbackTracker()
     private(set) var dropTargeted = false
     private(set) var fileDragActive = false
     private var dragPollTimer: Timer?
@@ -89,6 +102,8 @@ final class NotchController {
     private var status: SystemStatus?
     private var media: MediaService?
     private var mediaVisible = false
+    private struct MediaVisibilityInput: Equatable { let enabled: Bool; let playing: Bool; let hasSource: Bool }
+    private var lastMediaInput: MediaVisibilityInput?
     private var mediaExitTask: Task<Void, Never>?
     private var onOpenSettings: () -> Void = {}
     private var pointerInside = false
@@ -114,9 +129,18 @@ final class NotchController {
     var presentation: IslandPresentation {
         if desktopTransition { return .hidden }
         if expanded { return .expanded }
-        if fileDragActive || !shelf.files.isEmpty { return .compact }
+        if fileDragActive || !shelf.files.isEmpty || !clipboard.pins.isEmpty || countdown.active { return .compact }
         return .resolve(expanded: expanded, mediaEnabled: preferences?.mediaEnabled == true,
                  playing: mediaVisible, hasSource: media?.source != nil, hasFeedback: feedback != nil)
+    }
+    var compactTab: IslandTab {
+        if countdown.active { return .timer }
+        if selectedTab == .files && !shelf.files.isEmpty { return .files }
+        if selectedTab == .clipboard && !clipboard.pins.isEmpty { return .clipboard }
+        if preferences?.mediaEnabled == true && mediaVisible { return .music }
+        if !shelf.files.isEmpty { return .files }
+        if !clipboard.pins.isEmpty { return .clipboard }
+        return .music
     }
     var surfaceFrame: CGRect? {
         guard presentation != .hidden, let displayFrame else { return nil }
@@ -127,6 +151,14 @@ final class NotchController {
 
     func start(preferences: Preferences, status: SystemStatus, media: MediaService, onOpenSettings: @escaping () -> Void = {}) {
         self.preferences = preferences; self.status = status; self.media = media; self.onOpenSettings = onOpenSettings
+        status.onPowerSample = { [weak self] sample in self?.receivePower(sample) }
+        receivePower(PowerSample(percent: status.battery, externalPower: status.charging))
+        countdown.onFinish = { [weak self] in
+            guard let self else { return }
+            self.selectedTab = .timer
+            self.showFeedback("Timer finished", symbol: "timer")
+            if !CommandLine.arguments.contains("--smoke-test") { NSSound.beep() }
+        }
         if observers.isEmpty {
             observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in self?.rebuild() }
@@ -137,7 +169,8 @@ final class NotchController {
                     self?.hideForDesktopTransition()
                 }
             })
-            observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
+            observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
+                guard (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
                 Task { @MainActor in self?.hideForDesktopTransition(settleDelay: .milliseconds(180)) }
             })
             // Cosmetic visibility only; loginwindow remains responsible for security.
@@ -153,7 +186,7 @@ final class NotchController {
             }
             clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
                 Task { @MainActor in
-                    guard let self, self.expanded else { return }
+                    guard let self, self.expanded, !self.shelf.systemUIActive else { return }
                     if !self.containsPointer(NSEvent.mouseLocation) { self.setExpanded(false) }
                 }
             }
@@ -163,13 +196,14 @@ final class NotchController {
             localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .leftMouseDragged, .leftMouseUp, .swipe, .scrollWheel]) { [weak self] event in
                 MainActor.assumeIsolated {
                     self?.trackMouseEvent(event)
-                    if (event.type == .leftMouseDown || event.type == .rightMouseDown), self?.expanded == true,
-                       self?.containsPointer(NSEvent.mouseLocation) != true { self?.setExpanded(false) }
+                    if (event.type == .leftMouseDown || event.type == .rightMouseDown), self?.expanded == true, self?.shelf.systemUIActive == false,
+                       self?.containsPointer(event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation) != true { self?.setExpanded(false) }
                 }
                 return event
             }
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 let handled = MainActor.assumeIsolated {
+                    if self?.shelf.actions.previewVisible == true { return false }
                     if event.keyCode == 53, self?.expanded == true { self?.setExpanded(false); return true }
                     return false
                 }
@@ -192,16 +226,26 @@ final class NotchController {
             _ = media?.playing
             _ = media?.source
             _ = shelf.files
+            _ = shelf.systemUIActive
+            _ = clipboard.pins
+            _ = countdown.state
+            _ = preferences?.chargingFeedback
+            _ = preferences?.chargeTarget
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self, self.observingActivity, self.observationGeneration == generation else { return }
+                if let status = self.status { self.receivePower(PowerSample(percent: status.battery, externalPower: status.charging)) }
                 self.syncMediaVisibility()
                 self.updateInteraction()
+                if !self.shelf.systemUIActive && self.expanded && !self.pointerInside { self.collapseAfterDelay() }
                 self.observeActivity()
             }
         }
     }
     private func syncMediaVisibility() {
+        let input = MediaVisibilityInput(enabled: preferences?.mediaEnabled == true, playing: media?.playing == true, hasSource: media?.source != nil)
+        guard input != lastMediaInput else { return }
+        lastMediaInput = input
         mediaExitTask?.cancel()
         guard preferences?.mediaEnabled == true, media?.source != nil else { mediaVisible = false; return }
         if media?.playing == true { mediaVisible = true; return }
@@ -247,10 +291,11 @@ final class NotchController {
     }
     func stop() {
         idleHideTask?.cancel(); idleHideTask = nil
+        shelf.actions.closePreview()
         observingActivity = false; observationGeneration += 1
         transitionMonitor.stop(); systemSwitcherActive = false; senseSwitcherActive = false
         desktopRestoreTask?.cancel(); desktopRestoreTask = nil; desktopTransition = false
-        mediaExitTask?.cancel(); mediaVisible = false
+        mediaExitTask?.cancel(); mediaVisible = false; lastMediaInput = nil
         dragPollTimer?.invalidate(); dragPollTimer = nil; fileDragActive = false; dropTargeted = false
         collapseTask?.cancel(); hoverTask?.cancel(); feedbackTask?.cancel()
         panel?.orderOut(nil); panel = nil; displayFrame = nil; expanded = false; pointerInside = false; suspended = false; feedback = nil
@@ -278,11 +323,12 @@ final class NotchController {
             cutout = max(160, right.minX - left.maxX)
         } else { cutout = 190 }
         layout = IslandLayout(cutoutWidth: cutout, menuBarHeight: max(28, screen.safeAreaInsets.top), hasHardwareNotch: hasNotch)
-        let panel = FloatingPanel(contentRect: layout.frame(on: screen.frame, expanded: true), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        let panel = IslandPanel(contentRect: layout.frame(on: screen.frame, expanded: true), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = false
         // Status-bar level keeps the narrow activity wings visible above the menu-bar background.
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
+        panel.becomesKeyOnlyIfNeeded = true
         panel.isMovable = false; panel.hidesOnDeactivate = false
         panel.acceptsMouseMovedEvents = true; panel.ignoresMouseEvents = true
         self.panel = panel
@@ -315,7 +361,7 @@ final class NotchController {
         collapseTask?.cancel()
         collapseTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
-            guard !Task.isCancelled, self?.pointerInside == false, self?.dropTargeted == false else { return }
+            guard !Task.isCancelled, self?.pointerInside == false, self?.dropTargeted == false, self?.shelf.systemUIActive == false else { return }
             self?.setExpanded(false)
         }
     }
@@ -386,16 +432,33 @@ final class NotchController {
         updateInteraction(scheduleHover: false)
         if expanded && !pointerInside { collapseAfterDelay() }
     }
-    func setDropTargeted(_ targeted: Bool) {
+    func setDropTargeted(_ targeted: Bool, clipboard: Bool = false) {
         dropTargeted = targeted
-        if targeted { shelfSelected = true; setExpanded(true) }
+        if targeted { selectedTab = clipboard ? .clipboard : .files; setExpanded(true) }
         else if !pointerInside { collapseAfterDelay() }
     }
-    func finishFileDrop() {
-        dropTargeted = false; fileDragActive = false; shelfSelected = true
+    func finishFileDrop(clipboard: Bool = false) {
+        dropTargeted = false; fileDragActive = false; selectedTab = clipboard ? .clipboard : .files
         // The shelf stays open only while hovered; retained references survive collapse and Space changes.
         updateInteraction(scheduleHover: false)
         if !pointerInside { collapseAfterDelay() }
+    }
+    func openTimerFromMenu() { selectedTab = .timer; openFromMenu() }
+    func openClipboardFromMenu() { selectedTab = .clipboard; openFromMenu() }
+    func pinClipboard() {
+        if let urls = NSPasteboard.general.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
+            shelf.add(urls); selectedTab = .files
+        } else { clipboard.pin(); selectedTab = .clipboard }
+        openFromMenu()
+    }
+    private func receivePower(_ sample: PowerSample) {
+        guard let preferences else { return }
+        let event = powerFeedback.receive(sample, target: preferences.chargeTarget)
+        guard !CommandLine.arguments.contains("--smoke-test"), preferences.chargingFeedback, !expanded, !fileDragActive, let event else { return }
+        switch event {
+        case .connected(let percent): showFeedback("Charging · \(percent)%", symbol: "battery.100percent.bolt")
+        case .targetReached(let target): showFeedback("Battery reached \(target)%", symbol: "battery.100percent")
+        }
     }
     func openShelfFromMenu() { shelfSelected = true; openFromMenu() }
     func openFromMenu() { setExpanded(true); collapseAfterDelay(seconds: 5) }
@@ -440,44 +503,127 @@ final class NotchController {
         try? await Task.sleep(for: .milliseconds(250))
         return opened
     }
+    func verifyFileActions() async -> [String: Bool] {
+        let urls = ["Contents/Info.plist", "Contents/Resources/Sense.icns"].map { Bundle.main.bundleURL.appendingPathComponent($0) }
+        shelf.add(urls); shelf.select(Set(urls)); openShelfFromMenu()
+        previewPointer = surfaceFrame.map { CGPoint(x: $0.midX, y: $0.midY) }
+        try? await Task.sleep(for: .milliseconds(500))
+        func findView<T: NSView>(_ type: T.Type, in view: NSView?) -> T? {
+            guard let view else { return nil }
+            if let match = view as? T { return match }
+            for child in view.subviews { if let match = findView(type, in: child) { return match } }
+            return nil
+        }
+        var check: [String: Bool] = [:]
+        let collection = findView(ShelfCollectionView.self, in: panel?.contentView)
+        check["nativeCollectionShowsFiles"] = collection?.numberOfItems(inSection: 0) == 2
+        check["multipleSelection"] = collection?.selectionIndexPaths.count == 2
+        if let collection, let panel, let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: panel.windowNumber, context: nil, characters: " ", charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49) {
+            collection.keyDown(with: event)
+        }
+        try? await Task.sleep(for: .milliseconds(500))
+        check["spaceOpensQuickLook"] = shelf.actions.previewVisible && shelf.actions.previewItemCount == 2 && shelf.systemUIActive
+        shelf.actions.closePreview()
+        check["previewClosesCleanly"] = !shelf.actions.previewVisible && !shelf.systemUIActive
+        openShelfFromMenu()
+        try? await Task.sleep(for: .milliseconds(400))
+        if let button = findView(NSButton.self, in: panel?.contentView), button.identifier?.rawValue == "Sense.FileShare",
+           let coordinator = button.target as? FileShareButton.Coordinator {
+            let location = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+            if let window = button.window {
+                for type: NSEvent.EventType in [.leftMouseDown, .leftMouseUp] {
+                    if let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0) { NSApp.postEvent(event, atStart: false) }
+                }
+            }
+            try? await Task.sleep(for: .milliseconds(700))
+            check["nativeSharePickerOpens"] = coordinator.servicesPrepared && coordinator.picker != nil && shelf.systemUIActive
+            coordinator.close()
+            try? await Task.sleep(for: .milliseconds(300))
+            check["shareCancelReleasesIsland"] = !shelf.systemUIActive
+        } else { check["nativeSharePickerOpens"] = false }
+        shelf.clear(); previewPointer = nil; selectedTab = .music; hover(false); setExpanded(false)
+        try? await Task.sleep(for: .milliseconds(300))
+        return check
+    }
+    private func capturePanel(named name: String, in directory: URL) async -> Bool {
+        guard let panel else { return false }
+        var data: Data?
+        // This API exposes only our own capturable windows; no Screen Recording grant is requested.
+        if #available(macOS 14.4, *), presentation != .hidden {
+            if let content = try? await SCShareableContent.currentProcess,
+               let window = content.windows.first(where: { $0.windowID == CGWindowID(panel.windowNumber) }) {
+                let configuration = SCStreamConfiguration()
+                configuration.width = Int(panel.frame.width * 2)
+                configuration.height = Int(panel.frame.height * 2)
+                configuration.showsCursor = false; configuration.ignoreShadowsSingleWindow = true
+                if let image = try? await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(desktopIndependentWindow: window), configuration: configuration) {
+                    data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
+                    nativeSnapshotCount += 1
+                }
+            }
+        }
+        if data == nil, let view = panel.contentView, let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            data = bitmap.representation(using: .png, properties: [:])
+        }
+        guard let data else { return false }
+        do { try data.write(to: directory.appendingPathComponent(name)); return true }
+        catch { return false }
+    }
+    func exportMediaPreview(_ snapshot: SystemMediaSnapshot, to directory: URL) async -> String? {
+        guard snapshot.hasMedia, let panel, let status, let originalView = panel.contentView else { return nil }
+        let suite = "Sense.MediaPreview.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suite) else { return nil }
+        let previewPreferences = Preferences(defaults: defaults); previewPreferences.mediaEnabled = true
+        let readOnlyMedia = MediaService(); readOnlyMedia.apply(snapshot)
+        let hosting = NSHostingView(rootView: IslandView(controller: self, preferences: previewPreferences, status: status, media: readOnlyMedia))
+        hosting.sizingOptions = []
+        let originalFrame = panel.frame
+        panel.contentView = hosting; panel.setFrame(originalFrame, display: true)
+        selectedTab = .music; setExpanded(true)
+        previewPointer = surfaceFrame.map { CGPoint(x: $0.midX, y: $0.midY) }
+        try? await Task.sleep(for: .milliseconds(500))
+        let name = "now-playing-live.png"
+        let captured = await capturePanel(named: name, in: directory)
+        panel.contentView = originalView; panel.setFrame(originalFrame, display: true)
+        previewPointer = nil; hover(false); setExpanded(false)
+        defaults.removePersistentDomain(forName: suite)
+        try? await Task.sleep(for: .milliseconds(250))
+        return captured ? name : nil
+    }
     func exportPreview(to directory: URL) async -> [String] {
         guard let panel else { return [] }
         var result: [String] = []
         let initialFrame = panel.frame
         idleHoverOpensIsland = await verifyIdleHover()
-        for preview in 0..<4 {
-            let isExpanded = preview != 0
-            shelfSelected = preview >= 2
+        for preview in 0..<12 {
+            let isExpanded = preview != 0 && preview < 10
+            feedback = nil
+            selectedTab = preview >= 8 ? .timer : (preview >= 4 ? .clipboard : (preview >= 2 ? .files : .music))
             if preview == 3 {
                 shelf.add([Bundle.main.bundleURL.appendingPathComponent("Contents/Info.plist")])
             }
+            if preview == 5 {
+                clipboard.add(.text("Pinned note for the rendering check"))
+                clipboard.add(.link(URL(string: "https://developer.apple.com")!))
+                if let icon = NSImage(contentsOf: Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/Sense.icns")),
+                   let tiff = icon.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) { clipboard.add(.image(png)) }
+            }
+            if preview == 6 { clipboard.clear(); selectedTab = .timer }
+            if preview == 7 { selectedTab = .timer; countdown.start() }
+            if preview == 8 { countdown.pause() }
+            if preview == 9 { countdown.cancel(); feedback = "Charging feedback preview"; feedbackSymbol = "battery.100percent.bolt" }
+            if preview == 10 { shelf.clear(); selectedTab = .music; countdown.start() }
+            if preview == 11 { countdown.cancel(); clipboard.add(.text("Compact clipboard check")); selectedTab = .music }
             setExpanded(isExpanded)
+            previewPointer = isExpanded ? surfaceFrame.map { CGPoint(x: $0.midX, y: $0.midY) } : CGPoint(x: -10000, y: -10000)
             try? await Task.sleep(for: .milliseconds(650))
-            let name = preview == 3 ? "file-shelf-items.png" : (preview == 2 ? "file-shelf-empty.png" :
-                (isExpanded ? "island-expanded.png" : (presentation == .hidden ? "island-idle.png" : "island-compact.png")))
-            var data: Data?
-            // This API exposes only our own capturable windows; no Screen Recording grant is requested.
-            if #available(macOS 14.4, *), presentation != .hidden {
-                if let content = try? await SCShareableContent.currentProcess,
-                   let window = content.windows.first(where: { $0.windowID == CGWindowID(panel.windowNumber) }) {
-                    let configuration = SCStreamConfiguration()
-                    configuration.width = Int(panel.frame.width * 2)
-                    configuration.height = Int(panel.frame.height * 2)
-                    configuration.showsCursor = false; configuration.ignoreShadowsSingleWindow = true
-                    if let image = try? await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(desktopIndependentWindow: window), configuration: configuration) {
-                        data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
-                        nativeSnapshotCount += 1
-                    }
-                }
-            }
-            if data == nil, let view = panel.contentView, let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
-                view.cacheDisplay(in: view.bounds, to: bitmap)
-                data = bitmap.representation(using: .png, properties: [:])
-            }
-            if let data {
-                try? data.write(to: directory.appendingPathComponent(name)); result.append(name)
-            }
+            let extras = [4: "clipboard-empty.png", 5: "clipboard-pins.png", 6: "timer-ready.png", 7: "timer-running.png", 8: "timer-paused.png", 9: "charging-preview.png", 10: "timer-compact.png", 11: "clipboard-compact.png"]
+            let name = extras[preview] ?? (preview == 3 ? "file-shelf-items.png" : (preview == 2 ? "file-shelf-empty.png" :
+                (isExpanded ? "island-expanded.png" : (presentation == .hidden ? "island-idle.png" : "island-compact.png"))))
+            if await capturePanel(named: name, in: directory) { result.append(name) }
         }
+        feedback = nil; countdown.cancel(); clipboard.clear(); shelf.add([Bundle.main.bundleURL.appendingPathComponent("Contents/Info.plist")]); selectedTab = .files; previewPointer = nil
         setSwitcherOverlayActive(true)
         try? await Task.sleep(for: .milliseconds(420))
         let stayedHidden = desktopTransition && !panel.isVisible

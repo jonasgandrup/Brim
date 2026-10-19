@@ -8,6 +8,7 @@ struct IslandView: View {
     @Namespace private var artworkNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var layout: IslandLayout { controller.layout }
+    private var headerTab: IslandTab { controller.expanded ? controller.selectedTab : controller.compactTab }
     private var radius: CGFloat { controller.presentation == .hidden ? 9 : (controller.expanded ? 34 : layout.compactSize.height / 2) }
     private var surface: UnevenRoundedRectangle {
         UnevenRoundedRectangle(
@@ -40,7 +41,7 @@ struct IslandView: View {
         .contentShape(surface)
         .opacity(!layout.hasHardwareNotch && controller.presentation == .hidden ? 0 : 1)
         .animation(reduceMotion ? nil : .smooth(duration: controller.expanded ? 0.22 : 0.14, extraBounce: 0.04), value: controller.presentation)
-        .onDrop(of: [.fileURL], delegate: ShelfDropDelegate(controller: controller))
+        .onDrop(of: [.fileURL, .url, .plainText, .image], delegate: ShelfDropDelegate(controller: controller))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .accessibilityHidden(controller.presentation == .hidden)
         .accessibilityElement(children: .contain)
@@ -51,9 +52,13 @@ struct IslandView: View {
         HStack(spacing: 0) {
             Button { controller.setExpanded(!controller.expanded) } label: {
                 Group {
-                    if controller.shelfSelected {
+                    if headerTab == .timer {
+                        Image(systemName: "timer").font(.system(size: 15)).foregroundStyle(.orange)
+                    } else if headerTab == .clipboard {
+                        Image(systemName: "pin.fill").font(.system(size: 14))
+                    } else if headerTab == .files {
                         Image(systemName: "tray.fill").font(.system(size: 15)).foregroundStyle(.white.opacity(0.85))
-                    } else if let artwork = media.artwork, preferences.mediaEnabled {
+                    } else if let artwork = media.artwork ?? media.sourceIcon, preferences.mediaEnabled {
                         Image(nsImage: artwork).resizable().scaledToFill()
                             .id(media.title).transition(.opacity)
                             .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: media.title)
@@ -83,7 +88,12 @@ struct IslandView: View {
             } else {
             Button { controller.setExpanded(!controller.expanded) } label: {
                 Group {
-                    if !controller.shelf.files.isEmpty {
+                    if controller.countdown.active {
+                        Text(controller.countdown.state.phase == .finished ? "✓" : controller.countdown.label)
+                            .font(.system(size: 9, weight: .semibold)).monospacedDigit().foregroundStyle(.orange).minimumScaleFactor(0.7)
+                    } else if !controller.clipboard.pins.isEmpty && headerTab == .clipboard {
+                        Text("\(controller.clipboard.pins.count)").font(.system(size: 11, weight: .semibold))
+                    } else if !controller.shelf.files.isEmpty {
                         Text("\(controller.shelf.files.count)").font(.system(size: 11, weight: .semibold)).monospacedDigit()
                     } else if controller.fileDragActive {
                         Image(systemName: "plus").font(.system(size: 13, weight: .semibold))
@@ -119,81 +129,106 @@ struct IslandView: View {
     private var expandedPane: some View {
         VStack(spacing: 8) {
             if controller.feedback == nil {
-                HStack(spacing: 14) {
-                    Button("Music") { controller.shelfSelected = false }.foregroundStyle(controller.shelfSelected ? .white.opacity(0.4) : .white)
-                    Button(controller.shelf.files.isEmpty ? "Files" : "Files · \(controller.shelf.files.count)") { controller.shelfSelected = true }
-                        .foregroundStyle(controller.shelfSelected ? .white : .white.opacity(0.4))
-                    Spacer()
-                }.font(.system(size: 10, weight: .medium)).buttonStyle(.plain)
+                HStack(spacing: 0) {
+                    tab("Media", .music)
+                    tab("Files", .files, count: controller.shelf.files.count)
+                    tab("Clipboard", .clipboard)
+                    tab("Timer", .timer)
+                }.font(.system(size: 10, weight: .medium)).buttonStyle(.plain).frame(height: 20)
             }
-            if controller.shelfSelected && controller.feedback == nil {
-                FileShelfView(shelf: controller.shelf, dropTargeted: controller.dropTargeted)
-            } else { expandedContent }
+            if controller.feedback != nil { expandedContent }
+            else {
+                ZStack(alignment: .topLeading) {
+                    selectedPane
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .id(controller.selectedTab).transition(.opacity)
+                }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: controller.selectedTab)
+            }
         }
+    }
+    @ViewBuilder private var selectedPane: some View {
+        switch controller.selectedTab {
+        case .files: FileShelfView(shelf: controller.shelf, dropTargeted: controller.dropTargeted)
+        case .clipboard: ClipboardShelfView(shelf: controller.clipboard, pinClipboard: { controller.pinClipboard() })
+        case .timer: IslandTimerView(timer: controller.countdown)
+        case .music:
+            VStack(spacing: 6) {
+                IslandPaneHeader(title: "Now Playing", symbol: "waveform") {
+                    if media.source != nil {
+                        Button { media.openPlayer() } label: {
+                            HStack(spacing: 4) {
+                                if let icon = media.sourceIcon { Image(nsImage: icon).resizable().frame(width: 13, height: 13) }
+                                Text(media.sourceName).lineLimit(1).frame(maxWidth: 90, alignment: .leading)
+                            }
+                        }.help("Open \(media.sourceName)").accessibilityLabel("Open \(media.sourceName)")
+                    }
+                    Button { controller.openSettings() } label: { Image(systemName: "gearshape").frame(width: 20, height: 20) }
+                        .help("Dynamic Island settings").accessibilityLabel("Open island settings")
+                }
+                expandedContent
+            }
+        }
+    }
+    private func tab(_ title: String, _ tab: IslandTab, count: Int = 0) -> some View {
+        Button { controller.selectedTab = tab } label: {
+            Text(title).frame(maxWidth: .infinity, minHeight: 20)
+                .background(controller.selectedTab == tab ? .white.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                .overlay(alignment: .trailing) {
+                    if count > 0 {
+                        Text("\(count)").font(.system(size: 8, weight: .medium)).monospacedDigit()
+                            .frame(width: 17, height: 14).background(.white.opacity(0.09), in: Capsule())
+                    }
+                }.contentShape(Rectangle())
+        }
+        .foregroundStyle(controller.selectedTab == tab ? .white : .white.opacity(0.4))
+        .accessibilityLabel(count > 0 ? "\(title), \(count) items" : title)
     }
     @ViewBuilder private var expandedContent: some View {
         if let feedback = controller.feedback {
             VStack(spacing: 13) {
                 Image(systemName: controller.feedbackSymbol).font(.system(size: 30, weight: .light)).symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(controller.feedbackSymbol == "timer" ? Color.orange : .green)
+                    .symbolEffect(.bounce, value: feedback)
                 Text(feedback).font(.system(size: 17, weight: .medium))
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if media.source == nil {
-            VStack(spacing: 20) {
-                HStack {
-                    if let battery = status.battery {
-                        Label("\(battery)%", systemImage: batterySymbol(battery))
-                    }
-                    Spacer()
-                    Label(status.volume.map { "\(Int(($0 * 100).rounded()))%" } ?? "Unavailable",
-                          systemImage: status.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                }.font(.system(size: 14, weight: .medium)).foregroundStyle(.white.opacity(0.8))
-                Button(preferences.mediaEnabled ? "Music & Spotify settings" : "Connect Music or Spotify") {
-                    if preferences.mediaEnabled { controller.openSettings() } else { controller.connectMedia() }
-                }.buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
-                Button("Settings", systemImage: "gearshape") { controller.openSettings() }
-                    .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.white.opacity(0.45))
-            }.padding(.top, 16)
-        } else {
-            VStack(spacing: 17) {
-                HStack(spacing: 13) {
-                    artwork
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(preferences.mediaEnabled ? media.title : "")
-                            .contentTransition(.opacity)
-                            .animation(.easeInOut(duration: 0.18), value: media.title)
-                            .font(.system(size: 15, weight: .semibold)).lineLimit(1)
-                        if !preferences.mediaEnabled {
-                            Button("Connect Music or Spotify") { controller.connectMedia() }
-                                .font(.system(size: 12)).foregroundStyle(.white.opacity(0.55)).buttonStyle(.plain)
-                        } else {
-                            Text(media.message == nil ? media.artist : "Player access unavailable")
-                                .contentTransition(.opacity)
-                                .animation(.easeInOut(duration: 0.18), value: media.artist)
-                                .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
-                        }
-                    }
-                    Spacer(minLength: 0)
-                    Button { controller.openSettings() } label: {
-                        Image(systemName: "gearshape").font(.system(size: 13)).foregroundStyle(.white.opacity(0.45)).frame(width: 26, height: 30)
-                    }.buttonStyle(.plain).help("Dynamic Island settings").accessibilityLabel("Open island settings")
+            VStack(spacing: 7) {
+                Image(systemName: "play.rectangle.on.rectangle").font(.system(size: 24, weight: .light))
+                    .foregroundStyle(.white.opacity(0.35))
+                Text("Nothing playing").font(.system(size: 13, weight: .medium))
+                if preferences.mediaEnabled {
+                    Text(media.message ?? "Play audio or video in an app to see it here.")
+                        .font(.system(size: 10)).foregroundStyle(.white.opacity(0.45)).multilineTextAlignment(.center).lineLimit(2)
+                } else {
+                    Button("Enable Now Playing") { controller.connectMedia() }
+                        .buttonStyle(.bordered).controlSize(.small)
                 }
-                HStack(spacing: 27) {
-                    playbackButton("backward.fill", label: "Previous track", command: "previous track")
+            }.frame(maxWidth: .infinity, minHeight: 104)
+        } else {
+            VStack(spacing: 6) {
+                HStack(spacing: 12) {
+                    artwork
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(media.title).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                            .contentTransition(.opacity)
+                        Text(media.artist.isEmpty ? media.sourceName : media.artist)
+                            .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
+                            .contentTransition(.opacity)
+                    }.animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: media.title)
+                    Spacer(minLength: 0)
+                }
+                if let message = media.message {
+                    Text(message).font(.system(size: 9)).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
+                        .frame(height: 17).help(message)
+                } else { MediaProgress(timeline: media.timeline) }
+                HStack(spacing: 24) {
+                    playbackButton("backward.fill", label: "Previous", command: "previous track")
                     playControl
-                    playbackButton("forward.fill", label: "Next track", command: "next track")
+                    playbackButton("forward.fill", label: "Next", command: "next track")
                 }.frame(maxWidth: .infinity)
-                HStack(spacing: 6) {
-                    Image(systemName: status.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                    Text(status.volume.map { "\(Int(($0 * 100).rounded()))%" } ?? "Unavailable").monospacedDigit()
-                    Spacer()
-                    PlaybackActivity(playing: media.playing)
-                    Spacer()
-                    if let battery = status.battery {
-                        Text("\(battery)%").monospacedDigit()
-                        Image(systemName: batterySymbol(battery)).foregroundStyle(status.charging ? Color.green : Color.white.opacity(0.45))
-                    } else { Label("AC power", systemImage: "powerplug") }
-                }.font(.system(size: 10, weight: .medium)).foregroundStyle(.white.opacity(0.45))
-            }.padding(.top, 4)
+            }
+            .help(media.message ?? "Now Playing from \(media.sourceName)")
         }
     }
     private var artwork: some View {
@@ -204,14 +239,19 @@ struct IslandView: View {
             else {
                 ZStack {
                     Color.white.opacity(0.09)
-                    Image(systemName: preferences.mediaEnabled ? "music.note" : "waveform.path")
-                        .font(.system(size: 23, weight: .light)).foregroundStyle(.white.opacity(0.65))
+                    if let icon = media.sourceIcon {
+                        Image(nsImage: icon).resizable().scaledToFit().padding(8)
+                    } else {
+                        Image(systemName: "play.fill").font(.system(size: 21, weight: .light)).foregroundStyle(.white.opacity(0.5))
+                    }
                 }
             }
         }.animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: media.title)
-            .frame(width: 56, height: 56).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            .frame(width: 48, height: 48).clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
             .matchedGeometryEffect(id: "artwork", in: artworkNamespace, isSource: controller.expanded)
             .animation(reduceMotion ? nil : .smooth(duration: controller.expanded ? 0.22 : 0.14), value: controller.expanded)
+            // Tab changes fade the pane; only expansion should move the shared artwork.
+            .animation(nil, value: controller.selectedTab)
     }
     @ViewBuilder private var playControl: some View {
         if #available(macOS 26.0, *) {
@@ -223,7 +263,7 @@ struct IslandView: View {
             Image(systemName: media.playing ? "pause.fill" : "play.fill")
                 .contentTransition(.symbolEffect(.replace))
                 .animation(reduceMotion ? nil : .smooth(duration: 0.24), value: media.playing)
-                .font(.system(size: 18, weight: .semibold)).frame(width: 34, height: 31)
+                .font(.system(size: 19, weight: .semibold)).foregroundStyle(.white).frame(width: 38, height: 32)
         }.disabled(media.source == nil)
             .foregroundStyle(.white.opacity(media.source == nil ? 0.22 : 1))
             .accessibilityLabel(media.playing ? "Pause" : "Play")
@@ -234,16 +274,7 @@ struct IslandView: View {
         }.buttonStyle(.plain).disabled(media.source == nil)
             .foregroundStyle(.white.opacity(media.source == nil ? 0.22 : 0.8)).accessibilityLabel(label)
     }
-    private func batterySymbol(_ battery: Int) -> String {
-        if status.charging { return "battery.100percent.bolt" }
-        switch battery {
-        case ..<15: return "battery.0percent"
-        case ..<40: return "battery.25percent"
-        case ..<65: return "battery.50percent"
-        case ..<90: return "battery.75percent"
-        default: return "battery.100percent"
-        }
-    }
+
 }
 
 /// Keeps one indicator alive across pause/play so bars settle and grow instead of being replaced.
@@ -254,7 +285,7 @@ private struct PlaybackActivity: View {
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion || !playing)) { timeline in
             PlaybackBars(activity: playing ? 1 : 0, time: reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate)
                 .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: playing)
-        }.frame(width: 21, height: 16).accessibilityLabel(playing ? "Music playing" : "Music paused")
+        }.frame(width: 21, height: 16).accessibilityLabel(playing ? "Media playing" : "Media paused")
     }
 }
 
@@ -274,5 +305,35 @@ private struct PlaybackBars: View, Animatable {
                 context.fill(Path(roundedRect: rect, cornerRadius: 1.25), with: .color(Color(red: 0.55 - 0.3 * activity, green: 0.55 + 0.3 * activity, blue: 0.55 - 0.2 * activity)))
             }
         }
+    }
+}
+
+private struct MediaProgress: View {
+    let timeline: MediaTimeline?
+    var body: some View {
+        Group {
+            if let timeline, timeline.usable {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    let elapsed = timeline.elapsed(at: context.date)
+                    VStack(spacing: 3) {
+                        GeometryReader { geometry in
+                            Capsule().fill(.white.opacity(0.12))
+                                .overlay(alignment: .leading) {
+                                    Capsule().fill(.white.opacity(0.55)).frame(width: geometry.size.width * elapsed / timeline.duration)
+                                        .animation(.linear(duration: 1), value: elapsed)
+                                }
+                        }.frame(height: 3)
+                        HStack {
+                            Text(MediaTimeline.label(elapsed))
+                            Spacer()
+                            Text("−" + MediaTimeline.label(timeline.duration - elapsed))
+                        }.font(.system(size: 8, weight: .medium)).monospacedDigit().foregroundStyle(.white.opacity(0.4))
+                    }.accessibilityElement(children: .ignore)
+                        .accessibilityLabel("\(MediaTimeline.label(elapsed)) of \(MediaTimeline.label(timeline.duration))")
+                }
+            } else {
+                Color.clear.accessibilityHidden(true)
+            }
+        }.frame(height: 17)
     }
 }

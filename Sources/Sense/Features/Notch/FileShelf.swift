@@ -13,6 +13,16 @@ struct ShelfFile: Identifiable, Equatable {
 final class FileShelf {
     private(set) var files: [ShelfFile] = []
     var message: String?
+    private(set) var selectedURLs: Set<URL> = []
+    var systemUIActive = false
+    let actions: FileShelfActions
+    init() { actions = FileShelfActions(); actions.shelf = self }
+    var availableSelection: [URL] {
+        let selected = selectedURLs.isEmpty ? files.prefix(1).map(\.url) : files.filter { selectedURLs.contains($0.url) }.map(\.url)
+        return selected.filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+    func select(_ urls: Set<URL>) { selectedURLs = urls.intersection(Set(files.map(\.url))) }
+    func removeSelection() { files.removeAll { selectedURLs.contains($0.url) }; selectedURLs.removeAll() }
     @discardableResult func add(_ urls: [URL]) -> Int {
         var inserted = 0
         for url in urls where url.isFileURL {
@@ -23,8 +33,8 @@ final class FileShelf {
         message = inserted > 0 ? nil : "No new accessible files were added."
         return inserted
     }
-    func remove(_ file: ShelfFile) { files.removeAll { $0.id == file.id } }
-    func clear() { files.removeAll(); message = nil }
+    func remove(_ file: ShelfFile) { files.removeAll { $0.id == file.id }; selectedURLs.remove(file.url) }
+    func clear() { files.removeAll(); selectedURLs.removeAll(); message = nil }
     func accept(_ providers: [NSItemProvider]) -> Bool {
         let compatible = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
         for provider in compatible {
@@ -44,13 +54,14 @@ final class FileShelf {
 
 struct ShelfDropDelegate: DropDelegate {
     let controller: NotchController
-    func validateDrop(info: DropInfo) -> Bool { info.hasItemsConforming(to: [.fileURL]) }
-    func dropEntered(info: DropInfo) { controller.setDropTargeted(true) }
+    func validateDrop(info: DropInfo) -> Bool { info.hasItemsConforming(to: [.fileURL, .url, .plainText, .image]) }
+    func dropEntered(info: DropInfo) { controller.setDropTargeted(true, clipboard: !info.hasItemsConforming(to: [.fileURL])) }
     func dropExited(info: DropInfo) { controller.setDropTargeted(false) }
     func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .copy) }
     func performDrop(info: DropInfo) -> Bool {
-        let accepted = controller.shelf.accept(info.itemProviders(for: [.fileURL]))
-        controller.finishFileDrop()
+        let files = info.hasItemsConforming(to: [.fileURL])
+        let accepted = files ? controller.shelf.accept(info.itemProviders(for: [.fileURL])) : controller.clipboard.accept(info.itemProviders(for: [.url, .plainText, .image]))
+        controller.finishFileDrop(clipboard: !files)
         return accepted
     }
 }
@@ -59,11 +70,15 @@ struct FileShelfView: View {
     @Bindable var shelf: FileShelf
     let dropTargeted: Bool
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label("File shelf", systemImage: "tray").font(.system(size: 13, weight: .medium))
-                Spacer()
-                if !shelf.files.isEmpty { Button("Clear") { shelf.clear() }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)) }
+        VStack(alignment: .leading, spacing: 6) {
+            IslandPaneHeader(title: "Files", symbol: "tray") {
+                if shelf.selectedURLs.count > 1 {
+                    Text("\(shelf.selectedURLs.count) selected").monospacedDigit().foregroundStyle(.white.opacity(0.45))
+                }
+                Button { shelf.actions.preview() } label: { Image(systemName: "eye").frame(width: 20, height: 20) }
+                    .help("Quick Look · Space").disabled(shelf.files.isEmpty)
+                FileShareButton(shelf: shelf).frame(width: 20, height: 20)
+                Button("Clear") { shelf.clear() }.disabled(shelf.files.isEmpty)
             }
             if shelf.files.isEmpty {
                 VStack(spacing: 9) {
@@ -73,23 +88,9 @@ struct FileShelfView: View {
                 }.frame(maxWidth: .infinity, minHeight: 95)
                     .background(.white.opacity(dropTargeted ? 0.1 : 0.035), in: RoundedRectangle(cornerRadius: 15))
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 12) {
-                        ForEach(shelf.files) { file in
-                            VStack(spacing: 7) {
-                                Image(nsImage: NSWorkspace.shared.icon(forFile: file.url.path)).resizable().frame(width: 40, height: 40)
-                                Text(file.name).font(.system(size: 10)).lineLimit(2).multilineTextAlignment(.center)
-                            }.padding(.vertical, 9).padding(.horizontal, 5).frame(width: 76, height: 95, alignment: .top)
-                                .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 12))
-                                .onDrag { NSItemProvider(object: file.url as NSURL) }
-                                .contextMenu {
-                                    Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }
-                                    Button("Remove from Shelf") { shelf.remove(file) }
-                                }
-                                .help("Drag \(file.name) into another app. Right-click to remove the reference.")
-                        }
-                    }
-                }
+                FileCollection(shelf: shelf).frame(height: 103)
+                Text("⌘-click to select · Space to preview · drag selected files together")
+                    .font(.system(size: 9)).foregroundStyle(.white.opacity(0.4))
             }
             if let message = shelf.message { Text(message).font(.system(size: 10)).foregroundStyle(.white.opacity(0.5)) }
         }.foregroundStyle(.white)

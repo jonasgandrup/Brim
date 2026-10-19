@@ -77,6 +77,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let heading = add("Sense"); heading.isEnabled = false
         add("Open Dynamic Island", action: #selector(openIsland), symbol: "capsule").isEnabled = model.preferences.notchEnabled
         add("Open File Shelf", action: #selector(openFileShelf), symbol: "tray").isEnabled = model.preferences.notchEnabled
+        add("Timer…", action: #selector(openTimer), symbol: "timer").isEnabled = model.preferences.notchEnabled
+        add("Clipboard Shelf", action: #selector(openClipboard), symbol: "pin").isEnabled = model.preferences.notchEnabled
+        add("Pin Clipboard", action: #selector(pinClipboard), symbol: "doc.on.clipboard").isEnabled = model.preferences.notchEnabled
         add("Set Up Lid Fold…", action: #selector(openLidSetup), symbol: "macbook")
         add("Settings…", action: #selector(openSettings), key: ",", symbol: "gearshape")
         menu.addItem(.separator())
@@ -95,6 +98,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
         add("Quit Sense", action: #selector(quit), key: "q")
     }
+    @objc private func openTimer() { model.notch.openTimerFromMenu() }
+    @objc private func openClipboard() { model.notch.openClipboardFromMenu() }
+    @objc private func pinClipboard() { model.notch.pinClipboard() }
     @objc private func openLidSetup() { model.openSettings(page: .lock) }
     @objc private func openSettings() { model.openSettings() }
     @objc private func openFileShelf() { model.notch.openShelfFromMenu() }

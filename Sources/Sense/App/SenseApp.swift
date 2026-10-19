@@ -87,7 +87,7 @@ final class SenseAppModel {
         if preferences.lockEnabled && preferences.lidEffectEnabled { lid.start() } else { lid.stop() }
         if !preferences.scaleEnabled { scaleWindow?.close(); scale.release() }
     }
-    func stop() { lid.stop(); switcher.stop(); notch.stop(); status.stop(); media.stop() }
+    func stop() { notch.countdown.cancel(); lid.stop(); switcher.stop(); notch.stop(); status.stop(); media.stop() }
     func openSettings(page: SettingsPage? = nil) {
         if let page { self.page = page }
         if settingsWindow == nil {
@@ -130,7 +130,7 @@ final class SenseAppModel {
             preferences.appearance = appearance
             for section in SettingsPage.allCases {
                 page = section
-                settingsWindow?.setContentSize(NSSize(width: 900, height: section == .lock ? 1020 : 840))
+                settingsWindow?.setContentSize(NSSize(width: 900, height: section == .lock ? 1020 : (section == .notch ? 1120 : 840)))
                 try? await Task.sleep(for: .milliseconds(250))
                 if let view = settingsWindow?.contentView,
                    let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
@@ -155,6 +155,7 @@ final class SenseAppModel {
         preferences.appearance = "system"
         rendered += await notch.exportPreview(to: URL(fileURLWithPath: output))
         rendered += await DesktopFoldView.exportPreviews(to: URL(fileURLWithPath: output))
+        let fileActionsCheck = CommandLine.arguments.contains("--check-file-actions") ? await notch.verifyFileActions() : [:]
         var missionControlRestoredIsland: Bool? = nil
         if CommandLine.arguments.contains("--check-mission-control") {
             notch.shelf.add([Bundle.main.bundleURL.appendingPathComponent("Contents/Info.plist")])
@@ -165,6 +166,10 @@ final class SenseAppModel {
             try? await Task.sleep(for: .seconds(1))
             _ = try? await NSWorkspace.shared.openApplication(at: missionControl, configuration: .init())
             try? await Task.sleep(for: .seconds(2))
+            for _ in 0..<20 {
+                if !notch.desktopTransition && notch.transitionDiagnostics["panelVisible"] == true { break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
             missionControlRestoredIsland = !notch.desktopTransition && notch.transitionDiagnostics["panelVisible"] == true
             notch.shelf.clear()
             try? await Task.sleep(for: .milliseconds(450))
@@ -193,6 +198,17 @@ final class SenseAppModel {
             notch.shelf.clear()
             try? await Task.sleep(for: .milliseconds(450))
         }
+        var mediaCheck: [String: Any] = [:]
+        if CommandLine.arguments.contains("--check-media") {
+            let snapshot = await SystemMediaBridge.snapshot()
+            mediaCheck["systemBridgeAvailable"] = snapshot?.available == true
+            mediaCheck["hasMediaSession"] = snapshot?.hasMedia == true
+            mediaCheck["sourceName"] = snapshot?.sourceName ?? "None"
+            mediaCheck["hasPlaybackRate"] = snapshot?.rate != nil
+            mediaCheck["hasTimeline"] = snapshot?.position != nil && (snapshot?.duration ?? 0) > 0
+            mediaCheck["rejectsChangedSource"] = !(await SystemMediaBridge.command("playpause", source: "dk.jonasgandrup.Sense.NotTheActivePlayer"))
+            if let snapshot, let name = await notch.exportMediaPreview(snapshot, to: URL(fileURLWithPath: output)) { rendered.append(name) }
+        }
         let hoverAfterTransitions = await notch.verifyIdleHover()
         let statusBar = (NSApp.delegate as? AppDelegate)?.statusBar
         let statusFrame = statusBar?.buttonFrame ?? .zero
@@ -213,6 +229,10 @@ final class SenseAppModel {
             "islandHidesForDesktopTransitions": notch.desktopTransitionHidesIsland,
             "islandTransitionState": notch.transitionDiagnostics,
             "spacesCheck": spacesCheck,
+            "fileActionsCheck": fileActionsCheck,
+            "mediaCheck": mediaCheck,
+            "powerNotificationsActive": status.powerNotificationsActive,
+            "chargeTarget": preferences.chargeTarget,
             "missionControlRestoredIsland": missionControlRestoredIsland as Any? ?? NSNull(),
             "systemSwitcherObserved": notch.systemSwitcherObserved,
             "systemSwitcherHidIsland": notch.systemSwitcherHidIsland,

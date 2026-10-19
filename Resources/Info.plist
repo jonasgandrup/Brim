@@ -13,6 +13,6 @@
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
-    <key>NSAppleEventsUsageDescription</key><string>Sense uses playback controls only when you choose to control Music or Spotify.</string>
+    <key>NSAppleEventsUsageDescription</key><string>Sense reads Music or Spotify artwork and controls their playback when you enable Now Playing.</string>
     <key>NSScreenCaptureUsageDescription</key><string>Sense captures window thumbnails for the switcher and a temporary desktop image for the optional lid-closing fold effect.</string>
 </dict></plist>

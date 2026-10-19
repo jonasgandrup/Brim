@@ -118,13 +118,26 @@ struct SettingsView: View {
                     Button("Open Shelf") { model.notch.openShelfFromMenu() }.disabled(!preferences.notchEnabled)
                 }
                 Divider().padding(.leading, 16)
-                SettingRow(title: "Expand on hover", detail: "Expands an active island. Open it anytime from the menu bar.") { Toggle("Expand on hover", isOn: binding(\.hoverToExpand)).labelsHidden().toggleStyle(.switch).controlSize(.small) }
+                SettingRow(title: "Timers & clipboard", detail: "Start a timer, or explicitly pin copied text, links and images.") {
+                    Button("Timer") { model.notch.openTimerFromMenu() }.disabled(!preferences.notchEnabled)
+                    Button("Clipboard") { model.notch.openClipboardFromMenu() }.disabled(!preferences.notchEnabled)
+                }
+                Divider().padding(.leading, 16)
+                SettingRow(title: "Charging feedback", detail: "Brief feedback when power connects or your battery reaches the chosen level.") {
+                    Toggle("Charging feedback", isOn: binding(\.chargingFeedback)).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                }
+                Divider().padding(.leading, 16)
+                SettingRow(title: "Battery target", detail: "A reminder only; Sense doesn’t change charging limits.") {
+                    Stepper("\(preferences.chargeTarget)%", value: binding(\.chargeTarget), in: 50...100, step: 5).fixedSize()
+                }
+                Divider().padding(.leading, 16)
+                SettingRow(title: "Expand on hover", detail: "Hover at the camera to expand. Open it anytime from the menu bar.") { Toggle("Expand on hover", isOn: binding(\.hoverToExpand)).labelsHidden().toggleStyle(.switch).controlSize(.small) }
                 Divider().padding(.leading, 16)
                 SettingRow(title: "Show on displays without a notch", detail: "Adds a small island at the top of your main display.") { Toggle("External display island", isOn: binding(\.showOnExternal)).labelsHidden().toggleStyle(.switch).controlSize(.small) }
                 Divider().padding(.leading, 16)
-                SettingRow(title: "Music & Spotify", detail: "Reads current tracks and artwork. May request Automation access.") { Toggle("Music integration", isOn: binding(\.mediaEnabled)).labelsHidden().toggleStyle(.switch).controlSize(.small) }
+                SettingRow(title: "Now Playing", detail: "Audio and video from the active media app, including compatible browsers.") { Toggle("Now Playing", isOn: binding(\.mediaEnabled)).labelsHidden().toggleStyle(.switch).controlSize(.small) }
             }
-            Footnote(text: "Battery and volume come from macOS. Music & Spotify provide metadata and artwork; other players are unavailable. General downloads, transfers, browser media, and system notifications aren’t exposed here.")
+            Footnote(text: "Works with apps that publish a Now Playing session. Some apps may omit artwork or ignore playback commands. System integration uses an undocumented macOS interface and may change after updates; Music and Spotify remain available as fallbacks.")
             if let message = model.media.message { Footnote(text: message) }
         }
     }
@@ -231,7 +244,7 @@ struct SettingsView: View {
                     permissionControl(granted: model.permissions.screenRecording) { model.permissions.requestScreenRecording() }
                 }
                 Divider().padding(.leading, 16)
-                SettingRow(title: "Automation", detail: "Requested when you enable Music & Spotify or use playback controls.") { Button("Manage…") { model.permissions.openPrivacy("Privacy_Automation") } }
+                SettingRow(title: "Automation", detail: "Used for Music and Spotify fallback controls and artwork when Now Playing is enabled.") { Button("Manage…") { model.permissions.openPrivacy("Privacy_Automation") } }
             }
             HStack { Button("Refresh Status", systemImage: "arrow.clockwise") { model.permissions.refresh(); model.apply() }; Spacer() }
             Footnote(text: "Grant only what you use. The island’s battery and volume display and the public pressure reader need no privacy permissions. Camera and microphone access are never requested.", symbol: "hand.raised")

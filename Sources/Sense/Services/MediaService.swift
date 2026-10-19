@@ -11,21 +11,7 @@ private struct PlayerSnapshot: Sendable {
 private enum PlayerAutomation {
     // Child process keeps Apple Event waits off the UI thread. Only fixed commands are accepted.
     nonisolated static func run(_ script: String) async -> (String, Bool) {
-        await Task.detached(priority: .utility) {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            process.arguments = ["-e", script]
-            let output = Pipe(); let error = Pipe()
-            process.standardOutput = output; process.standardError = error
-            do {
-                try process.run()
-                let timeout = DispatchWorkItem { if process.isRunning { process.terminate() } }
-                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 15, execute: timeout)
-                let data = output.fileHandleForReading.readDataToEndOfFile()
-                process.waitUntilExit(); timeout.cancel()
-                return (String(data: data, encoding: .utf8)?.trimmingCharacters(in: .newlines) ?? "", process.terminationStatus == 0)
-            } catch { return ("", false) }
-        }.value
+        await MediaScriptRunner.run(script, timeout: 15)
     }
     nonisolated static func snapshot(runningPlayers: Set<String>) async -> PlayerSnapshot? {
         let artworkFile = FileManager.default.temporaryDirectory.appendingPathComponent("sense-art-\(UUID().uuidString)")
@@ -86,52 +72,142 @@ private enum PlayerAutomation {
     }
 }
 
-/// Public player automation and distributed player notifications; no private MediaRemote API.
+/// System-wide compatibility feed with native Music/Spotify automation fallbacks.
 @MainActor @Observable
 final class MediaService {
     var title = "Nothing playing"
-    var artist = "Music & Spotify"
+    var artist = ""
     var playing = false
     var artwork: NSImage?
     var source: String?
+    var sourceName = "Now Playing"
+    var sourceIcon: NSImage?
+    var timeline: MediaTimeline?
     var message: String?
     var refreshing = false
+    private(set) var systemAvailable = false
+    private var systemTransport = false
+    private var generation = 0
     private var observers: [NSObjectProtocol] = []
     private var updateTask: Task<Void, Never>?
+    private var pollTask: Task<Void, Never>?
+    private var artworkTask: Task<Void, Never>?
+    private var commandTask: Task<Void, Never>?
+    private var artworkKey = ""
     func start() {
-        guard observers.isEmpty else { return }
+        guard pollTask == nil else { return }
         for name in ["com.apple.Music.playerInfo", "com.spotify.client.PlaybackStateChanged"] {
             observers.append(DistributedNotificationCenter.default().addObserver(forName: .init(name), object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in self?.refresh() }
             })
         }
         refresh()
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(self?.playing == true ? 1 : 3))
+                guard !Task.isCancelled else { return }
+                self?.refresh()
+            }
+        }
     }
     func refresh() {
         guard !refreshing else { return }
         refreshing = true
+        let currentGeneration = generation
         let runningPlayers = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
         updateTask = Task { [weak self] in
-            let snapshot = await PlayerAutomation.snapshot(runningPlayers: runningPlayers)
-            guard !Task.isCancelled, let self else { return }
+            let system = await SystemMediaBridge.snapshot()
+            guard !Task.isCancelled, let self, self.generation == currentGeneration else { return }
+            self.systemAvailable = system?.available == true
+            if let system, system.hasMedia {
+                self.apply(system)
+                self.refreshing = false
+                self.loadArtworkIfNeeded(runningPlayers: runningPlayers)
+                return
+            }
+            let native = await PlayerAutomation.snapshot(runningPlayers: runningPlayers)
+            guard !Task.isCancelled, self.generation == currentGeneration else { return }
             self.refreshing = false
-            guard let snapshot else { self.title = "Player unavailable"; self.artist = "Check Automation permission"; self.playing = false; self.source = nil; self.artwork = nil; self.message = "Player access unavailable. Allow Sense in System Settings → Privacy & Security → Automation."; return }
-            self.message = nil; self.title = snapshot.title; self.artist = snapshot.artist
-            self.playing = snapshot.playing; self.source = snapshot.source.isEmpty ? nil : snapshot.source
-            self.artwork = snapshot.artwork.flatMap { NSImage(data: $0) }
+            guard let native else {
+                self.clearPlayback()
+                self.message = self.systemAvailable ? "No media session is available." : "Player access unavailable. Check Automation access in System Settings."
+                return
+            }
+            self.systemTransport = false; self.timeline = nil
+            self.title = native.title; self.artist = native.artist; self.playing = native.playing
+            self.setSource(native.source.isEmpty ? nil : native.source, name: native.source == "com.spotify.client" ? "Spotify" : native.source == "com.apple.Music" ? "Music" : "Now Playing")
+            self.artwork = native.artwork.flatMap { NSImage(data: $0) }; self.message = nil
         }
     }
+    func apply(_ snapshot: SystemMediaSnapshot) {
+        guard snapshot.hasMedia else { clearPlayback(); return }
+        let nextSource = snapshot.source ?? "system.nowplaying"
+        let nextTitle = snapshot.title ?? "Untitled media"
+        if nextSource != source || nextTitle != title { artwork = nil; artworkTask?.cancel(); artworkKey = "" }
+        systemTransport = true; title = nextTitle; artist = snapshot.artist ?? ""
+        playing = (snapshot.rate ?? 0) > 0
+        setSource(nextSource, name: snapshot.sourceName ?? "Media")
+        timeline = nil
+        if let duration = snapshot.duration, let position = snapshot.position, let rate = snapshot.rate {
+            let value = MediaTimeline(duration: duration, position: position, rate: rate, measuredAt: Date())
+            if value.usable { timeline = value }
+        }
+        if let encoded = snapshot.artwork, let data = Data(base64Encoded: encoded), data.count < 2_000_000, let image = NSImage(data: data) { artwork = image }
+        message = nil
+    }
+    private func setSource(_ bundle: String?, name: String) {
+        if bundle != source {
+            sourceIcon = bundle.flatMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }.map { NSWorkspace.shared.icon(forFile: $0.path) }
+        }
+        source = bundle; sourceName = name
+    }
+    private func loadArtworkIfNeeded(runningPlayers: Set<String>) {
+        guard artwork == nil, let source, ["com.apple.Music", "com.spotify.client"].contains(source) else { return }
+        let key = source + "\n" + title
+        guard key != artworkKey else { return }
+        artworkKey = key
+        let expectedTitle = title
+        let currentGeneration = generation
+        artworkTask = Task { [weak self] in
+            let result = await PlayerAutomation.snapshot(runningPlayers: runningPlayers.intersection([source]))
+            guard !Task.isCancelled, let self, self.generation == currentGeneration, self.source == source, self.title == expectedTitle,
+                  result?.title == expectedTitle, result?.source == source else { return }
+            self.artwork = result?.artwork.flatMap { NSImage(data: $0) }
+        }
+    }
+    private func clearPlayback() {
+        title = "Nothing playing"; artist = ""; setSource(nil, name: "Now Playing")
+        artwork = nil; timeline = nil; playing = false; systemTransport = false; artworkKey = ""
+        artworkTask?.cancel()
+    }
     func stop() {
+        generation += 1
         updateTask?.cancel(); updateTask = nil; refreshing = false
+        pollTask?.cancel(); pollTask = nil; artworkTask?.cancel(); commandTask?.cancel()
         observers.forEach { DistributedNotificationCenter.default().removeObserver($0) }; observers.removeAll()
-        title = "Nothing playing"; artist = "Music & Spotify"; source = nil; artwork = nil; playing = false
+        clearPlayback(); message = nil; systemAvailable = false
+    }
+    func openPlayer() {
+        guard let source, let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: source) else { return }
+        NSWorkspace.shared.openApplication(at: url, configuration: .init())
     }
     func command(_ command: String) {
         guard let source, ["playpause", "next track", "previous track"].contains(command) else { return }
-        Task {
-            let (_, success) = await PlayerAutomation.run("tell application id \"\(source)\" to \(command)")
-            message = success ? nil : "Allow Sense to control your player in System Settings → Privacy & Security → Automation."
-            if success { refresh() }
+        let usesSystem = systemTransport
+        let currentGeneration = generation
+        commandTask?.cancel()
+        commandTask = Task { [weak self] in
+            var success = false
+            if usesSystem { success = await SystemMediaBridge.command(command, source: source) }
+            if !success && ["com.apple.Music", "com.spotify.client"].contains(source) {
+                (_, success) = await PlayerAutomation.run("tell application id \"\(source)\" to \(command)")
+            }
+            guard !Task.isCancelled, let self, self.generation == currentGeneration else { return }
+            self.message = success ? nil : "This player didn’t accept the command. Open it to control playback."
+            if success {
+                try? await Task.sleep(for: .milliseconds(250))
+                if !Task.isCancelled { self.refresh() }
+            }
         }
     }
 }

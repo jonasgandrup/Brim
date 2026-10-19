@@ -8,18 +8,31 @@ final class SystemStatus {
     var charging = false
     var volume: Double?
     var muted = false
+    @ObservationIgnored var onPowerSample: (PowerSample) -> Void = { _ in }
+    private var powerSource: CFRunLoopSource?
+    var powerNotificationsActive: Bool { powerSource != nil }
     private var timer: Timer?
     func start() {
         guard timer == nil else { return }
         refresh()
+        if let source = IOPSNotificationCreateRunLoopSource({ context in
+            guard let context else { return }
+            MainActor.assumeIsolated { Unmanaged<SystemStatus>.fromOpaque(context).takeUnretainedValue().refresh() }
+        }, Unmanaged.passUnretained(self).toOpaque())?.takeRetainedValue() {
+            powerSource = source; CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        }
         timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
         timer?.tolerance = 3
     }
-    func stop() { timer?.invalidate(); timer = nil }
+    func stop() {
+        timer?.invalidate(); timer = nil
+        if let powerSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), powerSource, .commonModes) }
+        powerSource = nil; onPowerSample = { _ in }
+    }
     func refresh() {
-        battery = nil
+        battery = nil; charging = false
         if let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
            let sources = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] {
             for source in sources {
@@ -31,6 +44,7 @@ final class SystemStatus {
                 break
             }
         }
+        onPowerSample(PowerSample(percent: battery, externalPower: charging))
         var device = AudioDeviceID(0)
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
         var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
