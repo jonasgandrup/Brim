@@ -59,7 +59,7 @@ struct CountdownState {
             while !Task.isCancelled {
                 guard let self else { return }
                 self.now = Date()
-                if self.state.update(at: self.now) { self.onFinish(); self.ticker = nil; return }
+                if self.remaining <= 0, self.state.update(at: self.now) { self.onFinish(); self.ticker = nil; return }
                 try? await Task.sleep(for: .milliseconds(250))
             }
         }
@@ -68,8 +68,10 @@ struct CountdownState {
 
 struct IslandTimerView: View {
     @Bindable var timer: IslandTimer
+    var showsHeader = true
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if showsHeader {
             IslandPaneHeader(title: "Timer", symbol: "timer") {
                 if timer.state.phase == .idle {
                     Stepper(value: $timer.minutes, in: 1...180) { Text("\(timer.minutes) min").monospacedDigit() }
@@ -79,6 +81,7 @@ struct IslandTimerView: View {
                         .foregroundStyle(.white.opacity(0.45))
                 }
             }
+            }
             if timer.state.phase == .idle {
                 HStack(spacing: 8) {
                     ForEach([1, 5, 15, 25], id: \.self) { minutes in
@@ -87,8 +90,14 @@ struct IslandTimerView: View {
                             .background(.white.opacity(timer.minutes == minutes ? 0.16 : 0.06), in: Capsule())
                     }
                 }.font(.system(size: 12))
-                Button("Start timer", systemImage: "play.fill") { timer.start() }
-                    .buttonStyle(.borderedProminent).tint(.orange).controlSize(.small).frame(maxWidth: .infinity).padding(.top, 6)
+                HStack {
+                    Button("Start timer", systemImage: "play.fill") { timer.start() }
+                        .buttonStyle(.borderedProminent).tint(.orange).controlSize(.small)
+                    if !showsHeader {
+                        Spacer()
+                        Stepper(value: $timer.minutes, in: 1...180) { Text("\(timer.minutes) min").monospacedDigit() }.controlSize(.mini).fixedSize()
+                    }
+                }.frame(maxWidth: .infinity).padding(.top, 6)
             } else {
                 HStack(spacing: 16) {
                     ZStack {

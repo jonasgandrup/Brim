@@ -197,8 +197,9 @@ struct FileShareButton: NSViewRepresentable {
             picker.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
         }
         func close() {
-            let current = picker; picker = nil
-            current?.delegate = nil; current?.close()
+            // A departing SwiftUI view must not release another tool’s Quick Look hold.
+            guard let current = picker else { return }
+            picker = nil; current.delegate = nil; current.close()
             shelf.systemUIActive = false
         }
         nonisolated func sharingServicePicker(_ sharingServicePicker: NSSharingServicePicker, sharingServicesForItems items: [Any], proposedSharingServices: [NSSharingService]) -> [NSSharingService] {
@@ -206,7 +207,11 @@ struct FileShareButton: NSViewRepresentable {
             return proposedSharingServices
         }
         nonisolated func sharingServicePicker(_ sharingServicePicker: NSSharingServicePicker, didChoose service: NSSharingService?) {
-            MainActor.assumeIsolated { shelf.systemUIActive = false; picker = nil }
+            let identity = ObjectIdentifier(sharingServicePicker)
+            MainActor.assumeIsolated {
+                guard let current = picker, ObjectIdentifier(current) == identity else { return }
+                shelf.systemUIActive = false; picker = nil
+            }
         }
     }
 }

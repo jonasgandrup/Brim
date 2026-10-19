@@ -13,6 +13,24 @@ private enum PlayerAutomation {
     nonisolated static func run(_ script: String) async -> (String, Bool) {
         await MediaScriptRunner.run(script, timeout: 15)
     }
+    nonisolated static func command(_ request: MediaPlaybackRequest) async -> MediaCommandResult {
+        let source = request.item.source
+        guard ["com.apple.Music", "com.spotify.client"].contains(source) else { return .unsupported }
+        // This adapter is used only when its own snapshot supplied the card.
+        // Arguments keep media titles out of AppleScript source interpolation.
+        let script = """
+        on run argv
+            if application id "\(source)" is not running then return "unavailable"
+            tell application id "\(source)"
+                if name of current track is not (item 1 of argv) then return "item-changed"
+                \(request.action.appleScript)
+            end tell
+            return "submitted"
+        end run
+        """
+        let (result, success) = await MediaScriptRunner.run(script, arguments: [request.item.title], timeout: 15)
+        return success ? MediaCommandResult(rawValue: result) ?? .failed : .failed
+    }
     nonisolated static func snapshot(runningPlayers: Set<String>) async -> PlayerSnapshot? {
         let artworkFile = FileManager.default.temporaryDirectory.appendingPathComponent("sense-art-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: artworkFile) }
@@ -85,6 +103,116 @@ final class MediaService {
     var timeline: MediaTimeline?
     var message: String?
     var refreshing = false
+    let sleepTimer = MediaSleepTimer()
+    private(set) var players: [MediaPlayer] = []
+    private(set) var pinnedPlayer: MediaPlayer?
+    private(set) var selectionLoading = false
+    private var selectionRevision = 0
+    private var discoveryTime: TimeInterval = -.infinity
+    private let defaults: UserDefaults?
+    private var artworkCache: [String: NSImage] = [:]
+    @ObservationIgnored var playerReader: @Sendable (MediaPlayer) async -> SystemMediaSnapshot? = { await SystemMediaBridge.snapshot(for: $0) }
+    @ObservationIgnored var playersReader: @MainActor () async -> [MediaPlayer] = { await MediaPlayerDiscovery.players() }
+    init(defaults: UserDefaults? = nil) {
+        self.defaults = defaults ?? (Bundle.main.bundleURL.pathExtension == "app" ? (CommandLine.arguments.contains("--smoke-test") ? UserDefaults(suiteName: "Sense.MediaSmoke") : .standard) : nil)
+        if let source = self.defaults?.string(forKey: "mediaPinnedSource"), !source.isEmpty {
+            pinnedPlayer = MediaPlayer(source: source, name: self.defaults?.string(forKey: "mediaPinnedName") ?? source, processID: 0)
+        }
+        sleepTimer.pause = { [weak self] player in await self?.pausePlayerForSleep(player) ?? .unavailable }
+    }
+    var currentPlayer: MediaPlayer? { players.first { $0.source == source && (currentProcessID == 0 || $0.processID == currentProcessID) } }
+    private var currentProcessID: Int32 = 0
+    func updatePlayers(_ values: [MediaPlayer]) {
+        players = values
+        if let pinnedPlayer, let live = values.first(where: { $0.source == pinnedPlayer.source }) { self.pinnedPlayer = live }
+    }
+    func refreshPlayers() async { updatePlayers(await playersReader()); discoveryTime = ProcessInfo.processInfo.systemUptime }
+    func selectPlayer(_ player: MediaPlayer?) {
+        guard !commandPending else { return }
+        seekTask?.cancel()
+        pinnedPlayer = player; selectionRevision += 1
+        defaults?.set(player?.source, forKey: "mediaPinnedSource"); defaults?.set(player?.name, forKey: "mediaPinnedName")
+        updateTask?.cancel(); refreshing = false; selectionLoading = true
+        cancelScrub(); refresh()
+    }
+    func startSleepTimer(minutes: Int) {
+        guard !selectionLoading, let currentPlayer else { return }
+        sleepTimer.start(minutes: minutes, player: currentPlayer)
+    }
+    private func pausePlayerForSleep(_ player: MediaPlayer) async -> MediaCommandResult {
+        guard let snapshot = await playerReader(player), !Task.isCancelled, snapshot.hasMedia, snapshot.source == player.source,
+              snapshot.processID == player.processID, let title = snapshot.title, let path = snapshot.playerPath, !path.isEmpty else { return .unavailable }
+        if snapshot.rate == 0 { return .submitted }
+        let item = MediaItemIdentity(source: player.source, title: title, identifier: snapshot.identifier ?? "", playerPath: path)
+        return await playbackTransport(.init(item: item, action: .pause), true)
+    }
+    private func coverKey(source: String, title: String, identifier: String) -> String { source + "\n" + title + "\n" + identifier }
+    private func rememberCover(_ image: NSImage) {
+        guard let source else { return }
+        if artworkCache.count >= 24 { artworkCache.removeAll(keepingCapacity: true) }
+        artworkCache[coverKey(source: source, title: title, identifier: identifier)] = image
+    }
+    private(set) var seekSupported = false
+    private(set) var scrubPosition: Double?
+    private var scrubItem: MediaItemIdentity?
+    private var scrubInvalidated = false
+    private var scrubbing = false
+    var holdingScrubber: Bool { scrubbing || scrubPosition != nil }
+    private var identifier = ""
+    private var playerPath = ""
+    private(set) var commandPending = false
+    @ObservationIgnored var snapshotReader: @Sendable () async -> SystemMediaSnapshot? = { await SystemMediaBridge.snapshot() }
+    @ObservationIgnored var playbackTransport: @Sendable (MediaPlaybackRequest, Bool) async -> MediaCommandResult = { request, system in
+        system ? await SystemMediaBridge.send(request) : await PlayerAutomation.command(request)
+    }
+    private var seekTask: Task<Void, Never>?
+    @ObservationIgnored var seekTransport: @Sendable (MediaSeekRequest) async -> Bool = { await SystemMediaBridge.seek($0) }
+    var canSeek: Bool { !selectionLoading && seekSupported && timeline?.usable == true && source != nil }
+    private var itemIdentity: MediaItemIdentity? {
+        source.map { MediaItemIdentity(source: $0, title: title, identifier: identifier, playerPath: playerPath) }
+    }
+    func previewSeek(_ position: Double) {
+        guard canSeek, !scrubInvalidated, position.isFinite, let timeline else { return }
+        if !scrubbing { beginScrub() }
+        scrubPosition = min(timeline.duration, max(0, position))
+    }
+    func beginScrub() {
+        guard canSeek, !scrubbing else { return }
+        seekTask?.cancel(); seekTask = nil
+        scrubbing = true; scrubInvalidated = false; scrubItem = itemIdentity
+        scrubPosition = timeline?.elapsed(at: Date())
+    }
+    func cancelScrub() { scrubItem = nil; scrubPosition = nil; scrubbing = false; scrubInvalidated = false }
+    private func invalidateScrub() {
+        if scrubbing { scrubItem = nil; scrubPosition = nil; scrubInvalidated = true }
+        else { cancelScrub() }
+    }
+    func commitSeek() {
+        scrubbing = false
+        guard !scrubInvalidated, scrubItem == itemIdentity,
+              let position = scrubPosition,
+              let request = MediaSeekRequest.make(item: itemIdentity, timeline: timeline, position: position, supported: canSeek) else { cancelScrub(); return }
+        scrubItem = nil
+        let currentGeneration = generation
+        seekTask?.cancel()
+        let transport = seekTransport
+        seekTask = Task { [weak self] in
+            let submitted = await transport(request)
+            guard !Task.isCancelled, let self, self.generation == currentGeneration, self.itemIdentity == request.item else { return }
+            if submitted {
+                // Keep the thumb at the requested position while the player publishes its update.
+                try? await Task.sleep(for: .milliseconds(350))
+                guard !Task.isCancelled else { return }
+                let snapshot = if let player = self.pinnedPlayer { await self.playerReader(player) } else { await self.snapshotReader() }
+                guard !Task.isCancelled, self.generation == currentGeneration, self.itemIdentity == request.item else { return }
+                self.cancelScrub()
+                if let snapshot { self.apply(snapshot) }
+            } else {
+                self.cancelScrub()
+                self.message = "Seeking isn’t available in this player."
+            }
+        }
+    }
     private(set) var systemAvailable = false
     private var systemTransport = false
     private var generation = 0
@@ -111,29 +239,41 @@ final class MediaService {
         }
     }
     func refresh() {
-        guard !refreshing else { return }
+        guard !refreshing, !commandPending else { return }
         refreshing = true
         let currentGeneration = generation
+        let selection = selectionRevision
+        let chosen = pinnedPlayer
         let runningPlayers = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
         updateTask = Task { [weak self] in
-            let system = await SystemMediaBridge.snapshot()
-            guard !Task.isCancelled, let self, self.generation == currentGeneration else { return }
+            guard let self else { return }
+            if ProcessInfo.processInfo.systemUptime - self.discoveryTime >= 5 { await self.refreshPlayers() }
+            let selected = chosen.flatMap { choice in self.players.first { $0.source == choice.source } ?? choice }
+            let system = if let selected { await self.playerReader(selected) } else { await self.snapshotReader() }
+            guard !Task.isCancelled, self.generation == currentGeneration, self.selectionRevision == selection else { return }
+            self.selectionLoading = false
             self.systemAvailable = system?.available == true
+            if system?.changing == true { self.refreshing = false; return }
             if let system, system.hasMedia {
                 self.apply(system)
                 self.refreshing = false
                 self.loadArtworkIfNeeded(runningPlayers: runningPlayers)
                 return
             }
+            if let chosen {
+                self.clearPlayback(); self.refreshing = false
+                self.message = "\(chosen.name) isn’t publishing a media session. Choose Automatic or another player."
+                return
+            }
             let native = await PlayerAutomation.snapshot(runningPlayers: runningPlayers)
-            guard !Task.isCancelled, self.generation == currentGeneration else { return }
+            guard !Task.isCancelled, self.generation == currentGeneration, self.selectionRevision == selection else { return }
             self.refreshing = false
             guard let native else {
                 self.clearPlayback()
                 self.message = self.systemAvailable ? "No media session is available." : "Player access unavailable. Check Automation access in System Settings."
                 return
             }
-            self.systemTransport = false; self.timeline = nil
+            self.systemTransport = false; self.identifier = ""; self.playerPath = ""; self.timeline = nil; self.seekSupported = false; self.cancelScrub()
             self.title = native.title; self.artist = native.artist; self.playing = native.playing
             self.setSource(native.source.isEmpty ? nil : native.source, name: native.source == "com.spotify.client" ? "Spotify" : native.source == "com.apple.Music" ? "Music" : "Now Playing")
             self.artwork = native.artwork.flatMap { NSImage(data: $0) }; self.message = nil
@@ -143,16 +283,25 @@ final class MediaService {
         guard snapshot.hasMedia else { clearPlayback(); return }
         let nextSource = snapshot.source ?? "system.nowplaying"
         let nextTitle = snapshot.title ?? "Untitled media"
-        if nextSource != source || nextTitle != title { artwork = nil; artworkTask?.cancel(); artworkKey = "" }
+        let nextIdentifier = snapshot.identifier ?? ""
+        let nextPath = snapshot.playerPath ?? ""
+        if nextSource != source || nextTitle != title || nextIdentifier != identifier || nextPath != playerPath {
+            seekTask?.cancel(); invalidateScrub()
+        }
+        let coverChanged = nextSource != source || nextTitle != title || nextIdentifier != identifier
+        currentProcessID = snapshot.processID ?? 0
+        identifier = nextIdentifier; playerPath = nextPath; seekSupported = snapshot.canSeek == true
+        if !seekSupported { invalidateScrub() }
+        if coverChanged { artwork = artworkCache[coverKey(source: nextSource, title: nextTitle, identifier: nextIdentifier)]; artworkTask?.cancel(); artworkKey = "" }
         systemTransport = true; title = nextTitle; artist = snapshot.artist ?? ""
         playing = (snapshot.rate ?? 0) > 0
-        setSource(nextSource, name: snapshot.sourceName ?? "Media")
+        setSource(nextSource, name: [snapshot.sourceName, players.first(where: { $0.source == nextSource })?.name].compactMap { $0 }.first(where: { !$0.isEmpty }) ?? "Media")
         timeline = nil
         if let duration = snapshot.duration, let position = snapshot.position, let rate = snapshot.rate {
             let value = MediaTimeline(duration: duration, position: position, rate: rate, measuredAt: Date())
             if value.usable { timeline = value }
         }
-        if let encoded = snapshot.artwork, let data = Data(base64Encoded: encoded), data.count < 2_000_000, let image = NSImage(data: data) { artwork = image }
+        if let encoded = snapshot.artwork, let data = Data(base64Encoded: encoded), data.count < 2_000_000, let image = NSImage(data: data) { artwork = image; rememberCover(image) }
         message = nil
     }
     private func setSource(_ bundle: String?, name: String) {
@@ -172,19 +321,22 @@ final class MediaService {
             let result = await PlayerAutomation.snapshot(runningPlayers: runningPlayers.intersection([source]))
             guard !Task.isCancelled, let self, self.generation == currentGeneration, self.source == source, self.title == expectedTitle,
                   result?.title == expectedTitle, result?.source == source else { return }
-            self.artwork = result?.artwork.flatMap { NSImage(data: $0) }
+            if let data = result?.artwork, let image = NSImage(data: data) { self.artwork = image; self.rememberCover(image) }
         }
     }
     private func clearPlayback() {
         title = "Nothing playing"; artist = ""; setSource(nil, name: "Now Playing")
+        seekTask?.cancel(); cancelScrub(); seekSupported = false; identifier = ""; playerPath = ""
         artwork = nil; timeline = nil; playing = false; systemTransport = false; artworkKey = ""
         artworkTask?.cancel()
     }
     func stop() {
         generation += 1
+        sleepTimer.cancel(); selectionLoading = false
         updateTask?.cancel(); updateTask = nil; refreshing = false
         pollTask?.cancel(); pollTask = nil; artworkTask?.cancel(); commandTask?.cancel()
         observers.forEach { DistributedNotificationCenter.default().removeObserver($0) }; observers.removeAll()
+        commandPending = false
         clearPlayback(); message = nil; systemAvailable = false
     }
     func openPlayer() {
@@ -192,21 +344,34 @@ final class MediaService {
         NSWorkspace.shared.openApplication(at: url, configuration: .init())
     }
     func command(_ command: String) {
-        guard let source, ["playpause", "next track", "previous track"].contains(command) else { return }
+        guard !commandPending, !selectionLoading, let item = itemIdentity else { return }
+        let action: MediaPlaybackAction
+        switch command {
+        case "playpause": action = playing ? .pause : .play
+        case "next track": action = .next
+        case "previous track": action = .previous
+        default: return
+        }
+        let request = MediaPlaybackRequest(item: item, action: action)
         let usesSystem = systemTransport
         let currentGeneration = generation
-        commandTask?.cancel()
+        let transport = playbackTransport
+        // Discard a read started before this click, rather than painting stale
+        // playing/paused state over the command's eventual result.
+        updateTask?.cancel(); refreshing = false
+        commandPending = true
         commandTask = Task { [weak self] in
-            var success = false
-            if usesSystem { success = await SystemMediaBridge.command(command, source: source) }
-            if !success && ["com.apple.Music", "com.spotify.client"].contains(source) {
-                (_, success) = await PlayerAutomation.run("tell application id \"\(source)\" to \(command)")
-            }
+            let result = await transport(request, usesSystem)
             guard !Task.isCancelled, let self, self.generation == currentGeneration else { return }
-            self.message = success ? nil : "This player didn’t accept the command. Open it to control playback."
-            if success {
+            self.commandPending = false
+            guard self.itemIdentity == item else { return }
+            if result == .submitted {
+                self.message = nil
                 try? await Task.sleep(for: .milliseconds(250))
                 if !Task.isCancelled { self.refresh() }
+            } else {
+                self.message = result.stale ? "The player changed. Try again on the current track." : "This player didn’t accept the command. Open it to control playback."
+                if result.stale { self.refresh() }
             }
         }
     }

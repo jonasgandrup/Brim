@@ -89,7 +89,7 @@ struct SettingsView: View {
                     Divider().padding(.leading, 54)
                     featureRow(.switcher, detail: "Move between windows, not just apps.", enabled: binding(\.switcherEnabled))
                     Divider().padding(.leading, 54)
-                    featureRow(.scale, detail: "Explore your trackpad’s pressure sensitivity.", enabled: binding(\.scaleEnabled))
+                    featureRow(.scale, detail: "Weigh small objects with your Force Touch trackpad.", enabled: binding(\.scaleEnabled))
                     Divider().padding(.leading, 54)
                     featureRow(.lock, detail: "A gentle transition into the macOS lock screen.", enabled: binding(\.lockEnabled))
                 }
@@ -118,7 +118,7 @@ struct SettingsView: View {
                     Button("Open Shelf") { model.notch.openShelfFromMenu() }.disabled(!preferences.notchEnabled)
                 }
                 Divider().padding(.leading, 16)
-                SettingRow(title: "Timers & clipboard", detail: "Start a timer, or explicitly pin copied text, links and images.") {
+                SettingRow(title: "Clock & clipboard", detail: "Use the timer, stopwatch or alarm, or pin copied text, links and images.") {
                     Button("Timer") { model.notch.openTimerFromMenu() }.disabled(!preferences.notchEnabled)
                     Button("Clipboard") { model.notch.openClipboardFromMenu() }.disabled(!preferences.notchEnabled)
                 }
@@ -179,21 +179,21 @@ struct SettingsView: View {
     }
     private var scale: some View {
         VStack(alignment: .leading, spacing: 20) {
-            FeatureHeader(title: "Trackpad Scale", detail: "Experimental, calibrated pressure estimates.", enabled: binding(\.scaleEnabled))
+            FeatureHeader(title: "Trackpad Scale", detail: "Small objects. Real Force Touch sensor readings.", enabled: binding(\.scaleEnabled))
             SettingsCard {
-                SettingRow(title: "Pressure reader", detail: "Uses real AppKit Force Touch events inside the scale window.") { Button("Open Scale") { model.openScale() }.disabled(!preferences.scaleEnabled) }
+                SettingRow(title: "Native weighing", detail: "Reads the built-in Force Touch sensor while Scale is open.") { Button("Open Scale") { model.openScale() }.disabled(!preferences.scaleEnabled) }
                 Divider().padding(.leading, 16)
-                SettingRow(title: "Calibration", detail: preferences.gramsPerUnit > 0 ? "A local calibration is saved. Recalibrate each session." : "Not calibrated. No weight estimate will be shown.") {
-                    Button("Reset") { model.scale.resetCalibration(preferences: preferences) }.disabled(preferences.gramsPerUnit == 0)
+                SettingRow(title: "Calibration", detail: "Native grams, with optional known-mass calibration.") {
+                    Button("Reset") { model.scale.native.reset() }
                 }
             }
             VStack(alignment: .leading, spacing: 16) {
                 sectionLabel("GETTING A READING")
-                step("1", "Keep contact", "Move the pointer over the pressure pad, then press gently with a finger.")
+                step("1", "Keep contact", "Rest one fingertip lightly on your built-in Force Touch trackpad.")
                 step("2", "Set a baseline", "With your finger resting lightly, press T on the keyboard to tare.")
-                step("3", "Calibrate", "Enter a known mass first. Maintain contact, apply that mass, then press C to calibrate.")
+                step("3", "Add your object", "Keep your finger still and place a small object beside it. The scale shows grams. Calibrate with a known mass if needed.")
             }.padding(4)
-            Footnote(text: "Public AppKit pressure is relative and click-stage dependent, not a continuous force sensor. This cannot reproduce TrackWeight’s passive weighing behavior. No compatible events means this mode is unavailable. Never use it for safety-critical measurements.")
+            Footnote(text: "Native weighing uses an optional private macOS sensor interface. Requires a built-in Force Touch trackpad and continuous fingertip contact; objects alone may not register. Losing contact requires a new zero. Readings are estimates, not precision measurements.")
         }
     }
     private var lock: some View {
@@ -247,7 +247,7 @@ struct SettingsView: View {
                 SettingRow(title: "Automation", detail: "Used for Music and Spotify fallback controls and artwork when Now Playing is enabled.") { Button("Manage…") { model.permissions.openPrivacy("Privacy_Automation") } }
             }
             HStack { Button("Refresh Status", systemImage: "arrow.clockwise") { model.permissions.refresh(); model.apply() }; Spacer() }
-            Footnote(text: "Grant only what you use. The island’s battery and volume display and the public pressure reader need no privacy permissions. Camera and microphone access are never requested.", symbol: "hand.raised")
+            Footnote(text: "Grant only what you use. The island’s battery and volume display and the trackpad scale need no privacy permissions. Camera and microphone access are never requested.", symbol: "hand.raised")
             Footnote(text: "If macOS asks you to restart after granting Screen Recording, quit and reopen Sense. Local ad-hoc rebuilds may need permission to be granted again.")
         }
     }

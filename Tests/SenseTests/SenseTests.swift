@@ -58,7 +58,7 @@ import Testing
     let compact = layout.frame(on: display, expanded: false)
     let expanded = layout.frame(on: display, expanded: true)
     #expect(compact.width > layout.cutoutWidth)
-    #expect(compact.height == 37)
+    #expect(compact.height == layout.menuBarHeight)
     #expect(compact.midX == display.midX)
     #expect(compact.maxY == display.maxY)
     #expect(expanded.midX == compact.midX)
@@ -290,4 +290,142 @@ import Testing
     tracker.spaceDidChange(at: 1.1)
     active = tracker.update(surfaces: [2, 3], at: 1.8)
     #expect(!active)
+}
+
+@Test func movingSpaceSurfaceKeepsIslandHiddenEvenWhenItsIDDoesNotChange() {
+    var tracker = SpaceSlideTracker()
+    let original = CGRect(x: 0, y: 0, width: 1728, height: 1117)
+    var active = tracker.update(surfaces: [1], at: 0, geometry: [1: original])
+    #expect(!active)
+    active = tracker.update(surfaces: [1], at: 0.1, geometry: [1: original.offsetBy(dx: 100, dy: 0)])
+    #expect(active)
+    tracker.spaceDidChange(at: 0.2)
+    active = tracker.update(surfaces: [1], at: 0.8, geometry: [1: original.offsetBy(dx: 700, dy: 0)])
+    #expect(active)
+    active = tracker.update(surfaces: [1], at: 1.2, geometry: [1: original.offsetBy(dx: 1000, dy: 0)])
+    #expect(active)
+    active = tracker.update(surfaces: [1], at: 1.6, geometry: [1: original])
+    #expect(active)
+    active = tracker.update(surfaces: [1], at: 2.1, geometry: [1: original])
+    #expect(active)
+    active = tracker.update(surfaces: [1], at: 2.3, geometry: [1: original])
+    #expect(!active)
+}
+
+@Test func overlappingDesktopNotificationsCannotRestoreTheIslandEarly() {
+    var gate = DesktopRestoreGate()
+    gate.extend(at: 10, delay: 0.9)
+    gate.extend(at: 10.1, delay: 0.18)
+    #expect(abs(gate.remaining(at: 10.3) - 0.6) < 0.0001)
+    gate.extend(at: 10.8, delay: 0.3)
+    #expect(abs(gate.remaining(at: 10.9) - 0.2) < 0.0001)
+    #expect(gate.remaining(at: 11.2) == 0)
+    gate.reset()
+    #expect(gate.remaining(at: 0) == 0)
+}
+
+@Test func threeFingerSpaceGestureStaysLatchedUntilEveryFingerIsReleased() {
+    var contacts = SpaceContactLatch()
+    contacts.receive(device: 1, count: 2)
+    #expect(!contacts.active)
+    contacts.receive(device: 1, count: 3)
+    #expect(contacts.active)
+    contacts.receive(device: 1, count: 2)
+    #expect(contacts.active)
+    contacts.receive(device: 1, count: 1)
+    #expect(contacts.active)
+    contacts.receive(device: 2, count: 0)
+    #expect(contacts.active)
+    contacts.receive(device: 1, count: 0)
+    #expect(!contacts.active)
+}
+
+@Test func simultaneousSpaceGesturesReleaseIndependentlyAndIgnoreInvalidFrames() {
+    var contacts = SpaceContactLatch()
+    contacts.receive(device: 1, count: 3)
+    contacts.receive(device: 2, count: 4)
+    contacts.receive(device: 1, count: 0)
+    #expect(contacts.active)
+    contacts.receive(device: 2, count: -1)
+    contacts.receive(device: 2, count: 100)
+    #expect(contacts.active)
+    contacts.receive(device: 2, count: 0)
+    #expect(!contacts.active)
+}
+
+@Test func stopwatchUsesElapsedTimeAndPreservesPausedLaps() {
+    var state = StopwatchState()
+    #expect(state.value(at: 10) == 0)
+    state.start(at: 10); state.start(at: 12)
+    state.lap(at: 15)
+    state.pause(at: 17)
+    #expect(state.value(at: 100) == 7)
+    #expect(state.laps == [5])
+    state.start(at: 100); state.pause(at: 103)
+    #expect(state.value(at: 200) == 10)
+    state.reset(); #expect(state.value(at: 300) == 0)
+}
+
+@Test func alarmRollsToTomorrowAndHandlesMissingDSTTime() throws {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = try #require(TimeZone(identifier: "Europe/Copenhagen"))
+    let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: 19, hour: 10, minute: 30)))
+    let time = try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: 19, hour: 9, minute: 0)))
+    let next = try #require(AlarmSchedule.next(time: time, after: now, calendar: calendar))
+    #expect(calendar.component(.day, from: next) == 20)
+    #expect(calendar.component(.hour, from: next) == 9)
+    let beforeDST = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 28, hour: 23)))
+    let missingTime = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 28, hour: 2, minute: 30)))
+    let dstAlarm = try #require(AlarmSchedule.next(time: missingTime, after: beforeDST, calendar: calendar))
+    #expect(dstAlarm > beforeDST)
+    #expect(calendar.component(.day, from: dstAlarm) == 29)
+}
+
+@Test @MainActor func alarmFiresOnceAndCancelsCleanly() {
+    let suite = "SenseClockTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let clock = ClockTools(defaults: defaults, notificationsEnabled: false)
+    var count = 0
+    clock.onAlarm = { count += 1 }
+    let date = Date().addingTimeInterval(3600)
+    clock.arm(at: date)
+    clock.checkAlarm(at: date.addingTimeInterval(-1)); #expect(count == 0)
+    clock.checkAlarm(at: date); clock.checkAlarm(at: date.addingTimeInterval(60))
+    #expect(count == 1); #expect(clock.ringing); #expect(clock.alarmDate == nil)
+    clock.cancelAlarm(); #expect(!clock.ringing); clock.stop()
+}
+
+@Test func nativeForceDecodesOnlyValidSingleContact() {
+    var bytes = [UInt8](repeating: 0, count: 96)
+    bytes.withUnsafeMutableBytes { buffer in
+        buffer.storeBytes(of: Int32(42), toByteOffset: 16, as: Int32.self)
+        buffer.storeBytes(of: Int32(4), toByteOffset: 20, as: Int32.self)
+        buffer.storeBytes(of: Float(72.5), toByteOffset: 52, as: Float.self)
+        let sample = NativeForceSample.decode(buffer.baseAddress, count: 1)
+        #expect(sample.grams == 72.5); #expect(sample.touchID == 42)
+        #expect(NativeForceSample.decode(buffer.baseAddress, count: 2).grams == nil)
+        buffer.storeBytes(of: Float.nan, toByteOffset: 52, as: Float.self)
+        #expect(NativeForceSample.decode(buffer.baseAddress, count: 1).grams == nil)
+    }
+    #expect(NativeForceSample.decode(nil, count: 0).grams == nil)
+}
+
+@Test @MainActor func nativeWeighingRequiresZeroAndInvalidatesChangedContact() {
+    let suite = "SenseNativeScaleTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let scale = NativeWeighing(defaults: defaults)
+    #expect(scale.grams == nil)
+    scale.receive(.init(grams: 25, touchID: 1, contactCount: 1))
+    #expect(scale.grams == nil)
+    scale.tare()
+    scale.receive(.init(grams: 75, touchID: 1, contactCount: 1))
+    #expect(scale.grams == 50)
+    scale.receive(.init(grams: nil, touchID: nil, contactCount: 0))
+    #expect(scale.grams == nil); #expect(scale.heldGrams == 50)
+    scale.receive(.init(grams: 100, touchID: 2, contactCount: 1))
+    #expect(scale.grams == nil)
+    scale.tare(); scale.receive(.init(grams: 150, touchID: 3, contactCount: 1))
+    #expect(scale.grams == nil)
 }

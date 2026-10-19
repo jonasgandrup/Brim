@@ -16,6 +16,7 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$binary_directory/Sense" "$app/Contents/MacOS/.Sense.build"
 mv -f "$app/Contents/MacOS/.Sense.build" "$app/Contents/MacOS/Sense"
 cp Resources/Info.plist "$app/Contents/Info.plist"
+cp THIRD_PARTY_NOTICES.md "$app/Contents/Resources/THIRD_PARTY_NOTICES.md"
 if [[ -f Resources/Sense.icns ]]; then cp Resources/Sense.icns "$app/Contents/Resources/Sense.icns"; fi
 printf 'APPL????' > "$app/Contents/PkgInfo"
 # Ad-hoc local signing is free. Set SENSE_SIGN_IDENTITY for a stable signing identity.

@@ -6,6 +6,7 @@ struct DesktopOverlay: Sendable {
     let bounds: CGRect
     var fillsDisplay = false
     var windowID: CGWindowID = 0
+    var opacity: Double = 1
 }
 
 enum DesktopOverlayDetection {
@@ -27,32 +28,36 @@ struct SpaceSlideTracker {
     private var changedAt: TimeInterval = 0
     private var completedAt: TimeInterval?
     private var wasOverview = false
+    private var baselineGeometry: [CGWindowID: CGRect] = [:]
+    private var previousGeometry: [CGWindowID: CGRect] = [:]
     mutating func spaceDidChange(at now: TimeInterval) {
         completedAt = now
         if beganAt == nil { beganAt = now; changedAt = now }
     }
-    mutating func update(surfaces: Set<CGWindowID>, at now: TimeInterval, overviewActive: Bool = false) -> Bool {
+    mutating func update(surfaces: Set<CGWindowID>, at now: TimeInterval, overviewActive: Bool = false, geometry: [CGWindowID: CGRect] = [:]) -> Bool {
         if overviewActive {
             wasOverview = true; baseline = surfaces; previous = surfaces
+            baselineGeometry = geometry; previousGeometry = geometry
             beganAt = nil; completedAt = nil; changedAt = now
             return false
         }
         if wasOverview {
             wasOverview = false; baseline = surfaces; previous = surfaces
+            baselineGeometry = geometry; previousGeometry = geometry
             beganAt = now; completedAt = now; changedAt = now
         }
-        guard let baseline else { self.baseline = surfaces; previous = surfaces; return false }
-        if surfaces != previous {
+        guard let baseline else { self.baseline = surfaces; previous = surfaces; baselineGeometry = geometry; previousGeometry = geometry; return false }
+        if surfaces != previous || geometry != previousGeometry {
             if beganAt == nil { beganAt = now }
-            previous = surfaces; changedAt = now
+            previous = surfaces; previousGeometry = geometry; changedAt = now
         }
         guard let beganAt else { return false }
-        let returnedToStart = surfaces == baseline
+        let returnedToStart = surfaces == baseline && geometry == baselineGeometry
         let completionObserved = completedAt != nil || returnedToStart
         let quietSince = max(changedAt, completedAt ?? changedAt)
         // A held gesture can have one perfectly still surface. Quiet alone never completes it.
         if now - beganAt >= 12 || (completionObserved && now - quietSince >= 0.6) {
-            self.baseline = surfaces; self.beganAt = nil; completedAt = nil; return false
+            self.baseline = surfaces; baselineGeometry = geometry; self.beganAt = nil; completedAt = nil; return false
         }
         return true
     }
@@ -62,14 +67,14 @@ struct SpaceSlideTracker {
 private actor DesktopOverlayProbe {
     func snapshot(ownerPIDs: Set<pid_t>, screenSizes: [CGSize]) -> [DesktopOverlay]? {
         guard !ownerPIDs.isEmpty,
-              let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
+              let windows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] else { return nil }
         let overlays = windows.compactMap { info -> DesktopOverlay? in
             guard let pid = info[kCGWindowOwnerPID as String] as? pid_t, ownerPIDs.contains(pid),
                   let layer = info[kCGWindowLayer as String] as? Int,
                   let dictionary = info[kCGWindowBounds as String] as? NSDictionary,
                   let bounds = CGRect(dictionaryRepresentation: dictionary as CFDictionary) else { return nil }
             let fillsDisplay = screenSizes.contains { bounds.width >= $0.width * 0.9 && bounds.height >= $0.height * 0.85 }
-            return DesktopOverlay(layer: layer, bounds: bounds, fillsDisplay: fillsDisplay, windowID: info[kCGWindowNumber as String] as? CGWindowID ?? 0)
+            return DesktopOverlay(layer: layer, bounds: bounds, fillsDisplay: fillsDisplay, windowID: info[kCGWindowNumber as String] as? CGWindowID ?? 0, opacity: info[kCGWindowAlpha as String] as? Double ?? 1)
         }
         return overlays
     }
@@ -78,12 +83,27 @@ private actor DesktopOverlayProbe {
 @MainActor final class DesktopTransitionMonitor {
     private var task: Task<Void, Never>?
     private let probe = DesktopOverlayProbe()
+    private let gestureMonitor = TrackpadSpaceGestureMonitor.shared
+    private var gestureActive = false
+    private var gestureQuietUntil: TimeInterval = 0
+    private(set) var observedContactGestures = 0
+    var trackpadDeviceCount: Int { gestureMonitor.deviceCount }
     private var shortcutModifier: CGEventFlags?
     private var active = false
     private var slides = SpaceSlideTracker()
     private(set) var spaceSlideCount = 0
     func start(onChange: @escaping @MainActor (Bool) -> Void) {
         guard task == nil else { return }
+        gestureMonitor.start { [weak self] active in
+            guard let self else { return }
+            self.gestureActive = active
+            if active {
+                self.observedContactGestures += 1
+                if !self.active { self.active = true; onChange(true) }
+            } else {
+                self.gestureQuietUntil = ProcessInfo.processInfo.systemUptime + 0.9
+            }
+        }
         task = Task { [weak self, probe] in
             var owners = Set<pid_t>()
             var wasSliding = false
@@ -91,7 +111,7 @@ private actor DesktopOverlayProbe {
             while !Task.isCancelled {
                 guard let self else { return }
                 if Date() >= nextOwnerRefresh {
-                    let bundles: Set<String> = ["com.apple.dock", "com.lwouis.alt-tab-macos"]
+                    let bundles: Set<String> = ["com.apple.dock", "com.apple.WindowManager", "com.lwouis.alt-tab-macos"]
                     owners = Set(NSWorkspace.shared.runningApplications.filter { bundles.contains($0.bundleIdentifier ?? "") }.map(\.processIdentifier))
                     nextOwnerRefresh = Date().addingTimeInterval(2)
                 }
@@ -107,15 +127,26 @@ private actor DesktopOverlayProbe {
                 }
                 guard !Task.isCancelled else { return }
                 let overview = DesktopOverlayDetection.containsSwitcher(windows)
-                let slide = self.slides.update(surfaces: Set(windows.filter { $0.fillsDisplay && $0.layer > 18 }.map(\.windowID)), at: Date().timeIntervalSinceReferenceDate, overviewActive: overview)
+                let surfaces = windows.filter { $0.fillsDisplay && $0.layer >= 0 && $0.opacity > 0.01 }
+                let geometry = Dictionary(surfaces.map { ($0.windowID, $0.bounds.integral) }, uniquingKeysWith: { _, last in last })
+                let slide = self.slides.update(surfaces: Set(surfaces.map(\.windowID)), at: ProcessInfo.processInfo.systemUptime, overviewActive: overview, geometry: geometry)
                 if slide && !wasSliding { self.spaceSlideCount += 1 }
                 wasSliding = slide
-                let next = slide || overview || self.shortcutModifier != nil
+                let next = self.gestureActive || ProcessInfo.processInfo.systemUptime < self.gestureQuietUntil || slide || overview || self.shortcutModifier != nil
                 if next != self.active { self.active = next; onChange(next) }
                 try? await Task.sleep(for: .milliseconds(next ? 16 : 40))
             }
         }
     }
-    func spaceDidChange() { slides.spaceDidChange(at: Date().timeIntervalSinceReferenceDate) }
-    func stop() { task?.cancel(); task = nil; active = false; shortcutModifier = nil; slides = SpaceSlideTracker() }
+    func spaceDidChange() { slides.spaceDidChange(at: ProcessInfo.processInfo.systemUptime) }
+    func stop() { task?.cancel(); task = nil; gestureMonitor.stop(); gestureActive = false; gestureQuietUntil = 0; active = false; shortcutModifier = nil; slides = SpaceSlideTracker() }
+}
+
+/// App activation and Space notifications overlap. A later short delay must never
+/// shorten a hide already requested by an earlier, longer transition.
+struct DesktopRestoreGate {
+    private(set) var deadline: TimeInterval = 0
+    mutating func extend(at now: TimeInterval, delay: TimeInterval) { deadline = max(deadline, now + max(0, delay)) }
+    func remaining(at now: TimeInterval) -> TimeInterval { max(0, deadline - now) }
+    mutating func reset() { deadline = 0 }
 }

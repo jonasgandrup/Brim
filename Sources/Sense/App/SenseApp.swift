@@ -87,7 +87,7 @@ final class SenseAppModel {
         if preferences.lockEnabled && preferences.lidEffectEnabled { lid.start() } else { lid.stop() }
         if !preferences.scaleEnabled { scaleWindow?.close(); scale.release() }
     }
-    func stop() { notch.countdown.cancel(); lid.stop(); switcher.stop(); notch.stop(); status.stop(); media.stop() }
+    func stop() { scale.native.stop(); notch.clock.stop(); notch.countdown.cancel(); lid.stop(); switcher.stop(); notch.stop(); status.stop(); media.stop() }
     func openSettings(page: SettingsPage? = nil) {
         if let page { self.page = page }
         if settingsWindow == nil {
@@ -103,11 +103,13 @@ final class SenseAppModel {
     func openScale() {
         guard preferences.scaleEnabled else { return }
         if scaleWindow == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 680), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+            let window = ScaleWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 680), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+            window.weighing = scale.native
             window.title = "Trackpad Scale"; window.isReleasedWhenClosed = false
             window.contentView = NSHostingView(rootView: ScaleView(model: scale, preferences: preferences))
             window.center(); scaleWindow = window
         }
+        scale.native.start()
         NSApp.activate(); scaleWindow?.makeKeyAndOrderFront(nil)
     }
     func setLogin(_ enabled: Bool) {
@@ -152,10 +154,49 @@ final class SenseAppModel {
                 rendered.append("scale.png")
             }
         }
+        let forceAvailable = scale.native.available
+        let forceSamples = scale.native.receivedSamples
+        scaleWindow?.close()
         preferences.appearance = "system"
         rendered += await notch.exportPreview(to: URL(fileURLWithPath: output))
         rendered += await DesktopFoldView.exportPreviews(to: URL(fileURLWithPath: output))
         let fileActionsCheck = CommandLine.arguments.contains("--check-file-actions") ? await notch.verifyFileActions() : [:]
+        var mediaCheck: [String: Any] = [:]
+        if CommandLine.arguments.contains("--check-media") {
+            let discovered = await MediaPlayerDiscovery.players()
+            var playerChecks: [[String: Any]] = []
+            for player in discovered {
+                let pinned = await SystemMediaBridge.snapshot(for: player)
+                var check: [String: Any] = ["name": player.name, "sameApp": pinned?.source == player.source, "hasTrack": pinned?.hasMedia == true]
+                if let pinned, pinned.hasMedia, let path = pinned.playerPath, let title = pinned.title {
+                    let item = MediaItemIdentity(source: player.source, title: title, identifier: pinned.identifier ?? "", playerPath: path)
+                    check["boundPauseValidatedWithoutPlaybackChange"] = await SystemMediaBridge.send(.init(item: item, action: .pause), validateOnly: true) == .validated
+                }
+                playerChecks.append(check)
+            }
+            mediaCheck["discoveredPlayers"] = playerChecks
+            let snapshot = await SystemMediaBridge.snapshot()
+            mediaCheck["systemBridgeAvailable"] = snapshot?.available == true
+            mediaCheck["hasMediaSession"] = snapshot?.hasMedia == true
+            mediaCheck["sourceName"] = snapshot?.sourceName ?? "None"
+            mediaCheck["hasPlaybackRate"] = snapshot?.rate != nil
+            mediaCheck["advertisesSeeking"] = snapshot?.canSeek == true
+            if let snapshot, let source = snapshot.source, let title = snapshot.title, let position = snapshot.position {
+                let item = MediaItemIdentity(source: source, title: title, identifier: snapshot.identifier ?? "", playerPath: snapshot.playerPath ?? "")
+                mediaCheck["seekParametersValidatedWithoutPlaybackChange"] = await SystemMediaBridge.seek(.init(item: item, position: position), validateOnly: true)
+            }
+            if let snapshot, let source = snapshot.source, let title = snapshot.title {
+                let item = MediaItemIdentity(source: source, title: title, identifier: snapshot.identifier ?? "", playerPath: snapshot.playerPath ?? "")
+                let result = await SystemMediaBridge.send(.init(item: item, action: .pause), validateOnly: true)
+                mediaCheck["playerBoundPauseValidatedWithoutPlaybackChange"] = result == .validated
+                var wrongPlayer = item; wrongPlayer.playerPath = "not-the-displayed-player"
+                let rejected = await SystemMediaBridge.send(.init(item: wrongPlayer, action: .pause), validateOnly: true)
+                mediaCheck["rejectsAnotherSessionInTheSameApp"] = rejected != .validated && rejected != .submitted
+            }
+            mediaCheck["hasTimeline"] = snapshot?.position != nil && (snapshot?.duration ?? 0) > 0
+            mediaCheck["rejectsChangedSource"] = !(await SystemMediaBridge.command("playpause", source: "dk.jonasgandrup.Sense.NotTheActivePlayer"))
+            if let snapshot, let name = await notch.exportMediaPreview(snapshot, to: URL(fileURLWithPath: output)) { rendered.append(name) }
+        }
         var missionControlRestoredIsland: Bool? = nil
         if CommandLine.arguments.contains("--check-mission-control") {
             notch.shelf.add([Bundle.main.bundleURL.appendingPathComponent("Contents/Info.plist")])
@@ -187,27 +228,29 @@ final class SenseAppModel {
             NSApp.activate(); window.makeKeyAndOrderFront(nil)
             try? await Task.sleep(for: .milliseconds(400))
             window.toggleFullScreen(nil)
-            try? await Task.sleep(for: .seconds(2))
+            for _ in 0..<50 {
+                if window.styleMask.contains(.fullScreen) { break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
             let entered = window.styleMask.contains(.fullScreen)
-            if entered { window.toggleFullScreen(nil) }
-            try? await Task.sleep(for: .seconds(2))
-            window.close()
+            // Let AppKit finish its native transition before asking it to reverse.
             try? await Task.sleep(for: .seconds(1))
+            if entered {
+                window.toggleFullScreen(nil)
+                for _ in 0..<50 {
+                    if !window.styleMask.contains(.fullScreen) { break }
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+            }
+            window.close()
+            for _ in 0..<50 {
+                if !notch.desktopTransition { break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
             spacesCheck = ["enteredFullScreen": entered, "observedDesktopSurfaces": notch.spaceSlideCount > before,
                            "restored": !notch.desktopTransition, "shelfPreserved": !notch.shelf.files.isEmpty]
             notch.shelf.clear()
             try? await Task.sleep(for: .milliseconds(450))
-        }
-        var mediaCheck: [String: Any] = [:]
-        if CommandLine.arguments.contains("--check-media") {
-            let snapshot = await SystemMediaBridge.snapshot()
-            mediaCheck["systemBridgeAvailable"] = snapshot?.available == true
-            mediaCheck["hasMediaSession"] = snapshot?.hasMedia == true
-            mediaCheck["sourceName"] = snapshot?.sourceName ?? "None"
-            mediaCheck["hasPlaybackRate"] = snapshot?.rate != nil
-            mediaCheck["hasTimeline"] = snapshot?.position != nil && (snapshot?.duration ?? 0) > 0
-            mediaCheck["rejectsChangedSource"] = !(await SystemMediaBridge.command("playpause", source: "dk.jonasgandrup.Sense.NotTheActivePlayer"))
-            if let snapshot, let name = await notch.exportMediaPreview(snapshot, to: URL(fileURLWithPath: output)) { rendered.append(name) }
         }
         let hoverAfterTransitions = await notch.verifyIdleHover()
         let statusBar = (NSApp.delegate as? AppDelegate)?.statusBar
@@ -222,6 +265,7 @@ final class SenseAppModel {
             "islandIdleHidden": notch.presentation == .hidden,
             "islandIdlePassesThroughMouse": notch.ignoresMouseEvents,
             "islandTransitionsKeepPanelStable": notch.transitionsKeepPanelStable,
+            "islandRapidTabChangesSettle": notch.rapidTabChangesSettle,
             "islandPointerExitClosesPromptly": notch.pointerExitClosesPromptly,
             "islandIdleHoverOpens": notch.idleHoverOpensIsland,
             "islandHoverAfterTransitions": hoverAfterTransitions,
@@ -235,6 +279,9 @@ final class SenseAppModel {
             "chargeTarget": preferences.chargeTarget,
             "missionControlRestoredIsland": missionControlRestoredIsland as Any? ?? NSNull(),
             "systemSwitcherObserved": notch.systemSwitcherObserved,
+            "scaleForceDeviceAvailable": forceAvailable, "scaleForceFramesObserved": forceSamples,
+            "spaceGestureTrackpadDevices": notch.trackpadDeviceCount,
+            "observedContactGestures": notch.observedContactGestures,
             "systemSwitcherHidIsland": notch.systemSwitcherHidIsland,
             "islandNativeSnapshots": notch.nativeSnapshotCount,
             "lidFoldReadiness": lidFoldReadiness.message,

@@ -77,7 +77,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let heading = add("Sense"); heading.isEnabled = false
         add("Open Dynamic Island", action: #selector(openIsland), symbol: "capsule").isEnabled = model.preferences.notchEnabled
         add("Open File Shelf", action: #selector(openFileShelf), symbol: "tray").isEnabled = model.preferences.notchEnabled
-        add("Timer…", action: #selector(openTimer), symbol: "timer").isEnabled = model.preferences.notchEnabled
+        add("Clock…", action: #selector(openTimer), symbol: "timer").isEnabled = model.preferences.notchEnabled
         add("Clipboard Shelf", action: #selector(openClipboard), symbol: "pin").isEnabled = model.preferences.notchEnabled
         add("Pin Clipboard", action: #selector(pinClipboard), symbol: "doc.on.clipboard").isEnabled = model.preferences.notchEnabled
         add("Set Up Lid Fold…", action: #selector(openLidSetup), symbol: "macbook")

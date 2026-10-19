@@ -21,11 +21,11 @@ struct IslandLayout {
     var hasHardwareNotch: Bool
     var compactSize: CGSize {
         hasHardwareNotch
-            ? CGSize(width: cutoutWidth + 104, height: menuBarHeight + 5)
+            ? CGSize(width: cutoutWidth + 104, height: menuBarHeight)
             : CGSize(width: 196, height: 38)
     }
     var expandedSize: CGSize { CGSize(width: max(408, compactSize.width), height: headerHeight + 202) }
-    var headerHeight: CGFloat { hasHardwareNotch ? menuBarHeight + 5 : 38 }
+    var headerHeight: CGFloat { hasHardwareNotch ? menuBarHeight : 38 }
     func idleHoverFrame(on screen: CGRect) -> CGRect {
         let width = hasHardwareNotch ? cutoutWidth + 24 : compactSize.width
         let height = hasHardwareNotch ? headerHeight + 8 : compactSize.height
@@ -66,13 +66,32 @@ enum IslandPresentation: Equatable {
 final class NotchController {
     var expanded = false
     let shelf = FileShelf()
-    var selectedTab: IslandTab = .music
+    var selectedTab: IslandTab = .music { didSet { if oldValue != selectedTab { transitionPane() } } }
+    private(set) var displayedTab: IslandTab = .music
+    private(set) var paneOpacity = 1.0
+    private(set) var surfaceReveal = 1.0
+    private var systemMenuDepth = 0
+    private var paneTask: Task<Void, Never>?
+    private func transitionPane() {
+        paneTask?.cancel()
+        guard expanded, !desktopTransition, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            displayedTab = selectedTab; paneOpacity = 1; return
+        }
+        withAnimation(.easeOut(duration: 0.07)) { paneOpacity = 0 }
+        paneTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(75))
+            guard !Task.isCancelled, let self else { return }
+            self.displayedTab = self.selectedTab
+            withAnimation(.easeOut(duration: 0.12)) { self.paneOpacity = 1 }
+        }
+    }
     var shelfSelected: Bool {
         get { selectedTab == .files }
         set { selectedTab = newValue ? .files : .music }
     }
     let clipboard = ClipboardShelf()
     let countdown = IslandTimer()
+    let clock = ClockTools()
     private var powerFeedback = PowerFeedbackTracker()
     private(set) var dropTargeted = false
     private(set) var fileDragActive = false
@@ -94,6 +113,7 @@ final class NotchController {
     private var localMouseMonitor: Any?
     private var observationGeneration = 0
     private var observingActivity = false
+    private(set) var rapidTabChangesSettle = false
     private(set) var transitionsKeepPanelStable = true
     private(set) var pointerExitClosesPromptly = false
     private(set) var idleHoverOpensIsland = false
@@ -111,17 +131,22 @@ final class NotchController {
     private(set) var hoverCheckDiagnostics: [[String: Bool]] = []
     private var suspended = false
     private(set) var desktopTransition = false
+    private(set) var preparingAfterTransition = false
+    private(set) var surfaceAnimationsSuppressed = false
     private let transitionMonitor = DesktopTransitionMonitor()
     private var systemSwitcherActive = false
     private var senseSwitcherActive = false
     private var switcherOverlayActive: Bool { systemSwitcherActive || senseSwitcherActive }
     private var desktopRestoreTask: Task<Void, Never>?
+    private var desktopRestoreGate = DesktopRestoreGate()
     private(set) var desktopTransitionHidesIsland = false
     private(set) var systemSwitcherObserved = false
     private(set) var systemSwitcherHidIsland = false
     private var lastExternalPreference: Bool?
     var panelFrame: CGRect? { panel?.frame }
     var spaceSlideCount: Int { transitionMonitor.spaceSlideCount }
+    var trackpadDeviceCount: Int { transitionMonitor.trackpadDeviceCount }
+    var observedContactGestures: Int { transitionMonitor.observedContactGestures }
     var transitionDiagnostics: [String: Bool] {
         ["systemOverlay": systemSwitcherActive, "senseSwitcher": senseSwitcherActive,
          "transition": desktopTransition, "suspended": suspended, "panelVisible": panel?.isVisible ?? false]
@@ -129,12 +154,12 @@ final class NotchController {
     var presentation: IslandPresentation {
         if desktopTransition { return .hidden }
         if expanded { return .expanded }
-        if fileDragActive || !shelf.files.isEmpty || !clipboard.pins.isEmpty || countdown.active { return .compact }
+        if fileDragActive || !shelf.files.isEmpty || !clipboard.pins.isEmpty || countdown.active || clock.active || media?.sleepTimer.schedule != nil { return .compact }
         return .resolve(expanded: expanded, mediaEnabled: preferences?.mediaEnabled == true,
                  playing: mediaVisible, hasSource: media?.source != nil, hasFeedback: feedback != nil)
     }
     var compactTab: IslandTab {
-        if countdown.active { return .timer }
+        if countdown.active || clock.active { return .timer }
         if selectedTab == .files && !shelf.files.isEmpty { return .files }
         if selectedTab == .clipboard && !clipboard.pins.isEmpty { return .clipboard }
         if preferences?.mediaEnabled == true && mediaVisible { return .music }
@@ -153,6 +178,11 @@ final class NotchController {
         self.preferences = preferences; self.status = status; self.media = media; self.onOpenSettings = onOpenSettings
         status.onPowerSample = { [weak self] sample in self?.receivePower(sample) }
         receivePower(PowerSample(percent: status.battery, externalPower: status.charging))
+        clock.onAlarm = { [weak self] in
+            guard let self else { return }
+            self.selectedTab = .timer
+            self.showFeedback("Alarm", symbol: "alarm")
+        }
         countdown.onFinish = { [weak self] in
             guard let self else { return }
             self.selectedTab = .timer
@@ -160,18 +190,36 @@ final class NotchController {
             if !CommandLine.arguments.contains("--smoke-test") { NSSound.beep() }
         }
         if observers.isEmpty {
+            for (name, delta) in [(NSMenu.didBeginTrackingNotification, 1), (NSMenu.didEndTrackingNotification, -1)] {
+                observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        self.systemMenuDepth = max(0, self.systemMenuDepth + delta)
+                        self.collapseTask?.cancel()
+                        if self.systemMenuDepth == 0 {
+                            self.updateInteraction(scheduleHover: false)
+                            if self.expanded && !self.pointerInside { self.collapseAfterDelay() }
+                        }
+                    }
+                })
+            }
             observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in self?.rebuild() }
             })
             observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in
                     self?.transitionMonitor.spaceDidChange()
-                    self?.hideForDesktopTransition()
+                    self?.hideForDesktopTransition(settleDelay: .milliseconds(900))
                 }
             })
             observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
                 guard (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
-                Task { @MainActor in self?.hideForDesktopTransition(settleDelay: .milliseconds(180)) }
+                Task { @MainActor in
+                    guard let self, !self.desktopTransition, !self.preparingAfterTransition else { return }
+                    // Switching ordinary apps must not retract/recreate the camera cover.
+                    // Space gestures and the actual switcher own suppression separately.
+                    if self.expanded { self.setExpanded(false) }
+                }
             })
             // Cosmetic visibility only; loginwindow remains responsible for security.
             for name in ["com.apple.screenIsLocked", "com.apple.screenIsUnlocked"] {
@@ -186,7 +234,7 @@ final class NotchController {
             }
             clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
                 Task { @MainActor in
-                    guard let self, self.expanded, !self.shelf.systemUIActive else { return }
+                    guard let self, self.expanded, !self.shelf.systemUIActive, self.systemMenuDepth == 0 else { return }
                     if !self.containsPointer(NSEvent.mouseLocation) { self.setExpanded(false) }
                 }
             }
@@ -196,7 +244,7 @@ final class NotchController {
             localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .leftMouseDragged, .leftMouseUp, .swipe, .scrollWheel]) { [weak self] event in
                 MainActor.assumeIsolated {
                     self?.trackMouseEvent(event)
-                    if (event.type == .leftMouseDown || event.type == .rightMouseDown), self?.expanded == true, self?.shelf.systemUIActive == false,
+                    if (event.type == .leftMouseDown || event.type == .rightMouseDown), self?.expanded == true, self?.shelf.systemUIActive == false, self?.systemMenuDepth == 0,
                        self?.containsPointer(event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation) != true { self?.setExpanded(false) }
                 }
                 return event
@@ -225,10 +273,14 @@ final class NotchController {
             _ = preferences?.mediaEnabled
             _ = media?.playing
             _ = media?.source
+            _ = media?.sleepTimer.schedule
+            _ = media?.holdingScrubber
             _ = shelf.files
             _ = shelf.systemUIActive
             _ = clipboard.pins
             _ = countdown.state
+            _ = clock.stopwatch.running
+            _ = clock.ringing
             _ = preferences?.chargingFeedback
             _ = preferences?.chargeTarget
         } onChange: { [weak self] in
@@ -266,11 +318,11 @@ final class NotchController {
     }
     private func syncPanelVisibility() {
         guard let panel else { return }
-        if suspended || desktopTransition {
-            idleHideTask?.cancel(); idleHideTask = nil; panel.orderOut(nil)
+        if suspended || desktopTransition || preparingAfterTransition {
+            idleHideTask?.cancel(); idleHideTask = nil; panel.alphaValue = 0; panel.orderOut(nil)
         } else if presentation != .hidden {
             idleHideTask?.cancel(); idleHideTask = nil
-            if !panel.isVisible { panel.orderFrontRegardless() }
+            if !panel.isVisible { panel.alphaValue = 1; panel.orderFrontRegardless() }
         } else if panel.isVisible && idleHideTask == nil {
             // Finish the opaque 140 ms retraction, then remove the unnecessary software camera cover.
             idleHideTask = Task { [weak self] in
@@ -283,7 +335,7 @@ final class NotchController {
     private func updateInteraction(scheduleHover: Bool = true, at location: CGPoint? = nil) {
         syncPanelVisibility()
         guard let panel else { return }
-        let inside = !suspended && !desktopTransition && containsPointer(location ?? previewPointer ?? NSEvent.mouseLocation)
+        let inside = !suspended && !desktopTransition && !preparingAfterTransition && containsPointer(location ?? previewPointer ?? NSEvent.mouseLocation)
         // The window never resizes. Transparent space outside the animated surface passes through.
         panel.ignoresMouseEvents = presentation == .hidden || !inside
         if scheduleHover && (inside != pointerInside || (inside && !expanded && hoverTask == nil && preferences?.hoverToExpand == true)) { hover(inside) }
@@ -292,9 +344,11 @@ final class NotchController {
     func stop() {
         idleHideTask?.cancel(); idleHideTask = nil
         shelf.actions.closePreview()
+        systemMenuDepth = 0
         observingActivity = false; observationGeneration += 1
         transitionMonitor.stop(); systemSwitcherActive = false; senseSwitcherActive = false
-        desktopRestoreTask?.cancel(); desktopRestoreTask = nil; desktopTransition = false
+        desktopRestoreTask?.cancel(); desktopRestoreTask = nil; desktopRestoreGate.reset(); desktopTransition = false; preparingAfterTransition = false; surfaceAnimationsSuppressed = false; surfaceReveal = 1
+        paneTask?.cancel(); displayedTab = selectedTab; paneOpacity = 1
         mediaExitTask?.cancel(); mediaVisible = false; lastMediaInput = nil
         dragPollTimer?.invalidate(); dragPollTimer = nil; fileDragActive = false; dropTargeted = false
         collapseTask?.cancel(); hoverTask?.cancel(); feedbackTask?.cancel()
@@ -325,6 +379,7 @@ final class NotchController {
         layout = IslandLayout(cutoutWidth: cutout, menuBarHeight: max(28, screen.safeAreaInsets.top), hasHardwareNotch: hasNotch)
         let panel = IslandPanel(contentRect: layout.frame(on: screen.frame, expanded: true), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = false
+        panel.animationBehavior = .none
         // Status-bar level keeps the narrow activity wings visible above the menu-bar background.
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
@@ -341,15 +396,16 @@ final class NotchController {
     }
     func setExpanded(_ value: Bool) {
         collapseTask?.cancel(); hoverTask?.cancel(); hoverTask = nil
-        guard panel != nil, !desktopTransition || !value, value != expanded else { return }
+        guard panel != nil, !(desktopTransition || preparingAfterTransition) || !value, value != expanded else { return }
         // One SwiftUI animation owns the shape, content and opacity. No NSWindow animator or I/O here.
+        if !value { paneTask?.cancel(); displayedTab = selectedTab; paneOpacity = 1 }
         expanded = value
         updateInteraction(scheduleHover: false)
     }
     func hover(_ inside: Bool) {
         pointerInside = inside
         collapseTask?.cancel(); hoverTask?.cancel(); hoverTask = nil
-        if inside && !desktopTransition && !suspended && preferences?.hoverToExpand == true && !expanded {
+        if inside && !desktopTransition && !preparingAfterTransition && !suspended && preferences?.hoverToExpand == true && !expanded {
             // A brief dwell avoids opening the island when crossing the menu bar.
             hoverTask = Task { [weak self] in
                 try? await Task.sleep(for: .milliseconds(60))
@@ -361,7 +417,7 @@ final class NotchController {
         collapseTask?.cancel()
         collapseTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
-            guard !Task.isCancelled, self?.pointerInside == false, self?.dropTargeted == false, self?.shelf.systemUIActive == false else { return }
+            guard !Task.isCancelled, self?.pointerInside == false, self?.dropTargeted == false, self?.shelf.systemUIActive == false, self?.media?.holdingScrubber != true, self?.systemMenuDepth == 0 else { return }
             self?.setExpanded(false)
         }
     }
@@ -372,7 +428,7 @@ final class NotchController {
     }
     private func setSystemSwitcherActive(_ active: Bool) {
         systemSwitcherActive = active
-        hideForDesktopTransition(settleDelay: active ? .milliseconds(350) : .milliseconds(160))
+        hideForDesktopTransition(settleDelay: active ? .milliseconds(350) : .milliseconds(300))
         if active {
             systemSwitcherObserved = true
             systemSwitcherHidIsland = desktopTransition && panel?.isVisible == false
@@ -382,16 +438,35 @@ final class NotchController {
     /// observable swipe/Space/app changes too, then restore at the physical camera after settling.
     func hideForDesktopTransition(settleDelay: Duration = .milliseconds(350)) {
         desktopRestoreTask?.cancel(); collapseTask?.cancel(); hoverTask?.cancel(); hoverTask = nil
+        paneTask?.cancel(); displayedTab = selectedTab; paneOpacity = 1; surfaceReveal = 0
+        surfaceAnimationsSuppressed = true; preparingAfterTransition = false
         desktopTransition = true; expanded = false; pointerInside = false
-        panel?.ignoresMouseEvents = true; panel?.orderOut(nil)
+        panel?.ignoresMouseEvents = true; panel?.alphaValue = 0; panel?.orderOut(nil)
+        let components = settleDelay.components
+        let delay = Double(components.seconds) + Double(components.attoseconds) / 1e18
+        desktopRestoreGate.extend(at: ProcessInfo.processInfo.systemUptime, delay: delay)
+        let remaining = desktopRestoreGate.remaining(at: ProcessInfo.processInfo.systemUptime)
         desktopRestoreTask = Task { [weak self] in
-            try? await Task.sleep(for: settleDelay)
+            try? await Task.sleep(for: .seconds(remaining))
             guard !Task.isCancelled, let self, !self.switcherOverlayActive else { return }
-            self.desktopTransition = false
+            self.desktopRestoreGate.reset()
+            // Prepare the compact model while the native window remains fully hidden.
+            self.preparingAfterTransition = true; self.desktopTransition = false
+            self.panel?.contentView?.layoutSubtreeIfNeeded()
+            self.panel?.contentView?.displayIfNeeded()
+            try? await Task.sleep(for: .milliseconds(34))
+            guard !Task.isCancelled, !self.switcherOverlayActive, !self.desktopTransition else { return }
+            self.preparingAfterTransition = false
             self.updateInteraction(scheduleHover: false)
+            try? await Task.sleep(for: .milliseconds(50))
+            if !Task.isCancelled {
+                self.surfaceAnimationsSuppressed = false
+                withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .easeOut(duration: 0.14)) { self.surfaceReveal = 1 }
+            }
         }
     }
     private func trackMouseEvent(_ event: NSEvent) {
+        guard systemMenuDepth == 0 else { return }
         if event.type == .swipe || (event.type == .scrollWheel && !containsPointer(NSEvent.mouseLocation) && event.hasPreciseScrollingDeltas &&
             abs(event.scrollingDeltaX) > 3 && abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) * 1.5) {
             hideForDesktopTransition(); return
@@ -495,7 +570,7 @@ final class NotchController {
             updateInteraction()
         }
         try? await Task.sleep(for: .milliseconds(100))
-        let opened = expanded && panel?.isVisible == true
+        let opened = expanded && panel?.isVisible == true && panel?.alphaValue == 1
         check["opened"] = opened; check["transitionAfterHover"] = desktopTransition
         hoverCheckDiagnostics.append(check)
         previewPointer = nil
@@ -522,6 +597,9 @@ final class NotchController {
             collection.keyDown(with: event)
         }
         try? await Task.sleep(for: .milliseconds(500))
+        check["quickLookWindowVisible"] = shelf.actions.previewVisible
+        check["quickLookHasSelectedItems"] = shelf.actions.previewItemCount == 2
+        check["quickLookRetainsIslandHold"] = shelf.systemUIActive
         check["spaceOpensQuickLook"] = shelf.actions.previewVisible && shelf.actions.previewItemCount == 2 && shelf.systemUIActive
         shelf.actions.closePreview()
         check["previewClosesCleanly"] = !shelf.actions.previewVisible && !shelf.systemUIActive
@@ -571,20 +649,35 @@ final class NotchController {
         catch { return false }
     }
     func exportMediaPreview(_ snapshot: SystemMediaSnapshot, to directory: URL) async -> String? {
-        guard snapshot.hasMedia, let panel, let status, let originalView = panel.contentView else { return nil }
+        for _ in 0..<50 {
+            if !desktopTransition { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        guard !desktopTransition, snapshot.hasMedia, let panel, let status, let originalView = panel.contentView else { return nil }
         let suite = "Sense.MediaPreview.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suite) else { return nil }
         let previewPreferences = Preferences(defaults: defaults); previewPreferences.mediaEnabled = true
         let readOnlyMedia = MediaService(); readOnlyMedia.apply(snapshot)
+        await readOnlyMedia.refreshPlayers()
         let hosting = NSHostingView(rootView: IslandView(controller: self, preferences: previewPreferences, status: status, media: readOnlyMedia))
         hosting.sizingOptions = []
         let originalFrame = panel.frame
         panel.contentView = hosting; panel.setFrame(originalFrame, display: true)
-        selectedTab = .music; setExpanded(true)
-        previewPointer = surfaceFrame.map { CGPoint(x: $0.midX, y: $0.midY) }
-        try? await Task.sleep(for: .milliseconds(500))
         let name = "now-playing-live.png"
-        let captured = await capturePanel(named: name, in: directory)
+        var captured = false
+        for _ in 0..<4 {
+            if desktopTransition || preparingAfterTransition {
+                try? await Task.sleep(for: .milliseconds(500)); continue
+            }
+            selectedTab = .music; setExpanded(true)
+            previewPointer = surfaceFrame.map { CGPoint(x: $0.midX, y: $0.midY) }
+            try? await Task.sleep(for: .milliseconds(500))
+            guard expanded, displayedTab == .music, paneOpacity == 1, surfaceReveal == 1, !desktopTransition else { continue }
+            let exported = await capturePanel(named: name, in: directory)
+            if exported && expanded && !desktopTransition && surfaceReveal == 1 { captured = true; break }
+        }
+        if !captured { try? FileManager.default.removeItem(at: directory.appendingPathComponent(name)) }
+        readOnlyMedia.stop()
         panel.contentView = originalView; panel.setFrame(originalFrame, display: true)
         previewPointer = nil; hover(false); setExpanded(false)
         defaults.removePersistentDomain(forName: suite)
@@ -596,8 +689,8 @@ final class NotchController {
         var result: [String] = []
         let initialFrame = panel.frame
         idleHoverOpensIsland = await verifyIdleHover()
-        for preview in 0..<12 {
-            let isExpanded = preview != 0 && preview < 10
+        for preview in 0..<15 {
+            let isExpanded = preview != 0 && (preview < 10 || preview >= 12)
             feedback = nil
             selectedTab = preview >= 8 ? .timer : (preview >= 4 ? .clipboard : (preview >= 2 ? .files : .music))
             if preview == 3 {
@@ -615,22 +708,26 @@ final class NotchController {
             if preview == 9 { countdown.cancel(); feedback = "Charging feedback preview"; feedbackSymbol = "battery.100percent.bolt" }
             if preview == 10 { shelf.clear(); selectedTab = .music; countdown.start() }
             if preview == 11 { countdown.cancel(); clipboard.add(.text("Compact clipboard check")); selectedTab = .music }
+            if preview == 12 { clipboard.clear(); selectedTab = .timer; clock.mode = .stopwatch }
+            if preview == 13 { clock.toggleStopwatch() }
+            if preview == 14 { clock.resetStopwatch(); clock.mode = .alarm }
             setExpanded(isExpanded)
             previewPointer = isExpanded ? surfaceFrame.map { CGPoint(x: $0.midX, y: $0.midY) } : CGPoint(x: -10000, y: -10000)
             try? await Task.sleep(for: .milliseconds(650))
-            let extras = [4: "clipboard-empty.png", 5: "clipboard-pins.png", 6: "timer-ready.png", 7: "timer-running.png", 8: "timer-paused.png", 9: "charging-preview.png", 10: "timer-compact.png", 11: "clipboard-compact.png"]
+            let extras = [4: "clipboard-empty.png", 5: "clipboard-pins.png", 6: "timer-ready.png", 7: "timer-running.png", 8: "timer-paused.png", 9: "charging-preview.png", 10: "timer-compact.png", 11: "clipboard-compact.png", 12: "stopwatch-ready.png", 13: "stopwatch-running.png", 14: "alarm-ready.png"]
             let name = extras[preview] ?? (preview == 3 ? "file-shelf-items.png" : (preview == 2 ? "file-shelf-empty.png" :
                 (isExpanded ? "island-expanded.png" : (presentation == .hidden ? "island-idle.png" : "island-compact.png"))))
             if await capturePanel(named: name, in: directory) { result.append(name) }
         }
+        clock.mode = .timer
         feedback = nil; countdown.cancel(); clipboard.clear(); shelf.add([Bundle.main.bundleURL.appendingPathComponent("Contents/Info.plist")]); selectedTab = .files; previewPointer = nil
         setSwitcherOverlayActive(true)
         try? await Task.sleep(for: .milliseconds(420))
-        let stayedHidden = desktopTransition && !panel.isVisible
+        let stayedHidden = desktopTransition && !panel.isVisible && panel.alphaValue == 0
         setSwitcherOverlayActive(false)
         hideForDesktopTransition(settleDelay: .milliseconds(120))
         desktopTransitionHidesIsland = stayedHidden && presentation == .hidden && panel.ignoresMouseEvents && !panel.isVisible
-        try? await Task.sleep(for: .milliseconds(180))
+        try? await Task.sleep(for: .milliseconds(450))
         desktopTransitionHidesIsland = desktopTransitionHidesIsland && !desktopTransition && panel.isVisible
         shelf.clear(); shelfSelected = false
         for _ in 0..<3 {
@@ -640,6 +737,14 @@ final class NotchController {
             try? await Task.sleep(for: .milliseconds(50))
         }
         setExpanded(true)
+        previewPointer = surfaceFrame.map { CGPoint(x: $0.midX, y: $0.midY) }
+        for tab: IslandTab in [.files, .music, .clipboard, .timer, .files] {
+            selectedTab = tab
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        try? await Task.sleep(for: .milliseconds(250))
+        rapidTabChangesSettle = displayedTab == selectedTab && selectedTab == .files && paneOpacity == 1 && panel.frame == initialFrame
+        previewPointer = nil
         hover(false)
         try? await Task.sleep(for: .milliseconds(160))
         pointerExitClosesPromptly = !expanded
