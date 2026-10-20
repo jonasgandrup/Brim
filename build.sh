@@ -19,7 +19,18 @@ cp Resources/Info.plist "$app/Contents/Info.plist"
 cp THIRD_PARTY_NOTICES.md "$app/Contents/Resources/THIRD_PARTY_NOTICES.md"
 if [[ -f Resources/Sense.icns ]]; then cp Resources/Sense.icns "$app/Contents/Resources/Sense.icns"; fi
 printf 'APPL????' > "$app/Contents/PkgInfo"
-# Ad-hoc local signing is free. Set SENSE_SIGN_IDENTITY for a stable signing identity.
-codesign --force --sign "${SENSE_SIGN_IDENTITY:--}" "$app"
+# Developer ID / Apple Development can be supplied explicitly for distribution.
+# Default local builds reuse one project-only certificate so the designated
+# requirement stays stable across source changes and clean builds.
+if [[ -n "${SENSE_SIGN_IDENTITY:-}" ]]; then
+  sign_flags=(--force --sign "$SENSE_SIGN_IDENTITY")
+  # SENSE_HARDENED=1 enables the hardened runtime and entitlements that notarization requires.
+  if [[ "${SENSE_HARDENED:-0}" == "1" ]]; then
+    sign_flags+=(--options runtime --timestamp --entitlements Resources/Sense.entitlements)
+  fi
+  codesign "${sign_flags[@]}" "$app"
+else
+  ./scripts/sign-local.sh "$app"
+fi
 codesign --verify --strict "$app"
 echo "Built $app"

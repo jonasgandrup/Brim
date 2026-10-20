@@ -25,11 +25,17 @@ struct NativeForceSample: Sendable {
     let grams: Double?
     let touchID: Int32?
     let contactCount: Int
+    /// False when single-contact data doesn't look like the layout this decoder expects,
+    /// e.g. after a macOS update changes the private structure.
+    var plausible = true
     static func decode(_ buffer: UnsafeRawPointer?, count: Int32) -> Self {
         guard count == 1, let buffer else { return Self(grams: nil, touchID: nil, contactCount: Int(count)) }
         let state = buffer.loadUnaligned(fromByteOffset: 20, as: Int32.self)
         let value = Double(buffer.loadUnaligned(fromByteOffset: 52, as: Float.self))
-        guard (state == 3 || state == 4), value.isFinite, (0...5000).contains(value) else {
+        guard (0...16).contains(state), value.isFinite, abs(value) < 1_000_000 else {
+            return Self(grams: nil, touchID: nil, contactCount: Int(count), plausible: false)
+        }
+        guard (state == 3 || state == 4), (0...5000).contains(value) else {
             return Self(grams: nil, touchID: nil, contactCount: Int(count))
         }
         return Self(grams: value, touchID: buffer.loadUnaligned(fromByteOffset: 16, as: Int32.self), contactCount: 1)
@@ -83,6 +89,7 @@ private let spaceContactCallback: ContactCallback = { device, buffer, count, tim
     private var gestureListening = false
     private var forceListening = false
     private var forceGeneration = 0
+    private var forceSink: (@Sendable (NativeForceSample) -> Void)?
     private var forceDevice: UInt?
     var forceAvailable: Bool { forceDevice != nil }
     private var framework: UnsafeMutableRawPointer?
@@ -111,7 +118,7 @@ private let spaceContactCallback: ContactCallback = { device, buffer, count, tim
     func startForce(onSample: @escaping @MainActor (NativeForceSample) -> Void) -> Bool {
         forceListening = true; openDevices(); forceGeneration += 1
         let session = forceGeneration
-        ContactDelivery.shared.installForce(device: forceDevice) { [weak self] sample in
+        let sink: @Sendable (NativeForceSample) -> Void = { [weak self] sample in
             let runLoop = CFRunLoopGetMain()
             CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue) {
                 MainActor.assumeIsolated {
@@ -121,6 +128,8 @@ private let spaceContactCallback: ContactCallback = { device, buffer, count, tim
             }
             CFRunLoopWakeUp(runLoop)
         }
+        forceSink = sink
+        ContactDelivery.shared.installForce(device: forceDevice, handler: sink)
         return forceAvailable
     }
     func stopForce() {
@@ -161,8 +170,19 @@ private let spaceContactCallback: ContactCallback = { device, buffer, count, tim
         gestureListening = false; generation += 1; ContactDelivery.shared.install(nil)
         closeIfUnused()
     }
+    /// Pick up a trackpad connected or removed after listening began.
+    func refreshDevices() {
+        guard gestureListening || forceListening, let framework, let pointer = dlsym(framework, "MTDeviceCreateList") else { return }
+        let count = (unsafeBitCast(pointer, to: DeviceListFunction.self)()?.takeRetainedValue()).map { CFArrayGetCount($0) } ?? 0
+        guard count != deviceCount else { return }
+        closeDevices(); openDevices()
+        if forceListening { ContactDelivery.shared.installForce(device: forceDevice, handler: forceSink) }
+    }
     private func closeIfUnused() {
         guard !gestureListening, !forceListening else { return }
+        closeDevices()
+    }
+    private func closeDevices() {
         if let deviceList {
             for index in 0..<CFArrayGetCount(deviceList) {
                 guard let raw = CFArrayGetValueAtIndex(deviceList, index) else { continue }

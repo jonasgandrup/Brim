@@ -11,6 +11,7 @@ A native SwiftUI + AppKit menu-bar utility, built with Swift Package Manager. No
 ./build.sh        # Build and locally sign release .app
 ./build.sh debug  # Build debug .app without launching
 ./test.sh         # Run Swift Testing tests
+./scripts/release.sh  # Developer ID sign, notarize and staple (needs your own certificate)
 open dist/Sense.app
 ```
 
@@ -37,7 +38,7 @@ The app prefers a notched display and calculates the camera cutout using `safeAr
 
 Battery/output volume are refreshed every 15 seconds with timer tolerance. Opening the island does not synchronously query hardware during its animation. Unsupported output-device volume controls show **Unavailable**. There is no idle screenshot loop.
 
-**Now Playing** is opt-in and uses the active macOS media session, so compatible browser audio/video, podcasts and other players can appear alongside Music and Spotify. It does not enumerate browser tabs, inspect page contents, inject JavaScript into websites or request browser Automation access. It shows one system-selected session at a time, with an explicit “Playing/Paused in [app]” label. That status describes the shown session, not every app. It reads only the session an app publishes to macOS. Apps that do not publish a session are unavailable.
+**Now Playing** is opt-in and uses the active macOS media session, so compatible browser audio/video, podcasts and other players can appear alongside Music and Spotify. It does not enumerate browser tabs, inspect page contents, inject JavaScript into websites or request browser Automation access. The Now Playing tab shows one session at a time, with an explicit “Playing/Paused in [app]” label. Automatic follows macOS; choosing an app in the header’s player menu pins it, even when browser videos become active. Choose Automatic to unpin. The pin is saved locally and follows that app on relaunch. A closed or nonpublishing pinned app shows an unavailable state instead of switching to someone else. That status describes the shown session, not every app. It reads only the session an app publishes to macOS. Apps that do not publish a session are unavailable.
 
 Apple’s public Now Playing APIs publish an app’s own media; they do not expose this global feed to third-party utilities. Sense therefore isolates an **undocumented MediaRemote compatibility bridge** in a short-lived JavaScript for Automation process with a four-second timeout. It uses the runtime’s local Now Playing request and controller, without linking or shipping a private framework, impersonating another app, adding entitlements, or changing system files. Compatibility is not guaranteed after macOS updates. If the bridge is unavailable or no session is published, the existing public Music/Spotify AppleScript adapters remain available. This local build is not an App Store compatibility claim.
 
@@ -175,6 +176,59 @@ The Clock tab contains Timer, Stopwatch (pause/resume, reset, latest lap) and a 
 
 On a notched display the compact island adds width only: its height equals the physical menu-bar/camera region. Ordinary application changes no longer hide and recreate the island. Space/switcher transitions still suppress the native panel; the compact shape is prepared with animations disabled while hidden before the panel returns at its fixed camera position. Hardware three-finger swipe timing still needs physical verification; automated full-screen transitions are complementary evidence.
 
-Tab changes use an ordered fade: outgoing content fades before the selected pane is replaced. Shared artwork no longer travels between tab layouts. Desktop-transition restoration prepares compact geometry while hidden, then fades the stationary island in; Reduce Motion skips the fades. Rapid tab changes cancel pending transitions so stale panes cannot reappear.
+Tab changes use an ordered fade: outgoing content fades before the selected pane is replaced. Shared artwork no longer travels between tab layouts. Desktop-transition restoration prepares compact geometry while hidden, then grows the opaque island sideways from the physical camera region. Normal opening and closing expand and retract the shape from its top anchor; controls move upward behind the shrinking clip, without fading or blurring the camera cover. Reduce Motion skips the motion. Rapid tab changes cancel pending transitions so stale panes cannot reappear.
 
 Media routing regression checks cover two simultaneously playing model players, a handoff during Pause, repeated clicks, failed-command isolation, same-app browser-session changes, and stale-command refresh. Native `--check-media` validates construction of a player-bound Pause controller and rejects another session in the same app without sending playback commands. Actual simultaneous playback in specific third-party apps still needs a hands-on check; some apps expose grouped tabs as one system session.
+
+### Player picker, artwork and media sleep timer
+
+The native player menu lists real macOS-published clients. A pin reads the chosen client’s own playback queue and sends commands to that exact resolved player, independently of the global media route. Apps that combine tabs into one system session remain one player; Sense does not inspect browser pages. Compatibility access is optional and private.
+
+Album artwork has a stable cover area with a neutral waveform placeholder while artwork loads. App icons appear only beside the app name, never as temporary album covers. A bounded in-memory cover cache avoids loading flashes when returning to a known track.
+
+The moon menu starts a 15/30/45/60/90-minute sleep timer for the currently shown player. It retains that target when you switch cards or pins, reads its latest track at expiry, and sends an explicit Pause to that player only. Already-paused players need no command. If the app quits or its process is replaced, the timer does not redirect to another app. Cancellation and quitting/disabling Now Playing stop the timer. Keep Sense running; a sleeping Mac pauses on wake rather than being woken.
+
+Scale remains an optional experimental feature. No error margin has been measured for this Mac, and the displayed decimal is not a precision guarantee. Compare repeated readings of known masses before relying on estimates; fingertip pressure and object placement affect results.
+
+### Native design conventions
+
+Settings uses the system sidebar list and selection behavior, semantic macOS content surfaces, and a compact title hierarchy. Island sections use a native segmented picker. The island stays pure opaque black to merge with the physical camera; glass is reserved for appropriate controls. Secondary text uses stronger contrast, and artwork remains distinct from app identity. These choices follow [Apple’s material guidance](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass), without presenting Sense as an Apple system component.
+
+
+### Direct tool shortcuts and end-of-track sleep
+
+With Dynamic Island enabled, press **Control–Option–Command** plus **1** for Now Playing, **2** for Files, **3** for Clipboard, or **4** for Clock. These global shortcuts use native macOS registration and need no Accessibility permission. Turn them off in Dynamic Island settings; conflicts with another app are reported there. If a desktop transition is in progress, Sense waits for it to settle before opening the requested tool.
+
+The moon menu also offers **End of Current Track** when the player publishes a finite duration, position, and stable track identity. It follows pauses, resumes and seeking, and stays with the original player even when you change pins. Skipping to another track before the end cancels it. Keep Sense running and the Mac awake for track-end timing. This is polled playback metadata, so the next track may begin briefly before Pause reaches the player; it cannot guarantee sample-accurate or gapless stopping. Unsupported/live sessions disable the option rather than guessing a deadline.
+
+
+### Two activities, batch file actions and presentations
+
+When a media session and countdown are active together, the compact island puts the album cover to the left of the camera and the countdown to the right. Click the cover for Now Playing or the countdown for Clock controls. Paused timers stay accessible. The camera clearance, compact height and top anchor stay fixed.
+
+In Files, Command-click to select a group, then use the **•••** menu or right-click selection for **AirDrop**, **Compress…** or **Copy Files**. Command-C also copies selected files for pasting into Finder. AirDrop uses the native macOS sharing service and is disabled when unavailable. Compress asks where to save a ZIP, runs in the background, then adds the archive to the shelf. Duplicate names from different folders receive numbered names inside the ZIP. Original files remain untouched; removing references from the shelf does not delete files.
+
+Choose **Presentation Mode** in Sense’s menu-bar menu to hide the island immediately. Hover, tool shortcuts, file drops, feedback and desktop changes cannot reveal it while this mode is on. Music and timers continue. Choose **End Presentation Mode** to restore it. This is a manual, session-only toggle; it resets when Sense quits.
+
+
+Lid-fold troubleshooting: if no fold appears, open **Lid Fold & Lock** and check **Desktop fold**. A working hinge sensor alone is insufficient: Screen Recording must also be allowed for this Sense build, and Reduce Motion must be off. **Check Setup** resets failed capture attempts and reports the blocking condition. Calibration follows the lid as it opens after startup/wake, then holds that open angle during closing. Failed screenshot requests retry at most once every three seconds while closing. Sense does not change login authentication; launch at login starts the menu-bar app, and the welcome-back island is only feedback after an unlock notification.
+
+
+## More features
+
+- **Battery** (⌃⌥⌘5, or the island's battery tab): level, charging state, time to full or empty, battery health, cycle count and adapter wattage. Plugging in shows a battery glyph in the island, colored like the system's (green charging, yellow Low Power Mode, red nearly empty). Missing readings are left out, never invented.
+- **Screenshot shelf** (opt-in): new screenshots appear in the island with a draggable preview and land on the file shelf. It learns about them through Spotlight, so Sense never watches a folder, and screenshots taken before launch are ignored.
+- **Menu bar status** (opt-in): shows the battery level or the running timer or stopwatch beside the icon.
+- **Lid fold styles**: Fold, Doors or Shrink. Settings → Lid Fold & Lock → Closing style. Open position is learned automatically, and re-learned if you rest the screen at a new angle.
+- **Window Switcher extras**: while the switcher is open, `/` or F searches window titles and apps (release the modifier freely, press Return to switch); Q quits the selected app, W closes the window, H hides the app. ⌃Tab is also available.
+- **Island tool shortcuts**: choose the modifier combination (⌃⌥⌘, ⌃⌥, ⌃⌘ or ⌥⌘) in Dynamic Island settings.
+- **Clock**: repeating alarms (daily or weekdays; a Mac that is asleep rings on wake). A calendar line shows your next timed event; opt in under Dynamic Island settings. Events are read locally with EventKit and never stored.
+- **Clipboard history** (opt-in): recent text and links, kept in memory only, with a filter and a Pin button. Copies marked concealed or transient, and copies made in password managers, are skipped.
+- **File shelf tools**: Rename, Copy to Folder, convert images to PNG, JPEG or HEIC, and remove image metadata. New files are written beside the originals; sources are never modified (except Rename, which is an explicit rename on disk).
+- **Live transfers** (opt-in, ⌃⌥⌘6): files still arriving in your Downloads folder (Safari, Chrome, Firefox and similar) and AirDrops you send from the shelf show as a progress ring in the island, with a Transfers tab listing them and recent finishes (Reveal, add to shelf). Safari reports real percentages; browsers that don't show a spinner and the size so far, never a guessed percentage. AirDrops received into Downloads are announced when they finish, recognised by the app that quarantined them. macOS asks once to let Sense read Downloads.
+- **Automatic hiding** (opt-in): the island steps aside during any Focus (Do Not Disturb included) using Apple's Focus Status permission, which only tells Sense that a Focus is on. It also hides while displays are mirrored or while Zoom's share helper or macOS Screen Sharing is running. macOS has no public "screen is being shared" flag, so meetings that share from inside a browser aren't detected; use Presentation Mode for those. Manual Presentation Mode and automatic hiding are independent.
+- **Setup & diagnostics**: Settings → Permissions starts with a checklist of everything the features you've turned on need, each with a one-click fix, and a Copy Diagnostics button for bug reports.
+
+### Not included
+
+Several timers at once, windows from other Spaces in the switcher, Focus status, and automatic updates are not available: macOS has no public API for the first three that fits this app, and update frameworks need a hosted feed and a Developer ID build. `scripts/release.sh` and `Resources/Sense.entitlements` are provided for notarized builds, but they have not been run end to end.

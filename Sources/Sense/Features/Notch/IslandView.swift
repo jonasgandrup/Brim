@@ -7,7 +7,8 @@ struct IslandView: View {
     let media: MediaService
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var layout: IslandLayout { controller.layout }
-    private var headerTab: IslandTab { controller.expanded ? controller.displayedTab : controller.compactTab }
+    private var dualActivities: Bool { preferences.mediaEnabled && media.source != nil && controller.countdown.active }
+    private var headerTab: IslandTab { controller.expanded ? controller.displayedTab : (dualActivities ? .music : controller.compactLeadingTab) }
     private var radius: CGFloat { controller.presentation == .hidden ? 9 : (controller.expanded ? 34 : layout.compactSize.height / 2) }
     private var surface: UnevenRoundedRectangle {
         UnevenRoundedRectangle(
@@ -18,11 +19,9 @@ struct IslandView: View {
             style: .continuous)
     }
     var body: some View {
-        let size = controller.presentation == .hidden && layout.hasHardwareNotch
-            ? CGSize(width: layout.cutoutWidth, height: layout.menuBarHeight)
-            : (controller.expanded ? layout.expandedSize : layout.compactSize)
+        let size = layout.surfaceSize(for: controller.presentation, reveal: controller.surfaceReveal)
         header
-            .opacity(controller.presentation == .hidden ? 0 : 1)
+            .opacity(controller.presentation == .hidden ? 0 : controller.surfaceReveal)
             .frame(width: size.width, height: layout.headerHeight)
             .frame(width: size.width, height: size.height, alignment: .top)
             .overlay(alignment: .top) {
@@ -30,17 +29,18 @@ struct IslandView: View {
                 expandedPane
                     .frame(width: layout.expandedSize.width - 48, height: 174, alignment: .top)
                     .padding(.top, layout.headerHeight + 6)
-                    .opacity(controller.expanded ? 1 : 0)
+                    .scaleEffect(controller.expanded ? 1 : 0.96, anchor: .top)
+                    .offset(y: controller.expanded ? 0 : -6)
                     .allowsHitTesting(controller.expanded)
                     .accessibilityHidden(!controller.expanded)
             }
         .background { IslandGlass(shape: surface) }
         .clipShape(surface)
-        .opacity(controller.surfaceReveal)
+        .opacity(layout.hasHardwareNotch ? 1 : controller.surfaceReveal)
         .foregroundStyle(.white).preferredColorScheme(.dark)
         .contentShape(surface)
         .opacity(!layout.hasHardwareNotch && controller.presentation == .hidden ? 0 : 1)
-        .animation(reduceMotion || controller.surfaceAnimationsSuppressed ? nil : .smooth(duration: controller.expanded ? 0.22 : 0.14, extraBounce: 0.04), value: controller.presentation)
+        .animation(reduceMotion || controller.surfaceAnimationsSuppressed ? nil : .smooth(duration: controller.expanded ? 0.26 : 0.18, extraBounce: 0), value: controller.presentation)
         .transaction { transaction in
             if controller.surfaceAnimationsSuppressed { transaction.disablesAnimations = true; transaction.animation = nil }
         }
@@ -53,13 +53,19 @@ struct IslandView: View {
     }
     private var header: some View {
         HStack(spacing: 0) {
-            Button { controller.setExpanded(!controller.expanded) } label: {
+            Button {
+                if dualActivities { controller.openCompactActivity(.music) }
+                else if controller.expanded { controller.setExpanded(false) }
+                else { controller.openCompactActivity(controller.compactLeadingTab) }
+            } label: {
                 Group {
-                    if headerTab == .timer {
+                    if headerTab == .timer && !dualActivities {
                         Image(systemName: "clock").font(.system(size: 15)).foregroundStyle(.orange)
-                    } else if headerTab == .clipboard {
+                    } else if headerTab == .transfers && !dualActivities {
+                        Image(systemName: "arrow.down.circle.fill").font(.system(size: 15)).foregroundStyle(Color(red: 0.25, green: 0.65, blue: 1))
+                    } else if headerTab == .clipboard && !dualActivities {
                         Image(systemName: "pin.fill").font(.system(size: 14))
-                    } else if headerTab == .files {
+                    } else if headerTab == .files && !dualActivities {
                         Image(systemName: "tray.fill").font(.system(size: 15)).foregroundStyle(.white.opacity(0.85))
                     } else if media.source != nil && preferences.mediaEnabled {
                         MediaCover(image: media.artwork, size: 22, radius: 6)
@@ -70,7 +76,7 @@ struct IslandView: View {
                     }
                 }.frame(width: 38, height: layout.headerHeight)
                     .contentShape(Rectangle())
-            }.buttonStyle(.plain).accessibilityLabel(controller.expanded ? "Collapse island" : "Expand island")
+            }.buttonStyle(.plain).accessibilityLabel(dualActivities ? "Open Now Playing" : controller.expanded ? "Collapse island" : "Open \(controller.compactLeadingTab == .timer ? "Clock" : "island")")
             Spacer(minLength: 0)
             if layout.hasHardwareNotch {
                 // Keep all controls outside the actual, physically occluded camera region.
@@ -85,13 +91,15 @@ struct IslandView: View {
             if controller.expanded {
                 collapseControl.frame(width: 38, height: layout.headerHeight)
             } else {
-            Button { controller.setExpanded(!controller.expanded) } label: {
+            Button { controller.openCompactActivity(controller.compactTrailingTab) } label: {
                 Group {
                     if controller.countdown.active {
                         Text(controller.countdown.state.phase == .finished ? "✓" : controller.countdown.label)
                             .font(.system(size: 9, weight: .semibold)).monospacedDigit().foregroundStyle(.orange).minimumScaleFactor(0.7)
                     } else if controller.clock.active {
                         Text(controller.clock.label).font(.system(size: 9, weight: .semibold)).monospacedDigit().foregroundStyle(.orange).minimumScaleFactor(0.7)
+                    } else if controller.transfers.hasRunning {
+                        TransferRing(fraction: TransferScan.combinedFraction(controller.transfers.running))
                     } else if !controller.clipboard.pins.isEmpty && headerTab == .clipboard {
                         Text("\(controller.clipboard.pins.count)").font(.system(size: 11, weight: .semibold))
                     } else if !controller.shelf.files.isEmpty {
@@ -106,7 +114,7 @@ struct IslandView: View {
                         Image(systemName: controller.feedbackSymbol).font(.system(size: 14)).foregroundStyle(.white.opacity(0.7))
                     }
                 }.frame(width: 38, height: layout.headerHeight).contentShape(Rectangle())
-            }.buttonStyle(.plain).accessibilityLabel(controller.expanded ? "Collapse island" : "Expand island")
+            }.buttonStyle(.plain).accessibilityLabel(controller.compactTrailingTab == .timer ? "Open timer controls" : "Expand island")
             }
         }.padding(.horizontal, 8)
         .background(alignment: .top) {
@@ -132,12 +140,17 @@ struct IslandView: View {
     private var expandedPane: some View {
         VStack(spacing: 8) {
             if controller.feedback == nil {
-                HStack(spacing: 0) {
-                    tab("Media", .music)
-                    tab("Files", .files, count: controller.shelf.files.count)
-                    tab("Clipboard", .clipboard)
-                    tab("Clock", .timer)
-                }.font(.system(size: 10, weight: .medium)).buttonStyle(.plain).frame(height: 20)
+                Picker("Island section", selection: $controller.selectedTab) {
+                    Image(systemName: "play.fill").tag(IslandTab.music).accessibilityLabel("Now Playing")
+                    Image(systemName: "tray.fill").tag(IslandTab.files).accessibilityLabel("Files")
+                    Image(systemName: "pin.fill").tag(IslandTab.clipboard).accessibilityLabel("Clipboard")
+                    Image(systemName: "clock.fill").tag(IslandTab.timer).accessibilityLabel("Clock")
+                    Image(systemName: "battery.100").tag(IslandTab.battery).accessibilityLabel("Battery")
+                    Image(systemName: "arrow.down.circle").tag(IslandTab.transfers).accessibilityLabel("Transfers")
+                }
+                .pickerStyle(.segmented).labelsHidden().controlSize(.mini)
+                .frame(height: 22)
+                .accessibilityLabel("Island section")
             }
             if controller.feedback != nil { expandedContent }
             else {
@@ -152,7 +165,11 @@ struct IslandView: View {
         switch controller.displayedTab {
         case .files: FileShelfView(shelf: controller.shelf, dropTargeted: controller.dropTargeted)
         case .clipboard: ClipboardShelfView(shelf: controller.clipboard, pinClipboard: { controller.pinClipboard() })
-        case .timer: IslandClockView(clock: controller.clock, timer: controller.countdown)
+        case .timer: IslandClockView(clock: controller.clock, timer: controller.countdown, calendar: controller.calendar)
+        case .battery: BatteryPaneView(status: status)
+        case .transfers:
+            TransfersPaneView(transfers: controller.transfers, enabled: preferences.liveTransfers, enable: { controller.connectTransfers() },
+                              addToShelf: { url in controller.shelf.add([url]); controller.selectedTab = .files })
         case .music:
             VStack(spacing: 6) {
                 IslandPaneHeader(title: "Now Playing", symbol: "waveform") {
@@ -164,22 +181,19 @@ struct IslandView: View {
             }
         }
     }
-    private func tab(_ title: String, _ tab: IslandTab, count: Int = 0) -> some View {
-        Button { controller.selectedTab = tab } label: {
-            Text(title).frame(maxWidth: .infinity, minHeight: 20)
-                .background(controller.selectedTab == tab ? .white.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 6))
-                .overlay(alignment: .trailing) {
-                    if count > 0 {
-                        Text("\(count)").font(.system(size: 8, weight: .medium)).monospacedDigit()
-                            .frame(width: 17, height: 14).background(.white.opacity(0.09), in: Capsule())
-                    }
-                }.contentShape(Rectangle())
-        }
-        .foregroundStyle(controller.selectedTab == tab ? .white : .white.opacity(0.4))
-        .accessibilityLabel(count > 0 ? "\(title), \(count) items" : title)
-    }
     @ViewBuilder private var expandedContent: some View {
-        if let feedback = controller.feedback {
+        if let feedback = controller.feedback, let battery = controller.feedbackBattery {
+            ChargeFeedbackView(level: battery.level, charging: battery.charging, title: feedback)
+        } else if let feedback = controller.feedback, let image = controller.feedbackImage {
+            VStack(spacing: 8) {
+                Image(nsImage: image).resizable().scaledToFit().frame(maxHeight: 92)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.white.opacity(0.18)))
+                    .onDrag { controller.feedbackURL.flatMap { NSItemProvider(contentsOf: $0) } ?? NSItemProvider() }
+                    .help("Drag the screenshot anywhere")
+                Text(feedback).font(.system(size: 12, weight: .medium)).foregroundStyle(.white.opacity(0.75))
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let feedback = controller.feedback {
             VStack(spacing: 13) {
                 Image(systemName: controller.feedbackSymbol).font(.system(size: 30, weight: .light)).symbolRenderingMode(.hierarchical)
                     .foregroundStyle(controller.feedbackSymbol == "timer" ? Color.orange : .green)
@@ -260,7 +274,7 @@ private struct PlaybackActivity: View {
     var playing: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion || !playing)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 20, paused: reduceMotion || !playing)) { timeline in
             PlaybackBars(activity: playing ? 1 : 0, time: reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate)
                 .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: playing)
         }.frame(width: 21, height: 16).accessibilityLabel(playing ? "Media playing" : "Media paused")
@@ -308,7 +322,7 @@ private struct MediaProgress: View {
                             Text(MediaTimeline.label(elapsed))
                             Spacer()
                             Text("−" + MediaTimeline.label(timeline.duration - elapsed))
-                        }.font(.system(size: 8, weight: .medium)).monospacedDigit().foregroundStyle(.white.opacity(0.4))
+                        }.font(.system(size: 8, weight: .medium)).monospacedDigit().foregroundStyle(.white.opacity(0.55))
                     }
                 }
             } else {

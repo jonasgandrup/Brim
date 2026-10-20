@@ -24,17 +24,50 @@ struct DesktopFold {
     }
 }
 
+/// How the desktop closes with the lid.
+enum LidFoldStyle: String, CaseIterable, Identifiable {
+    case fold, doors, shrink
+    var id: String { rawValue }
+    var title: String {
+        switch self { case .fold: "Fold"; case .doors: "Doors"; case .shrink: "Shrink" }
+    }
+    var detail: String {
+        switch self {
+        case .fold: "Top and bottom meet at a recessed hinge."
+        case .doors: "Left and right panels swing shut."
+        case .shrink: "The desktop gently recedes and dims."
+        }
+    }
+}
+
+extension DesktopFold {
+    enum Panel { case top, bottom, leading, trailing }
+    /// Corners of one panel in its own frame. `size` is the full desktop size.
+    /// Side panels reuse the vertical fold with the axes swapped.
+    func corners(size: CGSize, panel: Panel) -> [CGPoint] {
+        switch panel {
+        case .top: return corners(size: size, bottom: false)
+        case .bottom: return corners(size: size, bottom: true)
+        case .leading, .trailing:
+            let q = corners(size: CGSize(width: size.height, height: size.width), bottom: panel == .trailing)
+                .map { CGPoint(x: $0.y, y: $0.x) }
+            // Swapping axes mirrors the quad, so restore top-left, top-right, bottom-right, bottom-left.
+            return [q[0], q[3], q[2], q[1]]
+        }
+    }
+}
+
 /// Homography maps all four corners, so the two panels meet with no gap at every lid angle.
 struct FoldProjection: GeometryEffect {
     var progress: Double
-    var bottom: Bool
+    var panel: DesktopFold.Panel
     var animatableData: Double {
         get { progress }
         set { progress = newValue }
     }
     func effectValue(size: CGSize) -> ProjectionTransform {
-        let corners = DesktopFold(progress: progress).corners(size: CGSize(width: size.width, height: size.height * 2), bottom: bottom)
-        return ProjectionTransform(Self.matrix(size: size, corners: corners))
+        let full = (panel == .top || panel == .bottom) ? CGSize(width: size.width, height: size.height * 2) : CGSize(width: size.width * 2, height: size.height)
+        return ProjectionTransform(Self.matrix(size: size, corners: DesktopFold(progress: progress).corners(size: full, panel: panel)))
     }
     static func matrix(size: CGSize, corners: [CGPoint]) -> CATransform3D {
         guard size.width > 0, size.height > 0, corners.count == 4 else { return CATransform3DIdentity }
@@ -64,36 +97,57 @@ struct FoldProjection: GeometryEffect {
 struct DesktopFoldView: View {
     let snapshot: NSImage
     var progress: Double
+    var style: LidFoldStyle = .fold
     var body: some View {
         GeometryReader { geometry in
             let size = geometry.size
             let fold = DesktopFold(progress: progress)
             ZStack {
                 Color.black
-                VStack(spacing: 0) {
-                    half(size: size, bottom: false, phase: fold.phase)
-                    half(size: size, bottom: true, phase: fold.phase)
-                }.opacity(fold.opacity)
+                switch style {
+                case .fold:
+                    VStack(spacing: 0) {
+                        half(size: size, panel: .top, phase: fold.phase)
+                        half(size: size, panel: .bottom, phase: fold.phase)
+                    }.opacity(fold.opacity)
+                case .doors:
+                    HStack(spacing: 0) {
+                        half(size: size, panel: .leading, phase: fold.phase)
+                        half(size: size, panel: .trailing, phase: fold.phase)
+                    }.opacity(fold.opacity)
+                case .shrink:
+                    Image(nsImage: snapshot).resizable().frame(width: size.width, height: size.height)
+                        .overlay(Color.black.opacity(0.55 * fold.phase))
+                        .clipShape(RoundedRectangle(cornerRadius: 30 * fold.phase, style: .continuous))
+                        .scaleEffect(1 - 0.18 * fold.phase)
+                        .blur(radius: 5 * fold.phase)
+                        .opacity(fold.opacity)
+                }
             }
         }.clipped().allowsHitTesting(false).accessibilityHidden(true)
     }
-    private func half(size: CGSize, bottom: Bool, phase: Double) -> some View {
-        Image(nsImage: snapshot).resizable().frame(width: size.width, height: size.height)
-            .blur(radius: (bottom ? 0.5 : 4) * phase)
-            .offset(y: bottom ? -size.height / 2 : 0)
-            .frame(width: size.width, height: size.height / 2, alignment: .top)
+    private func half(size: CGSize, panel: DesktopFold.Panel, phase: Double) -> some View {
+        let vertical = panel == .top || panel == .bottom
+        let far = panel == .bottom || panel == .trailing
+        return Image(nsImage: snapshot).resizable().frame(width: size.width, height: size.height)
+            .blur(radius: (far ? 0.5 : 4) * phase)
+            .offset(x: vertical || !far ? 0 : -size.width / 2, y: vertical && far ? -size.height / 2 : 0)
+            .frame(width: vertical ? size.width : size.width / 2, height: vertical ? size.height / 2 : size.height, alignment: .topLeading)
             .clipped()
             .overlay {
-                LinearGradient(colors: [.black.opacity((bottom ? 0.22 : 0.12) * phase), .black.opacity((bottom ? 0.04 : 0.42) * phase)], startPoint: .top, endPoint: .bottom)
+                LinearGradient(colors: [.black.opacity((far ? 0.22 : 0.12) * phase), .black.opacity((far ? 0.04 : 0.42) * phase)],
+                               startPoint: vertical ? .top : .leading, endPoint: vertical ? .bottom : .trailing)
             }
-            .overlay(alignment: bottom ? .top : .bottom) {
-                Rectangle().fill(.white.opacity(0.09 * phase)).frame(height: 1)
+            .overlay(alignment: vertical ? (far ? .top : .bottom) : (far ? .leading : .trailing)) {
+                Rectangle().fill(.white.opacity(0.09 * phase))
+                    .frame(width: vertical ? nil : 1, height: vertical ? 1 : nil)
             }
-            .modifier(FoldProjection(progress: progress, bottom: bottom))
+            .modifier(FoldProjection(progress: progress, panel: panel))
     }
 }
 
 // Renders only Sense's own UI at fixed fold poses for inspection; never substitutes a sensor reading.
+#if DEBUG
 extension DesktopFoldView {
     @MainActor static func exportPreviews(to directory: URL) async -> [String] {
         guard #available(macOS 14.4, *), let snapshot = NSImage(contentsOf: directory.appendingPathComponent("general-dark.png")) else { return [] }
@@ -122,3 +176,4 @@ extension DesktopFoldView {
         return names
     }
 }
+#endif

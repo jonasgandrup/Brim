@@ -118,13 +118,20 @@ final class MediaService {
         if let source = self.defaults?.string(forKey: "mediaPinnedSource"), !source.isEmpty {
             pinnedPlayer = MediaPlayer(source: source, name: self.defaults?.string(forKey: "mediaPinnedName") ?? source, processID: 0)
         }
+        sleepTimer.readTrack = { [weak self] player in await self?.playerReader(player) }
+        sleepTimer.pauseTrack = { [weak self] snapshot in
+            guard let self, !Task.isCancelled, let source = snapshot.source, let title = snapshot.title,
+                  let path = snapshot.playerPath else { return .unavailable }
+            return await self.playbackTransport(.init(item: .init(source: source, title: title,
+                identifier: snapshot.identifier ?? "", playerPath: path), action: .pause), true)
+        }
         sleepTimer.pause = { [weak self] player in await self?.pausePlayerForSleep(player) ?? .unavailable }
     }
     var currentPlayer: MediaPlayer? { players.first { $0.source == source && (currentProcessID == 0 || $0.processID == currentProcessID) } }
     private var currentProcessID: Int32 = 0
     func updatePlayers(_ values: [MediaPlayer]) {
         players = values
-        if let pinnedPlayer, let live = values.first(where: { $0.source == pinnedPlayer.source }) { self.pinnedPlayer = live }
+        if let pinnedPlayer, let live = players.first(where: { $0.source == pinnedPlayer.source }) { self.pinnedPlayer = live }
     }
     func refreshPlayers() async { updatePlayers(await playersReader()); discoveryTime = ProcessInfo.processInfo.systemUptime }
     func selectPlayer(_ player: MediaPlayer?) {
@@ -138,6 +145,17 @@ final class MediaService {
     func startSleepTimer(minutes: Int) {
         guard !selectionLoading, let currentPlayer else { return }
         sleepTimer.start(minutes: minutes, player: currentPlayer)
+    }
+    private var trackEndSnapshot: SystemMediaSnapshot? {
+        guard !selectionLoading, let player = currentPlayer, let timeline, timeline.usable else { return nil }
+        return .init(available: true, title: title, source: source, rate: timeline.rate,
+            duration: timeline.duration, position: timeline.elapsed(at: Date()), identifier: identifier,
+            playerPath: playerPath, processID: player.processID)
+    }
+    var canSleepAtTrackEnd: Bool { trackEndSnapshot.map(MediaSleepTimer.supportsTrackEnd) ?? false }
+    func startTrackEndSleepTimer() {
+        guard let player = currentPlayer, let snapshot = trackEndSnapshot else { return }
+        sleepTimer.startAtTrackEnd(player: player, snapshot: snapshot)
     }
     private func pausePlayerForSleep(_ player: MediaPlayer) async -> MediaCommandResult {
         guard let snapshot = await playerReader(player), !Task.isCancelled, snapshot.hasMedia, snapshot.source == player.source,
@@ -232,7 +250,8 @@ final class MediaService {
         refresh()
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(self?.playing == true ? 1 : 3))
+                // Position is extrapolated locally; this only catches changes apps do not announce.
+                try? await Task.sleep(for: .seconds(self?.playing == true ? 3 : 6))
                 guard !Task.isCancelled else { return }
                 self?.refresh()
             }

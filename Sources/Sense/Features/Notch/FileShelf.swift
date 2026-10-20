@@ -15,6 +15,7 @@ final class FileShelf {
     var message: String?
     private(set) var selectedURLs: Set<URL> = []
     var systemUIActive = false
+    var compressing = false
     let actions: FileShelfActions
     init() { actions = FileShelfActions(); actions.shelf = self }
     var availableSelection: [URL] {
@@ -34,9 +35,23 @@ final class FileShelf {
         return inserted
     }
     func remove(_ file: ShelfFile) { files.removeAll { $0.id == file.id }; selectedURLs.remove(file.url) }
+    /// Points an existing shelf entry at a renamed file, keeping its place and selection.
+    func replace(_ old: URL, with new: URL) {
+        let normalized = new.standardizedFileURL
+        guard let index = files.firstIndex(where: { $0.url == old.standardizedFileURL }) else { return }
+        files[index] = ShelfFile(url: normalized)
+        if selectedURLs.remove(old.standardizedFileURL) != nil { selectedURLs.insert(normalized) }
+    }
     func clear() { files.removeAll(); selectedURLs.removeAll(); message = nil }
+    /// Collects every dropped provider first, so the shelf reports one result for the whole drop.
+    @MainActor private final class DropBatch {
+        var urls: [URL] = []
+        var remaining: Int
+        init(count: Int) { remaining = count }
+    }
     func accept(_ providers: [NSItemProvider]) -> Bool {
         let compatible = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
+        let batch = DropBatch(count: compatible.count)
         for provider in compatible {
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { [weak self] item, _ in
                 let url: URL?
@@ -44,8 +59,11 @@ final class FileShelf {
                 else if let data = item as? Data { url = URL(dataRepresentation: data, relativeTo: nil) }
                 else if let text = item as? String { url = URL(string: text) }
                 else { url = nil }
-                guard let url, url.isFileURL else { return }
-                Task { @MainActor in _ = self?.add([url]) }
+                Task { @MainActor in
+                    if let url, url.isFileURL { batch.urls.append(url) }
+                    batch.remaining -= 1
+                    if batch.remaining == 0, !batch.urls.isEmpty { _ = self?.add(batch.urls) }
+                }
             }
         }
         return !compatible.isEmpty
@@ -73,12 +91,31 @@ struct FileShelfView: View {
         VStack(alignment: .leading, spacing: 6) {
             IslandPaneHeader(title: "Files", symbol: "tray") {
                 if shelf.selectedURLs.count > 1 {
-                    Text("\(shelf.selectedURLs.count) selected").monospacedDigit().foregroundStyle(.white.opacity(0.45))
+                    Text("\(shelf.selectedURLs.count)").monospacedDigit().foregroundStyle(.white.opacity(0.45))
                 }
+                Menu {
+                    Button("AirDrop…", systemImage: "airdrop") { shelf.actions.airDrop() }
+                        .disabled(!shelf.actions.canAirDrop)
+                    Button("Compress…", systemImage: "doc.zipper") { shelf.actions.chooseArchiveDestination() }
+                    Button("Copy Files", systemImage: "doc.on.doc") { shelf.actions.copy() }
+                    Button("Copy to Folder…", systemImage: "folder") { shelf.actions.copyToFolder() }
+                    Button("Rename…", systemImage: "pencil") { shelf.actions.rename() }
+                    Menu("Image Tools", systemImage: "photo") {
+                        Button("Convert to PNG") { shelf.actions.convertImages(to: .png) }
+                        Button("Convert to JPEG") { shelf.actions.convertImages(to: .jpeg) }
+                        Button("Convert to HEIC") { shelf.actions.convertImages(to: .heic) }
+                        Divider()
+                        Button("Remove Metadata") { shelf.actions.stripImageMetadata() }
+                    }.disabled(!shelf.actions.selectionHasImages)
+                } label: {
+                    Image(systemName: shelf.compressing ? "hourglass" : "ellipsis.circle").frame(width: 20, height: 20)
+                }.menuStyle(.borderlessButton).fixedSize()
+                    .disabled(shelf.availableSelection.isEmpty || shelf.compressing)
+                    .help("Actions for selected files").accessibilityLabel("File actions")
                 Button { shelf.actions.preview() } label: { Image(systemName: "eye").frame(width: 20, height: 20) }
                     .help("Quick Look · Space").disabled(shelf.files.isEmpty)
                 FileShareButton(shelf: shelf).frame(width: 20, height: 20)
-                Button("Clear") { shelf.clear() }.disabled(shelf.files.isEmpty)
+                Button("Clear") { shelf.clear() }.disabled(shelf.files.isEmpty || shelf.compressing)
             }
             if shelf.files.isEmpty {
                 VStack(spacing: 9) {

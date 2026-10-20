@@ -1,3 +1,6 @@
+import UniformTypeIdentifiers
+import ImageIO
+
 import Foundation
 import AppKit
 import Testing
@@ -31,27 +34,11 @@ import Testing
     let preferences = Preferences(defaults: defaults)
     #expect(!preferences.switcherEnabled)
     #expect(!preferences.mediaEnabled)
-    #expect(preferences.gramsPerUnit == 0)
-    preferences.notchEnabled = false; preferences.shortcut = "option"; preferences.gramsPerUnit = 123
+    preferences.notchEnabled = false; preferences.shortcut = "option"
     let restored = Preferences(defaults: defaults)
     #expect(!restored.notchEnabled)
     #expect(restored.shortcut == "option")
-    #expect(restored.gramsPerUnit == 123)
 }
-@Test @MainActor func scaleNeverInventsContactOrMass() {
-    let model = ScaleModel()
-    #expect(!model.receivingPressure)
-    #expect(!model.contact)
-    model.tare()
-    #expect(model.baseline == 0)
-    model.receive(pressure: 0.3, stage: 1)
-    model.tare()
-    #expect(model.baseline == 0.3)
-    model.release()
-    #expect(!model.contact)
-    #expect(model.pressure == 0)
-}
-
 @Test func islandKeepsCameraClearAndAnchorsExpansionToTopCenter() {
     let layout = IslandLayout(cutoutWidth: 190, menuBarHeight: 32, hasHardwareNotch: true)
     let display = CGRect(x: -1512, y: 200, width: 1512, height: 982)
@@ -100,30 +87,6 @@ import Testing
     #expect(HingeMotion.progress(angle: 10, reference: 99) == 1)
     #expect(HingeMotion.progress(angle: 130, reference: 99) == 0)
     #expect(HingeMotion.progress(angle: .nan, reference: 99) == 0)
-}
-
-@Test @MainActor func scaleShowsDerivedGramsAndHoldsLastMeasurement() throws {
-    let suite = "SenseScaleTests.\(UUID().uuidString)"
-    let defaults = try #require(UserDefaults(suiteName: suite))
-    defer { defaults.removePersistentDomain(forName: suite) }
-    let preferences = Preferences(defaults: defaults)
-    let scale = ScaleModel()
-    #expect(scale.lastGrams == nil)
-    scale.receive(pressure: 0.1, stage: 1)
-    scale.tare()
-    scale.receive(pressure: 0.6, stage: 1)
-    scale.knownGrams = 50
-    scale.calibrate(preferences: preferences)
-    #expect(scale.lastGrams == 50)
-    scale.receive(pressure: 0.35, stage: 1, factor: preferences.gramsPerUnit)
-    let reading = try #require(scale.lastGrams)
-    #expect(abs(reading - 25) < 0.001)
-    scale.release()
-    #expect(scale.liveGrams(factor: preferences.gramsPerUnit) == nil)
-    #expect(scale.lastGrams == reading)
-    scale.resetCalibration(preferences: preferences)
-    #expect(scale.lastGrams == nil)
-    #expect(preferences.gramsPerUnit == 0)
 }
 
 @Test @MainActor func shelfAcceptsNativeFileProvidersWithoutMovingSourceFiles() async throws {
@@ -198,22 +161,6 @@ import Testing
     #expect(IslandHitRegion.contains(CGPoint(x: 204, y: 1), frame: frame, radius: 34, roundedTop: false))
     #expect(IslandHitRegion.contains(CGPoint(x: 1, y: 238), frame: frame, radius: 34, roundedTop: false))
     #expect(!IslandHitRegion.contains(CGPoint(x: 1, y: 238), frame: frame, radius: 34, roundedTop: true))
-}
-
-@Test @MainActor func rawTrackpadUnitsNeedNoMassCalibration() {
-    let model = ScaleModel()
-    #expect(model.unit == .pressure)
-    #expect(model.lastPressure == nil)
-    model.receive(pressure: 0.375, stage: 1)
-    #expect(model.lastPressure == 0.375)
-    #expect(model.lastGrams == nil)
-    model.release()
-    #expect(model.lastPressure == 0.375)
-    #expect(!model.contact)
-    model.receive(pressure: .nan, stage: 1)
-    model.receive(pressure: 4, stage: 1)
-    #expect(!model.contact)
-    #expect(model.lastPressure == 0.375)
 }
 
 @Test func desktopOverlayDetectionIgnoresOrdinaryDockAndWallpaper() {
@@ -428,4 +375,234 @@ import Testing
     #expect(scale.grams == nil)
     scale.tare(); scale.receive(.init(grams: 150, touchID: 3, contactCount: 1))
     #expect(scale.grams == nil)
+}
+
+@Test func islandRestorationGrowsFromThePhysicalCameraWithoutFadingIt() {
+    let layout = IslandLayout(cutoutWidth: 190, menuBarHeight: 32, hasHardwareNotch: true)
+    #expect(layout.surfaceSize(for: .compact, reveal: 0) == CGSize(width: 190, height: 32))
+    #expect(layout.surfaceSize(for: .compact, reveal: 1) == layout.compactSize)
+    #expect(layout.surfaceSize(for: .expanded, reveal: 1) == layout.expandedSize)
+    for step in 0...20 {
+        let size = layout.surfaceSize(for: .compact, reveal: Double(step) / 20)
+        #expect(size.width >= layout.cutoutWidth)
+        #expect(size.height == layout.menuBarHeight)
+        let expanded = layout.surfaceSize(for: .expanded, reveal: Double(step) / 20)
+        #expect(expanded.width >= layout.cutoutWidth)
+        #expect(expanded.height >= layout.menuBarHeight)
+        #expect(layout.surfaceSize(for: .hidden, reveal: Double(step) / 20) == CGSize(width: 190, height: 32))
+    }
+}
+
+@Test func hingeCalibrationFollowsOpeningAfterWakeAndHoldsDuringClosing() {
+    var reference: Double? = nil
+    for angle in [35.0, 50, 70, 100, 110] {
+        reference = HingeMotion.openReference(angle: angle, previous: reference)
+        #expect(reference == angle)
+        #expect(HingeMotion.progress(angle: angle, reference: reference!) == 0)
+    }
+    reference = HingeMotion.openReference(angle: 90, previous: reference)
+    #expect(reference == 110)
+    #expect(HingeMotion.progress(angle: 90, reference: reference!) > 0)
+    #expect(HingeMotion.openReference(angle: 100, previous: .nan) == 100)
+}
+
+@Test func lidSetupOnlySaysReadyAfterActualDesktopCaptureSucceeds() {
+    for check in [LidCaptureCheck.unverified, .checking, .failed("Denied")] {
+        let state = LidSetupStatus(readiness: .ready, capture: check)
+        #expect(!state.ready); #expect(state.title != "Ready")
+    }
+    #expect(LidSetupStatus(readiness: .ready, capture: .verified).ready)
+    for readiness in [LidFoldReadiness.disabled, .permissionNeeded, .reduceMotion, .sensorUnavailable, .openLid] {
+        #expect(!LidSetupStatus(readiness: readiness, capture: .verified).ready)
+    }
+    #expect(LidSetupStatus(readiness: .ready, capture: .failed("Capture failed")).detail == "Capture failed")
+}
+
+@Test func lidRebaselinesOnlyAfterRestingAtAWorkingAngle() {
+    #expect(HingeMotion.settledReference(angle: 100, reference: 120, stillFor: 0.5) == 120)
+    #expect(HingeMotion.settledReference(angle: 100, reference: 120, stillFor: 2.5) == 100)
+    #expect(HingeMotion.settledReference(angle: 20, reference: 120, stillFor: 5) == 120)
+    #expect(HingeMotion.settledReference(angle: 130, reference: 120, stillFor: 5) == 120)
+}
+
+@Test func switcherOrdersFrontmostThenMostRecentlyUsed() {
+    let recent: [pid_t] = [10, 30, 20]
+    let order = [20, 40, 30, 10].sorted { WindowSwitcher.rank($0, frontmost: 10, recent: recent) < WindowSwitcher.rank($1, frontmost: 10, recent: recent) }
+    #expect(order == [10, 30, 20, 40])
+}
+
+@Test func stopwatchClockKeepsRunningMonotonically() {
+    let a = ClockTools.continuousNow
+    #expect(ClockTools.continuousNow >= a)
+}
+
+@Test @MainActor func scalePausesWhenSensorFramesLookUnrecognized() {
+    let weighing = NativeWeighing(defaults: UserDefaults(suiteName: "SenseTests.\(UUID().uuidString)")!)
+    for _ in 0..<29 { weighing.receive(NativeForceSample(grams: nil, touchID: nil, contactCount: 1, plausible: false)) }
+    #expect(!weighing.formatUnrecognized)
+    weighing.receive(NativeForceSample(grams: nil, touchID: nil, contactCount: 1, plausible: true))
+    for _ in 0..<30 { weighing.receive(NativeForceSample(grams: nil, touchID: nil, contactCount: 1, plausible: false)) }
+    #expect(weighing.formatUnrecognized)
+}
+
+@Test func doorsFoldIsFlatAtRestAndMeetsAtTheHinge() {
+    let size = CGSize(width: 1000, height: 600)
+    let flat = DesktopFold(progress: 0).corners(size: size, panel: .leading)
+    #expect(flat == [CGPoint(x: 0, y: 0), CGPoint(x: 500, y: 0), CGPoint(x: 500, y: 600), CGPoint(x: 0, y: 600)])
+    for progress in [0.3, 0.7, 1.0] {
+        let fold = DesktopFold(progress: progress)
+        let left = fold.corners(size: size, panel: .leading)
+        let right = fold.corners(size: size, panel: .trailing)
+        // Both panels end on the shared vertical hinge, in their own frames.
+        #expect(abs(left[1].x - 500) < 0.001 && abs(left[2].x - 500) < 0.001)
+        #expect(abs(right[0].x) < 0.001 && abs(right[3].x) < 0.001)
+        // The hinge edge is recessed vertically; the outer edge stays nearer the viewer.
+        #expect(left[1].y > left[0].y && left[2].y < left[3].y)
+    }
+}
+
+@Test func batteryDetailsReportOnlyWhatTheMacProvides() {
+    let registry: [String: Any] = ["CycleCount": 214, "DesignCapacity": 6000, "NominalChargeCapacity": 5460,
+                                   "FullyCharged": false, "AdapterDetails": ["Watts": 67]]
+    let details = BatteryDetails(registry: registry, charging: true, minutesToEmpty: -1, minutesToFull: 72)
+    #expect(details.cycleCount == 214 && details.healthPercent == 91 && details.adapterWatts == 67)
+    #expect(details.minutesToEmpty == nil)
+    #expect(details.summary(level: 80, externalPower: true) == "Charging · 1 h 12 min until full")
+    #expect(BatteryDetails().healthPercent == nil)
+    #expect(BatteryDetails().summary(level: nil, externalPower: false) == "No battery")
+    #expect(BatteryDetails(minutesToEmpty: 45).summary(level: 40, externalPower: false) == "On battery · 45 min remaining")
+    #expect(BatteryDetails(registry: ["FullyCharged": true]).summary(level: 100, externalPower: true) == "Fully charged")
+}
+
+@Test func menuAndShortcutsIncludeBattery() {
+    #expect(ToolShortcuts.Tool.allCases.map(\.title).contains("Battery"))
+    #expect(Set(ToolShortcuts.Tool.allCases.map(\.keyCode)).count == ToolShortcuts.Tool.allCases.count)
+}
+
+@Test func switcherSearchMatchesEveryWordAcrossTitleAndApp() {
+    #expect(SwitcherFilter.matches(query: "", title: "Inbox", app: "Mail"))
+    #expect(SwitcherFilter.matches(query: "mail inb", title: "Inbox", app: "Mail"))
+    #expect(SwitcherFilter.matches(query: "RESUME", title: "Résumé.pdf", app: "Preview"))
+    #expect(!SwitcherFilter.matches(query: "mail budget", title: "Inbox", app: "Mail"))
+}
+
+@Test func imageToolsConvertAndStripMetadataWithoutTouchingTheOriginal() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("SenseImageTools-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let context = try #require(CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
+                                         space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+    let image = try #require(context.makeImage())
+    let original = directory.appendingPathComponent("photo.jpg")
+    let destination = try #require(CGImageDestinationCreateWithURL(original as CFURL, UTType.jpeg.identifier as CFString, 1, nil))
+    CGImageDestinationAddImage(destination, image, [kCGImagePropertyExifDictionary: [kCGImagePropertyExifUserComment: "secret place"]] as CFDictionary)
+    #expect(CGImageDestinationFinalize(destination))
+    let before = try Data(contentsOf: original)
+
+    let stripped = try ShelfImageTools.stripMetadata(original)
+    #expect(stripped.lastPathComponent == "photo (no metadata).jpg")
+    let strippedSource = try #require(CGImageSourceCreateWithURL(stripped as CFURL, nil))
+    let properties = try #require(CGImageSourceCopyPropertiesAtIndex(strippedSource, 0, nil) as? [CFString: Any])
+    let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any]
+    #expect(exif?[kCGImagePropertyExifUserComment] == nil)
+
+    let png = try ShelfImageTools.convert(original, to: .png)
+    #expect(png.pathExtension == "png" && ShelfImageTools.isImage(png))
+    #expect(try Data(contentsOf: original) == before)
+    #expect(ShelfImageTools.uniqueURL(for: directory.appendingPathComponent("README"), suffix: "", ext: "").lastPathComponent == "README")
+}
+
+@Test func calendarPickIgnoresAllDayAndFinishedEvents() {
+    let now = Date(timeIntervalSince1970: 1_000_000)
+    let hour: TimeInterval = 3600
+    let event = NextEvent.pick(from: [
+        (id: "a", title: "Holiday", start: now - hour, end: now + 10 * hour, allDay: true),
+        (id: "b", title: "Done", start: now - 2 * hour, end: now - hour, allDay: false),
+        (id: "c", title: "Standup", start: now + 12 * 60, end: now + hour, allDay: false),
+        (id: "d", title: "Later", start: now + 5 * hour, end: now + 6 * hour, allDay: false)], now: now)
+    #expect(event?.title == "Standup")
+    #expect(event?.relative(at: now) == "in 12 min")
+}
+
+@Test func weekdayAlarmsSkipTheWeekend() throws {
+    var calendar = Calendar(identifier: .gregorian); calendar.timeZone = try #require(TimeZone(identifier: "UTC"))
+    let friday = try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: 23, hour: 20)))
+    let eight = try #require(calendar.date(from: DateComponents(year: 2026, month: 1, day: 1, hour: 7, minute: 30)))
+    let daily = try #require(AlarmSchedule.next(time: eight, after: friday, repeat: .daily, calendar: calendar))
+    let weekdays = try #require(AlarmSchedule.next(time: eight, after: friday, repeat: .weekdays, calendar: calendar))
+    #expect(calendar.component(.weekday, from: daily) == 7)      // Saturday
+    #expect(calendar.component(.weekday, from: weekdays) == 2)   // Monday
+}
+
+@Test @MainActor func clipboardHistorySkipsConcealedCopiesAndPasswordManagers() {
+    let shelf = ClipboardShelf()
+    let board = NSPasteboard(name: NSPasteboard.Name("SenseTests.\(UUID().uuidString)"))
+    board.clearContents(); board.setString("hello world", forType: .string)
+    shelf.recordCopy(from: board, frontmost: "com.apple.TextEdit")
+    shelf.recordCopy(from: board, frontmost: "com.1password.1password")
+    #expect(shelf.history.count == 1)
+    board.clearContents(); board.declareTypes([.string, NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")], owner: nil)
+    board.setString("hunter2", forType: .string)
+    shelf.recordCopy(from: board, frontmost: "com.apple.TextEdit")
+    #expect(shelf.history.count == 1)
+    board.clearContents(); board.setString("https://example.com", forType: .string)
+    shelf.recordCopy(from: board, frontmost: nil)
+    #expect(shelf.history.first?.symbol == "link")
+    shelf.historyFilter = "hello"
+    #expect(shelf.filteredHistory.count == 1)
+}
+
+@Test func partialDownloadNamesMapToTheirFinalFiles() {
+    let found = TransferScan.partials(in: ["a.zip.crdownload", "movie.mp4.download", "notes.txt", ".hidden.crdownload", "x.part", ".crdownload"])
+    #expect(found.map(\.final).sorted() == ["a.zip", "movie.mp4", "x"])
+    #expect(TransferScan.safariProgress(["DownloadEntryProgressBytesSoFar": 25, "DownloadEntryProgressTotalToLoad": 100]).fraction == 0.25)
+    #expect(TransferScan.safariProgress(["DownloadEntryProgressBytesSoFar": 25]).fraction == nil)
+    #expect(TransferScan.safariProgress([:]).bytes == nil)
+    #expect(TransferScan.quarantineAgent("0083;5f8e8f1a;sharingd;1234") == "sharingd")
+    #expect(TransferScan.quarantineAgent("junk") == nil)
+    let known = TransferActivity(id: "1", kind: .download, name: "a", fraction: 0.5)
+    let unknown = TransferActivity(id: "2", kind: .download, name: "b", fraction: nil)
+    #expect(TransferScan.combinedFraction([known]) == 0.5)
+    #expect(TransferScan.combinedFraction([known, unknown]) == nil)
+}
+
+@Test @MainActor func downloadsAppearWhileArrivingAndFinishOnce() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("SenseDownloads-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let tracker = TransferTracker()
+    var finished: [String] = []
+    tracker.onFinished = { finished.append($0.name) }
+    try Data(repeating: 1, count: 2048).write(to: directory.appendingPathComponent("big.zip.crdownload"))
+    tracker.start(directory: directory)
+    #expect(tracker.running.map(\.name) == ["big.zip"])
+    #expect(tracker.running.first?.bytes == 2048 && tracker.running.first?.fraction == nil)
+    try FileManager.default.moveItem(at: directory.appendingPathComponent("big.zip.crdownload"), to: directory.appendingPathComponent("big.zip"))
+    tracker.scan(); tracker.scan()
+    #expect(tracker.running.isEmpty && finished == ["big.zip"] && tracker.recent.count == 1)
+    // A download cancelled before finishing leaves nothing behind.
+    try Data([1]).write(to: directory.appendingPathComponent("gone.part"))
+    tracker.scan()
+    try FileManager.default.removeItem(at: directory.appendingPathComponent("gone.part"))
+    tracker.scan()
+    #expect(tracker.running.isEmpty && finished == ["big.zip"])
+    tracker.stop()
+}
+
+@Test func sharingIsDetectedFromMirroringOrShareHelpers() {
+    #expect(SharingDetection.isSharing(processNames: ["Safari"], displaysMirrored: true))
+    #expect(SharingDetection.isSharing(processNames: ["CptHost", "Finder"], displaysMirrored: false))
+    #expect(!SharingDetection.isSharing(processNames: ["zoom.us", "Safari"], displaysMirrored: false))
+}
+
+@Test @MainActor func autoHideAndPresentationModeAreIndependent() {
+    let controller = NotchController()
+    controller.setAutoHide(reason: "Focus is on")
+    #expect(controller.presentationMode && !controller.manualPresentation)
+    controller.setPresentationMode(true)
+    controller.setAutoHide(reason: nil)
+    #expect(controller.presentationMode)
+    controller.setPresentationMode(false)
+    #expect(!controller.presentationMode)
 }

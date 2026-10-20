@@ -4,6 +4,9 @@ import QuickLookUI
 
 @MainActor final class FileShelfActions: NSObject, NSWindowDelegate {
     weak var shelf: FileShelf?
+    weak var transfers: TransferTracker?
+    var airDropService: NSSharingService?
+    var savePanel: NSSavePanel?
     private var previewWindow: NSWindow?
     private var previewView: QLPreviewView?
     private var previewURLs: [URL] = []
@@ -122,7 +125,8 @@ final class ShelfCollectionView: NSCollectionView {
     override var needsPanelToBecomeKey: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 49 { shelf?.actions.preview() }
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command && event.charactersIgnoringModifiers == "c" { shelf?.actions.copy() }
+        else if event.keyCode == 49 { shelf?.actions.preview() }
         else { super.keyDown(with: event) }
     }
     override func mouseDown(with event: NSEvent) {
@@ -136,11 +140,24 @@ final class ShelfCollectionView: NSCollectionView {
             if let shelf, shelf.files.indices.contains(path.item) { shelf.select([shelf.files[path.item].url]) }
         }
         let menu = NSMenu()
-        for (title, action) in [("Quick Look", #selector(previewFiles)), ("Reveal in Finder", #selector(revealFiles)), ("Remove from Shelf", #selector(removeFiles))] {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: ""); item.target = self; menu.addItem(item)
+        for (title, action) in [("AirDrop…", #selector(airDropFiles)), ("Compress…", #selector(compressFiles)), ("Copy Files", #selector(copyFiles)), ("Copy to Folder…", #selector(copyToFolderFiles)), ("Rename…", #selector(renameFile)), ("Convert to PNG", #selector(toPNG)), ("Convert to JPEG", #selector(toJPEG)), ("Remove Image Metadata", #selector(stripMetadata)), ("Quick Look", #selector(previewFiles)), ("Reveal in Finder", #selector(revealFiles)), ("Remove from Shelf", #selector(removeFiles))] {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: ""); item.target = self
+            item.isEnabled = !(shelf?.availableSelection.isEmpty ?? true) && shelf?.compressing != true
+            if title == "AirDrop…" { item.isEnabled = item.isEnabled && shelf?.actions.canAirDrop == true }
+            if ["Convert to PNG", "Convert to JPEG", "Remove Image Metadata"].contains(title) { item.isEnabled = item.isEnabled && shelf?.actions.selectionHasImages == true }
+            menu.addItem(item)
         }
         return menu
     }
+    @objc private func airDropFiles() { shelf?.actions.airDrop() }
+    @objc private func compressFiles() { shelf?.actions.chooseArchiveDestination() }
+    @objc private func copyToFolderFiles() { shelf?.actions.copyToFolder() }
+    @objc private func renameFile() { shelf?.actions.rename() }
+    @objc private func toPNG() { shelf?.actions.convertImages(to: .png) }
+    @objc private func toJPEG() { shelf?.actions.convertImages(to: .jpeg) }
+    @objc private func stripMetadata() { shelf?.actions.stripImageMetadata() }
+    @objc private func copyFiles() { shelf?.actions.copy() }
+    @objc func copy(_ sender: Any?) { shelf?.actions.copy() }
     @objc private func previewFiles() { shelf?.actions.preview() }
     @objc private func revealFiles() { if let urls = shelf?.availableSelection { NSWorkspace.shared.activateFileViewerSelecting(urls) } }
     @objc private func removeFiles() { shelf?.removeSelection() }

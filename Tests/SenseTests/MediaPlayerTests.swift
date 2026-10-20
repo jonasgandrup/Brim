@@ -125,3 +125,101 @@ private actor TimerCommands {
     #expect(await recorder.requests.isEmpty)
     media.stop()
 }
+
+@Test @MainActor func trackEndFollowsPausesAndSeekingAndFiresOnce() async {
+    let timer = MediaSleepTimer()
+    let date = Date()
+    var sample = session(playerA)
+    var paused: [String] = []
+    timer.readTrack = { _ in sample }
+    timer.pauseTrack = { paused.append($0.identifier ?? ""); return .submitted }
+    timer.startAtTrackEnd(player: playerA, snapshot: sample, at: date)
+    sample.position = 50; sample.rate = 0
+    await timer.check(at: date.addingTimeInterval(190))
+    #expect(timer.schedule?.endOfTrack == true); #expect(paused.isEmpty)
+    sample.position = 198; sample.rate = 1
+    await timer.check(at: date.addingTimeInterval(200))
+    sample.position = 30 // Seeking backwards must not use the old deadline.
+    await timer.check(at: date.addingTimeInterval(200.5))
+    #expect(paused.isEmpty)
+    sample.position = 200
+    await timer.check(at: date.addingTimeInterval(201))
+    await timer.check(at: date.addingTimeInterval(202))
+    #expect(paused == ["Track"]); #expect(timer.schedule == nil)
+    timer.cancel()
+}
+
+@Test @MainActor func trackEndCancelsManualSkipButPausesNaturalNextTrack() async {
+    let timer = MediaSleepTimer()
+    let date = Date()
+    var sample = session(playerA)
+    var paused = 0
+    timer.readTrack = { _ in sample }
+    timer.pauseTrack = { _ in paused += 1; return .submitted }
+    timer.startAtTrackEnd(player: playerA, snapshot: sample, at: date)
+    sample = session(playerA, title: "Skipped")
+    await timer.check(at: date.addingTimeInterval(1))
+    #expect(timer.schedule == nil); #expect(paused == 0)
+    sample = session(playerA); sample.position = 199
+    timer.startAtTrackEnd(player: playerA, snapshot: sample, at: date)
+    sample = session(playerA, title: "Next"); sample.position = 0
+    await timer.check(at: date.addingTimeInterval(1.1))
+    #expect(paused == 1); #expect(timer.schedule == nil)
+    timer.cancel()
+}
+
+@Test @MainActor func trackEndRejectsUnsupportedAndReplacedPlayers() async {
+    let timer = MediaSleepTimer()
+    let date = Date()
+    var sample = session(playerA)
+    sample.duration = nil
+    timer.startAtTrackEnd(player: playerA, snapshot: sample)
+    #expect(timer.schedule == nil)
+    sample = session(playerA); sample.identifier = ""
+    #expect(!MediaSleepTimer.supportsTrackEnd(sample))
+    sample = session(playerA)
+    timer.startAtTrackEnd(player: playerA, snapshot: sample, at: date)
+    sample.processID = 999; sample.position = 200
+    timer.readTrack = { _ in sample }
+    var paused = false
+    timer.pauseTrack = { _ in paused = true; return .submitted }
+    for i in 1...3 { await timer.check(at: date.addingTimeInterval(Double(i))) }
+    #expect(!paused); #expect(timer.schedule == nil)
+    timer.cancel()
+}
+
+@Test @MainActor func cancellingTrackEndDuringAReadPreventsPlaybackCommands() async {
+    let timer = MediaSleepTimer()
+    var sample = session(playerA); sample.position = 199
+    timer.startAtTrackEnd(player: playerA, snapshot: sample)
+    timer.readTrack = { _ in
+        timer.cancel()
+        var ended = session(playerA); ended.position = 200
+        return ended
+    }
+    var paused = false
+    timer.pauseTrack = { _ in paused = true; return .submitted }
+    await timer.check(at: Date().addingTimeInterval(2))
+    #expect(!paused); #expect(timer.schedule == nil)
+}
+
+@Test @MainActor func trackEndRemainsBoundToOriginalPlayerWhenCardChanges() async {
+    let recorder = TimerCommands()
+    let media = MediaService()
+    media.updatePlayers([playerA, playerB])
+    var start = session(playerA); start.position = 199
+    media.apply(start)
+    media.playerReader = { player in var ended = session(player); ended.position = 200; return ended }
+    media.playbackTransport = { request, _ in await recorder.send(request) }
+    #expect(media.canSleepAtTrackEnd)
+    media.startTrackEndSleepTimer()
+    media.apply(session(playerB))
+    await media.sleepTimer.check(at: Date().addingTimeInterval(2))
+    let requests = await recorder.requests
+    #expect(requests.count == 1)
+    #expect(requests.first?.item.source == playerA.source)
+    #expect(requests.first?.item.playerPath == playerA.id)
+    #expect(requests.first?.action == .pause)
+    #expect(media.source == playerB.source)
+    media.stop()
+}

@@ -15,4 +15,7 @@
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSAppleEventsUsageDescription</key><string>Sense reads Music or Spotify artwork and controls their playback when you enable Now Playing.</string>
     <key>NSScreenCaptureUsageDescription</key><string>Sense captures window thumbnails for the switcher and a temporary desktop image for the optional lid-closing fold effect.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key><string>Sense reads your calendar on this Mac to show your next event in the island. Nothing is stored or sent anywhere.</string>
+    <key>NSCalendarsUsageDescription</key><string>Sense reads your calendar on this Mac to show your next event in the island. Nothing is stored or sent anywhere.</string>
+    <key>NSFocusStatusUsageDescription</key><string>Sense can hide the island while a Focus is on. It only learns whether a Focus is active, never which one or why.</string>
 </dict></plist>

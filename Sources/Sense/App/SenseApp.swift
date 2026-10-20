@@ -22,11 +22,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let model = SenseAppModel.shared
         statusBar = StatusBarController(model: model)
         model.apply()
+        if CommandLine.arguments.contains("--lid-diagnostics") {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(2))
+                model.permissions.refresh()
+                let values: [String: Any] = ["screenRecording": model.permissions.screenRecording,
+                    "reduceMotion": NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+                    "foldEnabled": model.preferences.lidEffectEnabled,
+                    "hingeStatus": model.lid.status, "angle": model.lid.angle as Any? ?? NSNull(),
+                    "referenceAngle": model.lid.referenceAngle as Any? ?? NSNull(),
+                    "readiness": model.lidFoldReadiness.message, "captureCheck": model.lid.captureCheck.title, "launchAtLogin": model.loginEnabled]
+                if let data = try? JSONSerialization.data(withJSONObject: values, options: [.prettyPrinted, .sortedKeys]),
+                   let text = String(data: data, encoding: .utf8) { print(text) }
+                NSApp.terminate(nil)
+            }
+            return
+        }
         if CommandLine.arguments.contains("--lid-setup") { model.openSettings(page: .lock) }
         else if !UserDefaults.standard.bool(forKey: "hasLaunched") || CommandLine.arguments.contains("--settings") || CommandLine.arguments.contains("--smoke-test") {
             if !CommandLine.arguments.contains("--smoke-test") { UserDefaults.standard.set(true, forKey: "hasLaunched") }
             model.openSettings()
         }
+        #if DEBUG
         if CommandLine.arguments.contains("--smoke-test") {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(2))
@@ -34,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSApp.terminate(nil)
             }
         }
+        #endif
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationWillTerminate(_ notification: Notification) { SenseAppModel.shared.stop() }
@@ -52,13 +70,16 @@ final class SenseAppModel {
     let media = MediaService()
     let notch = NotchController()
     let switcher = WindowSwitcher()
-    let scale = ScaleModel()
+    let toolShortcuts = ToolShortcuts()
+    let scale = NativeWeighing()
+    let autoHide = AutoHideMonitor()
     let lock = LockScreenService()
     let lid = LidEffectService()
     var lidFoldReadiness: LidFoldReadiness {
-        .resolve(enabled: preferences.lockEnabled && preferences.lidEffectEnabled, screenRecording: permissions.screenRecording,
+        .resolve(enabled: preferences.lidEffectEnabled, screenRecording: permissions.screenRecording,
                  reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, angle: lid.angle)
     }
+    var lidSetupStatus: LidSetupStatus { .init(readiness: lidFoldReadiness, capture: lid.captureCheck) }
     var page: SettingsPage = .general
     var loginEnabled = SMAppService.mainApp.status == .enabled
     var loginMessage: String?
@@ -66,10 +87,12 @@ final class SenseAppModel {
     private var scaleWindow: NSWindow?
     private var activationObserver: NSObjectProtocol?
     private init() {
+        lid.hasScreenAccess = { [permissions] in permissions.screenRecording }
+        switcher.hasScreenAccess = { [permissions] in permissions.screenRecording }
         activationObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                self.permissions.refresh(); self.switcher.configure(preferences: self.preferences)
+                self.permissions.refresh(); self.lid.verifyDesktopCapture(); self.switcher.configure(preferences: self.preferences)
                 self.loginEnabled = SMAppService.mainApp.status == .enabled
             }
         }
@@ -79,15 +102,22 @@ final class SenseAppModel {
         permissions.refresh()
         if preferences.notchEnabled {
             status.start(); notch.start(preferences: preferences, status: status, media: media, onOpenSettings: { [weak self] in self?.openSettings(page: .notch) })
-        } else { notch.stop(); status.stop() }
+        } else { notch.stop(); if preferences.menuBarStatus == "battery" { status.start() } else { status.stop() } }
         if preferences.notchEnabled && preferences.mediaEnabled { media.start() } else { media.stop() }
+        if preferences.notchEnabled {
+            autoHide.configure(focus: preferences.autoHideFocus, sharing: preferences.autoHideSharing) { [notch] reason in notch.setAutoHide(reason: reason) }
+        } else { autoHide.stop() }
+        toolShortcuts.configure(enabled: preferences.notchEnabled && preferences.toolShortcutsEnabled, modifiers: ShortcutModifiers(rawValue: preferences.toolShortcutModifiers) ?? .ctrlOptCmd) { [weak self] tool in
+            self?.notch.openTool(tool)
+        }
         switcher.onVisibilityChanged = { [weak self] visible in self?.notch.setSwitcherOverlayActive(visible) }
         switcher.configure(preferences: preferences)
         lock.configure(preferences: preferences, notch: notch)
-        if preferences.lockEnabled && preferences.lidEffectEnabled { lid.start() } else { lid.stop() }
-        if !preferences.scaleEnabled { scaleWindow?.close(); scale.release() }
+        lid.style = LidFoldStyle(rawValue: preferences.lidFoldStyle) ?? .fold
+        if preferences.lidEffectEnabled { lid.start() } else { lid.stop() }
+        if !preferences.scaleEnabled { scaleWindow?.close(); scale.stop() }
     }
-    func stop() { scale.native.stop(); notch.clock.stop(); notch.countdown.cancel(); lid.stop(); switcher.stop(); notch.stop(); status.stop(); media.stop() }
+    func stop() { autoHide.stop(); toolShortcuts.stop(); scale.stop(); notch.clock.stop(); notch.countdown.cancel(); lid.stop(); switcher.stop(); notch.stop(); status.stop(); media.stop() }
     func openSettings(page: SettingsPage? = nil) {
         if let page { self.page = page }
         if settingsWindow == nil {
@@ -104,13 +134,21 @@ final class SenseAppModel {
         guard preferences.scaleEnabled else { return }
         if scaleWindow == nil {
             let window = ScaleWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 680), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
-            window.weighing = scale.native
+            window.weighing = scale
             window.title = "Trackpad Scale"; window.isReleasedWhenClosed = false
-            window.contentView = NSHostingView(rootView: ScaleView(model: scale, preferences: preferences))
+            window.contentView = NSHostingView(rootView: ScaleView(model: scale))
             window.center(); scaleWindow = window
         }
-        scale.native.start()
+        scale.start()
         NSApp.activate(); scaleWindow?.makeKeyAndOrderFront(nil)
+    }
+    func restartForLidSetup() {
+        guard Bundle.main.bundleURL.pathExtension == "app" else { return }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "for attempt in 1 2 3 4 5 6 7 8 9 10; do /bin/kill -0 \"$1\" 2>/dev/null || exec /usr/bin/open -n \"$2\" --args --lid-setup; /bin/sleep 0.2; done", "sense-relaunch", String(ProcessInfo.processInfo.processIdentifier), Bundle.main.bundleURL.path]
+        do { try process.run(); NSApp.terminate(nil) }
+        catch { lid.captureMessage = "Couldn’t restart Sense. Quit from the menu bar and reopen it." }
     }
     func setLogin(_ enabled: Bool) {
         do {
@@ -120,6 +158,7 @@ final class SenseAppModel {
             if SMAppService.mainApp.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
         } catch { loginEnabled = SMAppService.mainApp.status == .enabled; loginMessage = error.localizedDescription }
     }
+#if DEBUG
     func exportSmokeTest() async {
         let output = ProcessInfo.processInfo.environment["SENSE_SMOKE_OUTPUT"] ?? "/tmp/sense-smoke"
         try? FileManager.default.createDirectory(atPath: output, withIntermediateDirectories: true)
@@ -154,8 +193,8 @@ final class SenseAppModel {
                 rendered.append("scale.png")
             }
         }
-        let forceAvailable = scale.native.available
-        let forceSamples = scale.native.receivedSamples
+        let forceAvailable = scale.available
+        let forceSamples = scale.receivedSamples
         scaleWindow?.close()
         preferences.appearance = "system"
         rendered += await notch.exportPreview(to: URL(fileURLWithPath: output))
@@ -176,6 +215,8 @@ final class SenseAppModel {
             }
             mediaCheck["discoveredPlayers"] = playerChecks
             let snapshot = await SystemMediaBridge.snapshot()
+            let layoutSnapshot = SystemMediaSnapshot(available: true, title: "Preview track", artist: "Layout preview · no audio", source: "sense.preview.player", sourceName: "Preview Player", rate: 0, duration: 240, position: 80, identifier: "layout-preview", canSeek: false, processID: 1)
+            if let name = await notch.exportMediaPreview(layoutSnapshot, to: URL(fileURLWithPath: output), layoutPreview: true) { rendered.append(name) }
             mediaCheck["systemBridgeAvailable"] = snapshot?.available == true
             mediaCheck["hasMediaSession"] = snapshot?.hasMedia == true
             mediaCheck["sourceName"] = snapshot?.sourceName ?? "None"
@@ -256,7 +297,8 @@ final class SenseAppModel {
         let statusBar = (NSApp.delegate as? AppDelegate)?.statusBar
         let statusFrame = statusBar?.buttonFrame ?? .zero
         let islandFrame = notch.panelFrame ?? .zero
-        let report: [String: Any] = ["app": "Sense", "bundleID": Bundle.main.bundleIdentifier ?? "unbundled", "settingsWindow": settingsWindow != nil, "rendered": rendered, "previewMode": "settings content without scroll wrapper",
+        let shortcutChecks = toolShortcuts.checkDelivery()
+        let report: [String: Any] = ["activitiesAndPresentation": notch.activityChecks, "toolShortcuts": shortcutChecks,"app": "Sense", "bundleID": Bundle.main.bundleIdentifier ?? "unbundled", "settingsWindow": settingsWindow != nil, "rendered": rendered, "previewMode": "settings content without scroll wrapper",
             "menuBarIconVisible": statusBar?.isVisible ?? false,
             "menuBarFrame": [statusFrame.minX, statusFrame.minY, statusFrame.width, statusFrame.height],
             "menuEntries": statusBar?.menuTitles ?? [],
@@ -266,6 +308,7 @@ final class SenseAppModel {
             "islandIdlePassesThroughMouse": notch.ignoresMouseEvents,
             "islandTransitionsKeepPanelStable": notch.transitionsKeepPanelStable,
             "islandRapidTabChangesSettle": notch.rapidTabChangesSettle,
+            "nativeMenusRetainIsland": notch.nativeMenusRetainIsland,
             "islandPointerExitClosesPromptly": notch.pointerExitClosesPromptly,
             "islandIdleHoverOpens": notch.idleHoverOpensIsland,
             "islandHoverAfterTransitions": hoverAfterTransitions,
@@ -293,4 +336,5 @@ final class SenseAppModel {
             try? data.write(to: URL(fileURLWithPath: output).appendingPathComponent("report.json"))
         }
     }
+#endif
 }

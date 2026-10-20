@@ -9,6 +9,9 @@ import SwiftUI
     private(set) var touchID: Int32?
     private(set) var heldGrams: Double?
     private(set) var receivedSamples = 0
+    /// Set when sensor frames stop matching the expected layout, so the scale says so instead of guessing.
+    private(set) var formatUnrecognized = false
+    private var implausibleRun = 0
     var knownGrams = 50.0
     var notice: String?
     private let defaults: UserDefaults
@@ -34,7 +37,11 @@ import SwiftUI
     }
     func receive(_ sample: NativeForceSample) {
         receivedSamples += 1
-        guard sample.contactCount == 1, let value = sample.grams, value.isFinite, (0...5000).contains(value), let identity = sample.touchID else {
+        if sample.contactCount == 1 {
+            implausibleRun = sample.plausible ? 0 : implausibleRun + 1
+            formatUnrecognized = implausibleRun >= 30
+        }
+        guard !formatUnrecognized, sample.contactCount == 1, let value = sample.grams, value.isFinite, (0...5000).contains(value), let identity = sample.touchID else {
             rawGrams = nil; baseline = nil; touchID = nil; return
         }
         if touchID != identity { baseline = nil }
@@ -74,6 +81,7 @@ struct NativeScaleView: View {
     @Bindable var model: NativeWeighing
     private var status: String {
         if !model.available { return "A built-in Force Touch trackpad is required" }
+        if model.formatUnrecognized { return "This macOS version’s trackpad data isn’t recognized. Readings are paused." }
         if model.grams != nil { return "Live estimate" }
         if model.heldGrams != nil { return "Held reading · set zero for a new measurement" }
         return model.rawGrams == nil ? "Rest one fingertip lightly on the trackpad" : "Set zero, then place your object beside your finger"

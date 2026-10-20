@@ -3,10 +3,20 @@ import SwiftUI
 @MainActor @Observable
 final class Preferences {
     private let defaults: UserDefaults
+    var toolShortcutsEnabled: Bool { didSet { save("toolShortcutsEnabled", toolShortcutsEnabled) } }
     var notchEnabled: Bool { didSet { save("notchEnabled", notchEnabled) } }
     var switcherEnabled: Bool { didSet { save("switcherEnabled", switcherEnabled) } }
     var scaleEnabled: Bool { didSet { save("scaleEnabled", scaleEnabled) } }
     var lidEffectEnabled: Bool { didSet { save("lidEffectEnabled", lidEffectEnabled) } }
+    var toolShortcutModifiers: String { didSet { save("toolShortcutModifiers", toolShortcutModifiers) } }
+    var clipboardHistory: Bool { didSet { save("clipboardHistory", clipboardHistory) } }
+    var calendarPreview: Bool { didSet { save("calendarPreview", calendarPreview) } }
+    var liveTransfers: Bool { didSet { save("liveTransfers", liveTransfers) } }
+    var autoHideFocus: Bool { didSet { save("autoHideFocus", autoHideFocus) } }
+    var autoHideSharing: Bool { didSet { save("autoHideSharing", autoHideSharing) } }
+    var lidFoldStyle: String { didSet { save("lidFoldStyle", lidFoldStyle) } }
+    var menuBarStatus: String { didSet { save("menuBarStatus", menuBarStatus) } }
+    var screenshotShelf: Bool { didSet { save("screenshotShelf", screenshotShelf) } }
     var lockEnabled: Bool { didSet { save("lockEnabled", lockEnabled) } }
     var hoverToExpand: Bool { didSet { save("hoverToExpand", hoverToExpand) } }
     var showOnExternal: Bool { didSet { save("showOnExternal", showOnExternal) } }
@@ -16,16 +26,25 @@ final class Preferences {
     var appearance: String { didSet { save("appearance", appearance); applyAppearance() } }
     var chargingFeedback: Bool { didSet { save("chargingFeedback", chargingFeedback) } }
     var chargeTarget: Int { didSet { save("chargeTarget", chargeTarget) } }
-    var gramsPerUnit: Double { didSet { save("gramsPerUnit", gramsPerUnit) } }
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        defaults.register(defaults: ["notchEnabled": true, "switcherEnabled": false,
+        defaults.register(defaults: ["toolShortcutsEnabled": true, "notchEnabled": true, "switcherEnabled": false,
             "scaleEnabled": true, "lockEnabled": true, "lidEffectEnabled": true, "hoverToExpand": true,
             "showOnExternal": false, "shortcut": "command", "includeMinimized": true,
-            "chargingFeedback": true, "chargeTarget": 80, "mediaEnabled": false, "appearance": "system", "gramsPerUnit": 0.0])
+            "chargingFeedback": true, "chargeTarget": 80, "mediaEnabled": false, "lidFoldStyle": "fold", "liveTransfers": false, "autoHideFocus": false, "autoHideSharing": false, "calendarPreview": false, "clipboardHistory": false, "toolShortcutModifiers": "ctrlOptCmd", "menuBarStatus": "off", "screenshotShelf": false, "appearance": "system"])
+        toolShortcutsEnabled = defaults.bool(forKey: "toolShortcutsEnabled")
         notchEnabled = defaults.bool(forKey: "notchEnabled")
         switcherEnabled = defaults.bool(forKey: "switcherEnabled")
         scaleEnabled = defaults.bool(forKey: "scaleEnabled")
+        toolShortcutModifiers = defaults.string(forKey: "toolShortcutModifiers") ?? "ctrlOptCmd"
+        clipboardHistory = defaults.bool(forKey: "clipboardHistory")
+        calendarPreview = defaults.bool(forKey: "calendarPreview")
+        liveTransfers = defaults.bool(forKey: "liveTransfers")
+        autoHideFocus = defaults.bool(forKey: "autoHideFocus")
+        autoHideSharing = defaults.bool(forKey: "autoHideSharing")
+        lidFoldStyle = defaults.string(forKey: "lidFoldStyle") ?? "fold"
+        menuBarStatus = defaults.string(forKey: "menuBarStatus") ?? "off"
+        screenshotShelf = defaults.bool(forKey: "screenshotShelf")
         lockEnabled = defaults.bool(forKey: "lockEnabled")
         lidEffectEnabled = defaults.bool(forKey: "lidEffectEnabled")
         hoverToExpand = defaults.bool(forKey: "hoverToExpand")
@@ -36,7 +55,6 @@ final class Preferences {
         appearance = defaults.string(forKey: "appearance") ?? "system"
         chargingFeedback = defaults.bool(forKey: "chargingFeedback")
         chargeTarget = min(100, max(50, defaults.integer(forKey: "chargeTarget")))
-        gramsPerUnit = defaults.double(forKey: "gramsPerUnit")
     }
     private func save(_ key: String, _ value: Any) { defaults.set(value, forKey: key) }
     func applyAppearance() {

@@ -44,6 +44,50 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         item.menu = menu
         rebuildMenu()
         installApplicationMenu()
+        observeStatus()
+    }
+    /// Optional readout beside the icon: battery, or the running timer or stopwatch.
+    private func observeStatus() {
+        withObservationTracking {
+            _ = model.preferences.menuBarStatus
+            _ = model.status.battery; _ = model.status.charging
+            _ = model.notch.countdown.state; _ = model.notch.countdown.now
+            _ = model.notch.clock.stopwatch; _ = model.notch.clock.uptime; _ = model.notch.clock.ringing
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.updateStatusText(); self?.observeStatus() }
+        }
+        updateStatusText()
+    }
+    private func statusText() -> (text: String, bolt: Bool)? {
+        switch model.preferences.menuBarStatus {
+        case "battery":
+            guard let level = model.status.battery else { return nil }
+            return ("\(level)%", model.status.charging)
+        case "activity":
+            let countdown = model.notch.countdown
+            if countdown.active { return (countdown.state.phase == .finished ? "Done" : countdown.label, false) }
+            let clock = model.notch.clock
+            if clock.active { return (clock.label, false) }
+            return nil
+        default: return nil
+        }
+    }
+    private func updateStatusText() {
+        guard let button = item.button else { return }
+        guard let status = statusText() else {
+            if button.attributedTitle.length > 0 { button.attributedTitle = NSAttributedString(); button.imagePosition = .imageOnly; item.length = 28 }
+            return
+        }
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        let title = NSMutableAttributedString()
+        if status.bolt, let bolt = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: "Charging") {
+            let attachment = NSTextAttachment(); attachment.image = bolt.withSymbolConfiguration(.init(pointSize: 10, weight: .semibold))
+            title.append(NSAttributedString(attachment: attachment))
+        }
+        title.append(NSAttributedString(string: status.text, attributes: [.font: font]))
+        if button.attributedTitle.string != title.string || button.imagePosition != .imageLeft {
+            button.attributedTitle = title; button.imagePosition = .imageLeft; item.length = NSStatusItem.variableLength
+        }
     }
     private func installApplicationMenu() {
         let main = NSMenu()
@@ -75,11 +119,25 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private func rebuildMenu() {
         menu.removeAllItems()
         let heading = add("Sense"); heading.isEnabled = false
-        add("Open Dynamic Island", action: #selector(openIsland), symbol: "capsule").isEnabled = model.preferences.notchEnabled
-        add("Open File Shelf", action: #selector(openFileShelf), symbol: "tray").isEnabled = model.preferences.notchEnabled
-        add("Clock…", action: #selector(openTimer), symbol: "timer").isEnabled = model.preferences.notchEnabled
-        add("Clipboard Shelf", action: #selector(openClipboard), symbol: "pin").isEnabled = model.preferences.notchEnabled
-        add("Pin Clipboard", action: #selector(pinClipboard), symbol: "doc.on.clipboard").isEnabled = model.preferences.notchEnabled
+        let presentation = add(model.notch.manualPresentation ? "End Presentation Mode" : "Presentation Mode", action: #selector(togglePresentation), symbol: "display")
+        presentation.state = model.notch.manualPresentation ? .on : .off
+        if let reason = model.notch.autoHideReason { add("Island hidden automatically · \(reason)").isEnabled = false }
+        menu.addItem(.separator())
+        add("Open Dynamic Island", action: #selector(openIsland), symbol: "capsule").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
+        add("Now Playing", action: #selector(openNowPlaying), symbol: "play.rectangle").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
+        add("Open File Shelf", action: #selector(openFileShelf), symbol: "tray").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
+        add("Clock…", action: #selector(openTimer), symbol: "timer").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
+        add("Clipboard Shelf", action: #selector(openClipboard), symbol: "pin").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
+        add("Battery", action: #selector(openBattery), symbol: "battery.100").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
+        add("Transfers", action: #selector(openTransfers), symbol: "arrow.down.circle").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
+        if model.preferences.toolShortcutsEnabled {
+            for (title, key) in [("Now Playing", "1"), ("Open File Shelf", "2"), ("Clipboard Shelf", "3"), ("Clock…", "4"), ("Battery", "5"), ("Transfers", "6")] {
+                if let entry = menu.items.first(where: { $0.title == title }) {
+                    entry.keyEquivalent = key; entry.keyEquivalentModifierMask = (ShortcutModifiers(rawValue: model.preferences.toolShortcutModifiers) ?? .ctrlOptCmd).menuMask
+                }
+            }
+        }
+        add("Pin Clipboard", action: #selector(pinClipboard), symbol: "doc.on.clipboard").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
         add("Set Up Lid Fold…", action: #selector(openLidSetup), symbol: "macbook")
         add("Settings…", action: #selector(openSettings), key: ",", symbol: "gearshape")
         menu.addItem(.separator())
@@ -87,7 +145,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             ("Dynamic Island", "notch", model.preferences.notchEnabled),
             ("Window Switcher", "switcher", model.preferences.switcherEnabled),
             ("Trackpad Scale", "scale", model.preferences.scaleEnabled),
-            ("Lid Fold & Lock", "lock", model.preferences.lockEnabled)
+            ("Lid Fold", "lid", model.preferences.lidEffectEnabled),
+            ("Lock Actions", "lock", model.preferences.lockEnabled)
         ] {
             let entry = add(title, action: #selector(toggleFeature(_:)))
             entry.representedObject = key; entry.state = enabled ? .on : .off
@@ -98,7 +157,15 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
         add("Quit Sense", action: #selector(quit), key: "q")
     }
+    @objc private func togglePresentation() {
+        model.notch.setPresentationMode(!model.notch.manualPresentation)
+        item.button?.toolTip = model.notch.manualPresentation ? "Sense — Presentation Mode · island hidden" : "Sense — Dynamic Island and Mac utilities"
+        rebuildMenu()
+    }
+    @objc private func openNowPlaying() { model.notch.openTool(.nowPlaying) }
     @objc private func openTimer() { model.notch.openTimerFromMenu() }
+    @objc private func openTransfers() { model.notch.openTransfersFromMenu() }
+    @objc private func openBattery() { model.notch.openBatteryFromMenu() }
     @objc private func openClipboard() { model.notch.openClipboardFromMenu() }
     @objc private func pinClipboard() { model.notch.pinClipboard() }
     @objc private func openLidSetup() { model.openSettings(page: .lock) }
@@ -113,6 +180,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         case "notch": model.preferences.notchEnabled.toggle()
         case "switcher": model.preferences.switcherEnabled.toggle()
         case "scale": model.preferences.scaleEnabled.toggle()
+        case "lid": model.preferences.lidEffectEnabled.toggle()
         case "lock": model.preferences.lockEnabled.toggle()
         default: return
         }

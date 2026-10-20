@@ -47,6 +47,17 @@ struct HingeMotion {
         guard (0...180).contains(degrees) else { return nil }
         return Double(degrees)
     }
+    /// The first reading after wake can arrive before the lid reaches its working angle.
+    /// Follow opening movement, then retain that peak while the lid closes.
+    static func openReference(angle: Double, previous: Double?) -> Double {
+        guard let previous, previous.isFinite, previous > 0 else { return angle }
+        return max(previous, angle)
+    }
+    /// A lid that has rested at a working angle for a while defines the new open position,
+    /// so lowering the screen a little and leaving it there never counts as closing.
+    static func settledReference(angle: Double, reference: Double, stillFor seconds: TimeInterval) -> Double {
+        angle >= 40 && seconds >= 2 && angle < reference ? angle : reference
+    }
     static func progress(angle: Double, reference: Double) -> Double {
         guard angle.isFinite, reference.isFinite, reference > 20 else { return 0 }
         return min(1, max(0, (reference - angle - 6) / (reference - 18)))

@@ -17,6 +17,15 @@ final class SwitcherWindow: Identifiable {
     }
 }
 
+enum SwitcherFilter {
+    /// Matches each word of the query against the window title or app name, ignoring case and accents.
+    static func matches(query: String, title: String, app: String) -> Bool {
+        let words = query.split(separator: " ").map(String.init)
+        let haystack = (title + " " + app)
+        return words.allSatisfy { haystack.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
+    }
+}
+
 enum SwitcherSelection {
     static func next(_ current: Int, count: Int, backwards: Bool) -> Int {
         guard count > 0 else { return 0 }
@@ -27,6 +36,12 @@ enum SwitcherSelection {
 @MainActor @Observable
 final class WindowSwitcher {
     var windows: [SwitcherWindow] = []
+    /// Type-to-search: `/` or F while the switcher is open. The modifier can then be released.
+    private(set) var query = ""
+    private(set) var searching = false
+    var shown: [SwitcherWindow] {
+        query.isEmpty ? windows : windows.filter { SwitcherFilter.matches(query: query, title: $0.title, app: $0.app.localizedName ?? "") }
+    }
     var onVisibilityChanged: (Bool) -> Void = { _ in }
     var selected = 0
     var visible = false
@@ -40,12 +55,25 @@ final class WindowSwitcher {
     private var awaitingPresentation = false
     private var activateWhenReady = false
     private var pendingSteps = 0
+    /// Same source of truth as the rest of the app, so a stale preflight flag can't hide thumbnails.
+    var hasScreenAccess: @MainActor () -> Bool = { CGPreflightScreenCaptureAccess() }
+    /// Most recently activated first, so one Tab always reaches the previous app.
+    private var recentApps: [pid_t] = []
+    private var activationObserver: NSObjectProtocol?
+    private func noteActivated(_ pid: pid_t) { recentApps.removeAll { $0 == pid }; recentApps.insert(pid, at: 0); if recentApps.count > 64 { recentApps.removeLast() } }
 
     func configure(preferences: Preferences) {
         self.preferences = preferences
         guard preferences.switcherEnabled else { stop(); status = "Off"; return }
         guard AXIsProcessTrusted() else { stop(); status = "Accessibility permission required"; return }
         guard tap == nil else { return }
+        if let front = NSWorkspace.shared.frontmostApplication?.processIdentifier, recentApps.isEmpty { noteActivated(front) }
+        if activationObserver == nil {
+            activationObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
+                guard let pid = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier else { return }
+                MainActor.assumeIsolated { self?.noteActivated(pid) }
+            }
+        }
         let mask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
         let callback: CGEventTapCallBack = { _, type, event, context in
             guard let context else { return Unmanaged.passUnretained(event) }
@@ -69,6 +97,8 @@ final class WindowSwitcher {
         if let tap { CGEvent.tapEnable(tap: tap, enable: false); CFMachPortInvalidate(tap) }
         if let runLoopSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes) }
         tap = nil; runLoopSource = nil; swallowedTab = false
+        if let activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(activationObserver) }
+        activationObserver = nil
     }
     private func handle(type: CGEventType, event: CGEvent) -> Bool {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
@@ -76,20 +106,25 @@ final class WindowSwitcher {
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return false
         }
-        let modifier: CGEventFlags = preferences?.shortcut == "option" ? .maskAlternate : .maskCommand
-        let otherModifier: CGEventFlags = modifier == .maskCommand ? .maskAlternate : .maskCommand
+        let modifier: CGEventFlags = switch preferences?.shortcut {
+        case "option": .maskAlternate
+        case "control": .maskControl
+        default: .maskCommand
+        }
+        let otherHeld = [CGEventFlags.maskCommand, .maskAlternate, .maskControl].filter { $0 != modifier }.contains { event.flags.contains($0) }
         let held = event.flags.contains(modifier)
         let code = event.getIntegerValueField(.keyboardEventKeycode)
         if type == .flagsChanged {
-            if !held {
+            if !held && !searching {
                 if awaitingPresentation { activateWhenReady = true }
                 else if visible { Task { @MainActor in self.dismiss(activate: true) } }
             }
             return false
         }
         if type == .keyUp && code == 48 && swallowedTab { swallowedTab = false; return true }
+        if type == .keyUp && visible && (searching || Self.actionKeys.contains(code)) { return true }
         guard type == .keyDown else { return false }
-        if code == 48 && held && !event.flags.contains(otherModifier) && !event.flags.contains(.maskControl) {
+        if code == 48 && held && !otherHeld {
             let backwards = event.flags.contains(.maskShift)
             if awaitingPresentation { pendingSteps += backwards ? -1 : 1 }
             else if !visible {
@@ -97,13 +132,23 @@ final class WindowSwitcher {
                 // Accessibility IPC and capture setup must never run inside an event-tap callback.
                 Task { @MainActor in
                     guard self.awaitingPresentation else { return }
-                    self.present(backwards: backwards)
+                    await self.present(backwards: backwards)
                     self.awaitingPresentation = false
                     if self.activateWhenReady { self.dismiss(activate: true) }
                 }
             } else { move(backwards: backwards) }
             swallowedTab = true
             return true
+        }
+        if visible && searching { return handleSearchKey(code: code, event: event) }
+        if visible && held {
+            switch code {
+            case 44, 3: searching = true; query = ""; selected = 0; return true   // "/" or F
+            case 12: closeSelected(app: true); return true                          // Q quits the app
+            case 13: closeSelected(app: false); return true                         // W closes the window
+            case 4: hideSelectedApp(); return true                                  // H hides the app
+            default: break
+            }
         }
         if awaitingPresentation && code == 53 { awaitingPresentation = false; activateWhenReady = false; return true }
         guard visible else { return false }
@@ -115,25 +160,82 @@ final class WindowSwitcher {
         default: return false
         }
     }
-    private func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
+    private static let actionKeys: Set<Int64> = [44, 3, 12, 13, 4]
+    private func handleSearchKey(code: Int64, event: CGEvent) -> Bool {
+        switch code {
+        case 53:
+            // Escape clears the search first, then closes the switcher.
+            if query.isEmpty { dismiss(activate: false) } else { query = ""; selected = 0 }
+        case 36: dismiss(activate: true)
+        case 51: if !query.isEmpty { query.removeLast(); selected = 0 }
+        case 48, 125, 124: move(backwards: event.flags.contains(.maskShift))
+        case 126, 123: move(backwards: true)
+        default:
+            var length = 0
+            var characters = [UniChar](repeating: 0, count: 8)
+            event.keyboardGetUnicodeString(maxStringLength: 8, actualStringLength: &length, unicodeString: &characters)
+            let typed = String(utf16CodeUnits: characters, count: length)
+            if let first = typed.unicodeScalars.first, first.value >= 32, first.value != 127 { query += typed; selected = 0 }
+        }
+        return true
+    }
+    private func closeSelected(app: Bool) {
+        let list = shown
+        guard list.indices.contains(selected) else { return }
+        let target = list[selected]
+        if app {
+            target.app.terminate()
+            windows.removeAll { $0.app.processIdentifier == target.app.processIdentifier }
+        } else {
+            var value: CFTypeRef?
+            if AXUIElementCopyAttributeValue(target.element, kAXCloseButtonAttribute as CFString, &value) == .success,
+               let value, CFGetTypeID(value) == AXUIElementGetTypeID() {
+                AXUIElementPerformAction(unsafeDowncast(value, to: AXUIElement.self), kAXPressAction as CFString)
+            }
+            windows.removeAll { $0.id == target.id }
+        }
+        afterRemoval()
+    }
+    private func hideSelectedApp() {
+        let list = shown
+        guard list.indices.contains(selected) else { return }
+        let target = list[selected]
+        target.app.hide()
+        windows.removeAll { $0.app.processIdentifier == target.app.processIdentifier }
+        afterRemoval()
+    }
+    private func afterRemoval() {
+        if windows.isEmpty { dismiss(activate: false); return }
+        selected = min(selected, max(0, shown.count - 1))
+    }
+    nonisolated private static func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, key as CFString, &value) == .success else { return nil }
         return value
     }
-    private func enumerate() -> [SwitcherWindow] {
-        let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular && $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
-            .sorted { ($0.processIdentifier == frontmost ? 0 : 1) < ($1.processIdentifier == frontmost ? 0 : 1) }
-        var result: [SwitcherWindow] = []
-        for app in apps {
-            let application = AXUIElementCreateApplication(app.processIdentifier)
-            AXUIElementSetMessagingTimeout(application, 0.12)
+    nonisolated static func rank(_ pid: pid_t, frontmost: pid_t?, recent: [pid_t]) -> Int {
+        if pid == frontmost { return 0 }
+        return (recent.firstIndex(of: pid) ?? recent.count) + 1
+    }
+    /// Plain window data read off the main thread; Accessibility calls can stall on unresponsive apps.
+    struct RawWindow: @unchecked Sendable {
+        let element: AXUIElement
+        let pid: pid_t
+        let title: String?
+        let frame: CGRect
+        let minimized: Bool
+    }
+    nonisolated private static func scan(pids: [pid_t], includeMinimized: Bool) -> [RawWindow] {
+        var result: [RawWindow] = []
+        for pid in pids {
+            let application = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(application, 0.06)
             guard let elements = attribute(application, kAXWindowsAttribute) as? [AXUIElement] else { continue }
             for element in elements {
                 let subrole = attribute(element, kAXSubroleAttribute) as? String
                 guard subrole == kAXStandardWindowSubrole || subrole == kAXDialogSubrole else { continue }
                 let minimized = attribute(element, kAXMinimizedAttribute) as? Bool ?? false
-                if minimized && preferences?.includeMinimized == false { continue }
+                if minimized && !includeMinimized { continue }
                 var origin = CGPoint.zero; var size = CGSize.zero
                 if let value = attribute(element, kAXPositionAttribute), CFGetTypeID(value) == AXValueGetTypeID() {
                     AXValueGetValue(unsafeDowncast(value, to: AXValue.self), .cgPoint, &origin)
@@ -142,16 +244,32 @@ final class WindowSwitcher {
                     AXValueGetValue(unsafeDowncast(value, to: AXValue.self), .cgSize, &size)
                 }
                 guard size.width > 80, size.height > 50 else { continue }
-                let title = attribute(element, kAXTitleAttribute) as? String ?? app.localizedName ?? "Window"
-                result.append(SwitcherWindow(element: element, app: app, title: title.isEmpty ? app.localizedName ?? "Untitled" : title,
-                    frame: CGRect(origin: origin, size: size), minimized: minimized))
+                result.append(RawWindow(element: element, pid: pid, title: attribute(element, kAXTitleAttribute) as? String,
+                                        frame: CGRect(origin: origin, size: size), minimized: minimized))
             }
         }
         return result
     }
-    func present(backwards: Bool = false) {
+    private func enumerate() async -> [SwitcherWindow] {
+        let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular && $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+            .sorted { Self.rank($0.processIdentifier, frontmost: frontmost, recent: recentApps) < Self.rank($1.processIdentifier, frontmost: frontmost, recent: recentApps) }
+        let pids = apps.map(\.processIdentifier)
+        let includeMinimized = preferences?.includeMinimized != false
+        let raw = await Task.detached(priority: .userInitiated) { Self.scan(pids: pids, includeMinimized: includeMinimized) }.value
+        let byPID = Dictionary(apps.map { ($0.processIdentifier, $0) }, uniquingKeysWith: { first, _ in first })
+        return raw.compactMap { window in
+            guard let app = byPID[window.pid] else { return nil }
+            let title = window.title.flatMap { $0.isEmpty ? nil : $0 } ?? app.localizedName ?? "Untitled"
+            return SwitcherWindow(element: window.element, app: app, title: title, frame: window.frame, minimized: window.minimized)
+        }
+    }
+    func present(backwards: Bool = false) async {
         guard AXIsProcessTrusted() else { status = "Accessibility permission required"; return }
-        windows = enumerate()
+        let found = await enumerate()
+        // Escape (or the tap being torn down) while windows were loading cancels the presentation.
+        guard awaitingPresentation else { return }
+        windows = found
         guard !windows.isEmpty else { return }
         selected = backwards ? windows.count - 1 : min(1, windows.count - 1)
         if !windows.isEmpty { selected = ((selected + pendingSteps) % windows.count + windows.count) % windows.count }
@@ -169,7 +287,7 @@ final class WindowSwitcher {
         captureTask = Task { await loadThumbnails() }
     }
     private func loadThumbnails() async {
-        guard CGPreflightScreenCaptureAccess() else { return }
+        guard hasScreenAccess() else { return }
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
             for window in windows {
@@ -193,10 +311,12 @@ final class WindowSwitcher {
             }
         } catch { status = "Thumbnails unavailable. Window switching still works." }
     }
-    func move(backwards: Bool) { selected = SwitcherSelection.next(selected, count: windows.count, backwards: backwards) }
+    func move(backwards: Bool) { selected = SwitcherSelection.next(selected, count: shown.count, backwards: backwards) }
     func choose(_ index: Int) { selected = index; dismiss(activate: true) }
     func dismiss(activate: Bool) {
-        let target = activate && windows.indices.contains(selected) ? windows[selected] : nil
+        let list = shown
+        let target = activate && list.indices.contains(selected) ? list[selected] : nil
+        query = ""; searching = false
         visible = false; onVisibilityChanged(false); panel?.orderOut(nil); panel = nil; captureTask?.cancel(); windows.removeAll()
         guard let target else { return }
         if target.minimized { AXUIElementSetAttributeValue(target.element, kAXMinimizedAttribute as CFString, kCFBooleanFalse) }
@@ -212,14 +332,21 @@ struct SwitcherView: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
                 Text("Windows").font(.headline)
-                Text("\(controller.windows.count)").font(.caption).foregroundStyle(.secondary)
+                Text("\(controller.shown.count)").font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Text("← → to navigate · esc to dismiss").font(.caption).foregroundStyle(.secondary)
+                if controller.searching {
+                    Label(controller.query.isEmpty ? "Type to search" : controller.query, systemImage: "magnifyingglass")
+                        .font(.callout).foregroundStyle(controller.query.isEmpty ? .secondary : .primary)
+                        .padding(.horizontal, 10).padding(.vertical, 4).background(.quaternary.opacity(0.5), in: Capsule())
+                    Text("↩ to switch · esc to clear").font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("← → navigate · / search · Q quit · W close · H hide · esc dismiss").font(.caption).foregroundStyle(.secondary)
+                }
             }
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 14) {
-                        ForEach(Array(controller.windows.enumerated()), id: \.element.id) { index, window in
+                        ForEach(Array(controller.shown.enumerated()), id: \.element.id) { index, window in
                             Button { controller.choose(index) } label: {
                                 VStack(alignment: .leading, spacing: 10) {
                                     ZStack {

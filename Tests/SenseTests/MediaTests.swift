@@ -88,7 +88,10 @@ private actor SeekRecorder {
     media.beginScrub(); media.previewSeek(50); media.previewSeek(80)
     #expect(media.scrubPosition == 80); #expect(await recorder.count == 0)
     media.commitSeek(); media.commitSeek()
-    try? await Task.sleep(for: .milliseconds(30))
+    for _ in 0..<100 {
+        if media.message != nil { break }
+        try? await Task.sleep(for: .milliseconds(10))
+    }
     #expect(await recorder.count == 1); #expect(await recorder.lastPosition == 80)
     #expect(media.timeline?.position == 10)
     #expect(media.scrubPosition == nil)

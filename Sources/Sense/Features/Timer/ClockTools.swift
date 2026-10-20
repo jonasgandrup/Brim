@@ -17,10 +17,22 @@ struct StopwatchState {
     mutating func reset() { self = Self() }
 }
 
+enum AlarmRepeat: String, CaseIterable, Identifiable {
+    case once = "Once", daily = "Daily", weekdays = "Weekdays"
+    var id: String { rawValue }
+}
+
 struct AlarmSchedule {
-    static func next(time: Date, after now: Date, calendar: Calendar = .current) -> Date? {
+    static func next(time: Date, after now: Date, repeat mode: AlarmRepeat = .once, calendar: Calendar = .current) -> Date? {
         let parts = calendar.dateComponents([.hour, .minute], from: time)
-        return calendar.nextDate(after: now, matching: parts, matchingPolicy: .nextTime, repeatedTimePolicy: .first)
+        var cursor = now
+        // Weekday alarms skip Saturday and Sunday; a week of attempts always finds one.
+        for _ in 0..<8 {
+            guard let candidate = calendar.nextDate(after: cursor, matching: parts, matchingPolicy: .nextTime, repeatedTimePolicy: .first) else { return nil }
+            if mode != .weekdays || !calendar.isDateInWeekend(candidate) { return candidate }
+            cursor = candidate
+        }
+        return nil
     }
 }
 
@@ -29,12 +41,17 @@ enum ClockMode: String, CaseIterable { case timer = "Timer", stopwatch = "Stopwa
 @MainActor @Observable final class ClockTools {
     var mode: ClockMode = .timer
     private(set) var stopwatch = StopwatchState()
-    private(set) var uptime = ProcessInfo.processInfo.systemUptime
+    /// Monotonic seconds that keep counting while the Mac sleeps (unlike systemUptime).
+    nonisolated static var continuousNow: TimeInterval { TimeInterval(clock_gettime_nsec_np(CLOCK_MONOTONIC)) / 1e9 }
+    private(set) var uptime = ClockTools.continuousNow
     var alarmTime = Date().addingTimeInterval(3600)
+    var alarmRepeat: AlarmRepeat = .once { didSet { defaults.set(alarmRepeat.rawValue, forKey: "clockAlarmRepeat") } }
     private(set) var alarmDate: Date?
     private(set) var ringing = false
     var notice: String?
     @ObservationIgnored var onAlarm: () -> Void = {}
+    /// Hundredths are only visible while the stopwatch pane is open; otherwise whole seconds suffice.
+    @ObservationIgnored var wantsFineTicks: @MainActor () -> Bool = { false }
     private var stopwatchTicker: Task<Void, Never>?
     private var alarmTicker: Task<Void, Never>?
     private let defaults: UserDefaults
@@ -51,28 +68,29 @@ enum ClockMode: String, CaseIterable { case timer = "Timer", stopwatch = "Stopwa
         let smoke = CommandLine.arguments.contains("--smoke-test")
         self.defaults = defaults ?? (smoke ? UserDefaults(suiteName: "dk.jonasgandrup.Sense.SmokeTest")! : .standard)
         self.notificationsEnabled = notificationsEnabled ?? (!smoke && Bundle.main.bundleURL.pathExtension == "app")
+        alarmRepeat = AlarmRepeat(rawValue: self.defaults.string(forKey: "clockAlarmRepeat") ?? "") ?? .once
         if let saved = self.defaults.object(forKey: "clockAlarmDate") as? Date, saved > Date() {
             alarmDate = saved; alarmTime = saved; runAlarmTicker()
         } else { self.defaults.removeObject(forKey: "clockAlarmDate") }
     }
     func toggleStopwatch() {
-        uptime = ProcessInfo.processInfo.systemUptime
+        uptime = Self.continuousNow
         if stopwatch.running { stopwatch.pause(at: uptime); stopwatchTicker?.cancel(); stopwatchTicker = nil }
         else {
             stopwatch.start(at: uptime)
             stopwatchTicker = Task { [weak self] in
                 while !Task.isCancelled {
                     guard let self else { return }
-                    self.uptime = ProcessInfo.processInfo.systemUptime
-                    try? await Task.sleep(for: .milliseconds(50))
+                    self.uptime = Self.continuousNow
+                    try? await Task.sleep(for: .milliseconds(self.wantsFineTicks() && self.mode == .stopwatch ? 50 : 250))
                 }
             }
         }
     }
     func resetStopwatch() { stopwatchTicker?.cancel(); stopwatchTicker = nil; stopwatch.reset() }
-    func lap() { stopwatch.lap(at: ProcessInfo.processInfo.systemUptime) }
+    func lap() { stopwatch.lap(at: Self.continuousNow) }
     func arm() {
-        guard let next = AlarmSchedule.next(time: alarmTime, after: Date()) else { return }
+        guard let next = AlarmSchedule.next(time: alarmTime, after: Date(), repeat: alarmRepeat) else { return }
         arm(at: next)
     }
     func arm(at date: Date) {
@@ -103,6 +121,11 @@ enum ClockMode: String, CaseIterable { case timer = "Timer", stopwatch = "Stopwa
             UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [notificationID])
         }
     }
+    /// Stops a ringing alarm. Repeating alarms are armed again for their next occurrence.
+    func stopAlarm() {
+        cancelAlarm()
+        if alarmRepeat != .once { arm() }
+    }
     func snooze() { arm(at: Date().addingTimeInterval(300)) }
     func checkAlarm(at now: Date) {
         guard let date = alarmDate, now >= date else { return }
@@ -129,6 +152,7 @@ enum ClockMode: String, CaseIterable { case timer = "Timer", stopwatch = "Stopwa
 struct IslandClockView: View {
     @Bindable var clock: ClockTools
     let timer: IslandTimer
+    var calendar: CalendarPeek?
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             IslandPaneHeader(title: clock.mode.rawValue, symbol: clock.mode == .timer ? "timer" : clock.mode == .stopwatch ? "stopwatch" : "alarm") {
@@ -139,6 +163,12 @@ struct IslandClockView: View {
                             .padding(.horizontal, 7).padding(.vertical, 4)
                             .background(clock.mode == mode ? .white.opacity(0.13) : .clear, in: Capsule())
                     }
+                }
+            }
+            if let event = calendar?.next {
+                TimelineView(.periodic(from: .now, by: 30)) { context in
+                    Label("\(event.title) · \(event.relative(at: context.date))", systemImage: "calendar")
+                        .font(.system(size: 10)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
                 }
             }
             switch clock.mode {
@@ -161,17 +191,20 @@ struct IslandClockView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     if clock.ringing {
                         Text("Time to wake up").font(.system(size: 24, weight: .light)).frame(maxWidth: .infinity)
-                        HStack { Button("Stop") { clock.cancelAlarm() }; Button("Snooze 5 min") { clock.snooze() } }
+                        HStack { Button("Stop") { clock.stopAlarm() }; Button("Snooze 5 min") { clock.snooze() } }
                             .buttonStyle(.bordered).controlSize(.small).frame(maxWidth: .infinity)
                     } else if let date = clock.alarmDate {
                         Text(date, format: .dateTime.weekday(.abbreviated).hour().minute()).font(.system(size: 22, weight: .light)).frame(maxWidth: .infinity)
+                        if clock.alarmRepeat != .once { Text("Repeats \(clock.alarmRepeat.rawValue.lowercased())").font(.system(size: 10)).foregroundStyle(.secondary).frame(maxWidth: .infinity) }
                         Button("Cancel alarm") { clock.cancelAlarm() }.buttonStyle(.bordered).controlSize(.small).frame(maxWidth: .infinity)
                     } else {
                         HStack {
                             DatePicker("Time", selection: $clock.alarmTime, displayedComponents: .hourAndMinute).labelsHidden().datePickerStyle(.field)
+                            Picker("Repeat", selection: $clock.alarmRepeat) { ForEach(AlarmRepeat.allCases) { Text($0.rawValue).tag($0) } }
+                                .labelsHidden().pickerStyle(.menu).controlSize(.small).fixedSize()
                             Spacer(); Button("Set alarm") { clock.arm() }.buttonStyle(.borderedProminent).tint(.orange).controlSize(.small)
                         }
-                        Text("One-time alarm · sleeping Mac rings on wake").font(.system(size: 10)).foregroundStyle(.secondary)
+                        Text("\(clock.alarmRepeat == .once ? "One-time alarm" : "Repeating alarm") · sleeping Mac rings on wake").font(.system(size: 10)).foregroundStyle(.secondary)
                     }
                     if let notice = clock.notice { Text(notice).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(2) }
                 }

@@ -114,6 +114,7 @@ private actor DesktopOverlayProbe {
                     let bundles: Set<String> = ["com.apple.dock", "com.apple.WindowManager", "com.lwouis.alt-tab-macos"]
                     owners = Set(NSWorkspace.shared.runningApplications.filter { bundles.contains($0.bundleIdentifier ?? "") }.map(\.processIdentifier))
                     nextOwnerRefresh = Date().addingTimeInterval(2)
+                    self.gestureMonitor.refreshDevices()
                 }
                 let flags = CGEventSource.flagsState(.combinedSessionState)
                 if let modifier = self.shortcutModifier, !flags.contains(modifier) { self.shortcutModifier = nil }
@@ -134,7 +135,8 @@ private actor DesktopOverlayProbe {
                 wasSliding = slide
                 let next = self.gestureActive || ProcessInfo.processInfo.systemUptime < self.gestureQuietUntil || slide || overview || self.shortcutModifier != nil
                 if next != self.active { self.active = next; onChange(next) }
-                try? await Task.sleep(for: .milliseconds(next ? 16 : 40))
+                // Idle sampling stays slow; gestures, Space changes and overlays switch to fast sampling.
+                try? await Task.sleep(for: .milliseconds(next ? 16 : 120))
             }
         }
     }

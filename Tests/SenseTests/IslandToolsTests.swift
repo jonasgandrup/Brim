@@ -154,3 +154,52 @@ import UniformTypeIdentifiers
     #expect(alreadyCharged.receive(.init(percent: 95, externalPower: true), target: 80) == nil)
     #expect(alreadyCharged.receive(.init(percent: 96, externalPower: true), target: 80) == nil)
 }
+
+@Test @MainActor func batchCopyUsesOnlySelectedFilesAndPreservesSources() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("SenseCopy-\(UUID())")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let urls = ["one.txt", "two.txt", "three.txt"].map { directory.appendingPathComponent($0).standardizedFileURL }
+    for url in urls { try Data(url.lastPathComponent.utf8).write(to: url) }
+    let shelf = FileShelf(); shelf.add(urls); shelf.select(Set(urls.suffix(2)))
+    let board = NSPasteboard.withUniqueName(); defer { board.releaseGlobally() }
+    #expect(shelf.actions.copy(to: board))
+    #expect(board.readObjects(forClasses: [NSURL.self]) as? [URL] == Array(urls.suffix(2)))
+    for url in urls { #expect(try String(contentsOf: url, encoding: .utf8) == url.lastPathComponent) }
+}
+
+@Test @MainActor func compressionIncludesSelectionAndHandlesDuplicateNamesWithoutChangingOriginals() async throws {
+    let manager = FileManager.default
+    let directory = manager.temporaryDirectory.appendingPathComponent("SenseZipTest-\(UUID())")
+    try manager.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? manager.removeItem(at: directory) }
+    let first = directory.appendingPathComponent("a/report.txt")
+    let second = directory.appendingPathComponent("b/report.txt")
+    let omitted = directory.appendingPathComponent("omit.txt")
+    for url in [first, second, omitted] {
+        try manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(url.path.utf8).write(to: url)
+    }
+    let shelf = FileShelf(); shelf.add([first, second, omitted]); shelf.select([first, second])
+    let zip = directory.appendingPathComponent("Archive.zip")
+    await shelf.actions.compress(to: zip)
+    #expect(!shelf.compressing); #expect(!shelf.systemUIActive)
+    #expect(manager.fileExists(atPath: zip.path))
+    #expect(shelf.selectedURLs == [zip.standardizedFileURL])
+    let unpack = directory.appendingPathComponent("unpack")
+    let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+    process.arguments = ["-x", "-k", zip.path, unpack.path]
+    try process.run(); process.waitUntilExit(); #expect(process.terminationStatus == 0)
+    #expect(try String(contentsOf: unpack.appendingPathComponent("report.txt"), encoding: .utf8) == first.path)
+    #expect(try String(contentsOf: unpack.appendingPathComponent("report (2).txt"), encoding: .utf8) == second.path)
+    #expect(!manager.fileExists(atPath: unpack.appendingPathComponent("omit.txt").path))
+    for url in [first, second, omitted] { #expect(try String(contentsOf: url, encoding: .utf8) == url.path) }
+}
+
+@Test func archiveRejectsOverwritingAnOriginal() async throws {
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent("SenseOriginal-\(UUID()).zip")
+    try Data("Original".utf8).write(to: file)
+    defer { try? FileManager.default.removeItem(at: file) }
+    do { try await ShelfArchive.create(urls: [file], destination: file); Issue.record("Overwrote source") }
+    catch { #expect(try String(contentsOf: file, encoding: .utf8) == "Original") }
+}

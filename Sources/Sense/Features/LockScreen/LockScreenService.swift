@@ -19,7 +19,7 @@ final class LockScreenService {
                 Task { @MainActor in
                     guard let self else { return }
                     self.locked = locked
-                    if locked { self.panel?.orderOut(nil) }
+                    if locked { self.panel?.orderOut(nil); self.panel = nil }
                     else if self.preferences?.lockEnabled == true { self.notch?.showFeedback("Welcome back.", symbol: "lock.open") }
                 }
             })

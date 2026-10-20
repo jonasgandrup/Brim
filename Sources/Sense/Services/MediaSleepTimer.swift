@@ -3,6 +3,7 @@ import Foundation
 struct MediaSleepSchedule: Sendable {
     let player: MediaPlayer
     let deadline: Date
+    var endOfTrack = false
     var overdue: Bool { Date() >= deadline }
 }
 
@@ -13,30 +14,92 @@ struct MediaSleepSchedule: Sendable {
     private(set) var status: String?
     private var task: Task<Void, Never>?
     private var revision = 0
+    private var track: SystemMediaSnapshot?
+    private var trackMeasuredAt = Date()
+    private var reading = false
+    private var missing = 0
+    @ObservationIgnored var readTrack: @MainActor (MediaPlayer) async -> SystemMediaSnapshot? = { _ in nil }
+    @ObservationIgnored var pauseTrack: @MainActor (SystemMediaSnapshot) async -> MediaCommandResult = { _ in .unavailable }
+    static func supportsTrackEnd(_ snapshot: SystemMediaSnapshot) -> Bool {
+        guard snapshot.hasMedia, let duration = snapshot.duration, let position = snapshot.position,
+              let rate = snapshot.rate, let id = snapshot.identifier, let path = snapshot.playerPath else { return false }
+        return duration.isFinite && duration > 0 && position.isFinite && position >= 0 && position < duration
+            && rate.isFinite && rate >= 0 && !id.isEmpty && !path.isEmpty
+    }
+    func startAtTrackEnd(player: MediaPlayer, snapshot: SystemMediaSnapshot, at date: Date = Date()) {
+        guard Self.supportsTrackEnd(snapshot), player.processID > 0,
+              snapshot.processID == player.processID, snapshot.source == player.source else { return }
+        cancel(); now = date; track = snapshot; trackMeasuredAt = date
+        schedule = .init(player: player, deadline: date.addingTimeInterval(snapshot.duration! - snapshot.position!), endOfTrack: true)
+        run()
+    }
+    private func run() {
+        task = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled, let self else { return }
+                await self.check(at: Date())
+                if self.schedule == nil { return }
+            }
+        }
+    }
     @ObservationIgnored var pause: @MainActor (MediaPlayer) async -> MediaCommandResult = { _ in .unavailable }
     var remaining: TimeInterval { schedule.map { max(0, $0.deadline.timeIntervalSince(now)) } ?? 0 }
     func start(minutes: Int, player: MediaPlayer, at date: Date = Date()) {
         guard (1...240).contains(minutes), player.processID > 0 else { return }
         cancel(); now = date; schedule = .init(player: player, deadline: date.addingTimeInterval(Double(minutes)*60))
         status = nil
-        task = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let self else { return }
-                await self.check(at: Date())
-                if self.schedule == nil { return }
-                try? await Task.sleep(for: .seconds(1))
-            }
-        }
+        run()
     }
-    func cancel() { revision += 1; task?.cancel(); task = nil; schedule = nil; firing = false; status = nil }
+    func cancel() { revision += 1; task?.cancel(); task = nil; schedule = nil; track = nil; missing = 0; firing = false; status = nil }
     func check(at date: Date) async {
         now = date
-        guard let schedule, date >= schedule.deadline, !firing else { return }
+        guard let schedule, !firing, !reading else { return }
+        if schedule.endOfTrack { await checkTrack(schedule, at: date); return }
+        guard date >= schedule.deadline else { return }
         firing = true; self.schedule = nil
         let ticket = revision
         let result = await pause(schedule.player)
         guard ticket == revision else { return }
         firing = false
         status = result == .submitted ? "Paused \(schedule.player.name)" : "\(schedule.player.name) couldn’t be paused"
+    }
+    private func checkTrack(_ schedule: MediaSleepSchedule, at date: Date) async {
+        guard let previous = track else { return }
+        let ticket = revision
+        reading = true
+        let snapshot = await readTrack(schedule.player)
+        reading = false
+        guard ticket == revision, !Task.isCancelled else { return }
+        guard let snapshot, snapshot.hasMedia, snapshot.source == schedule.player.source,
+              snapshot.processID == schedule.player.processID, snapshot.playerPath == previous.playerPath,
+              let duration = snapshot.duration, duration.isFinite, duration > 0,
+              let position = snapshot.position, position.isFinite, position >= 0, let rate = snapshot.rate, rate.isFinite, rate >= 0,
+              let identifier = snapshot.identifier, !identifier.isEmpty else {
+            missing += 1
+            if missing >= 3 { self.schedule = nil; status = "Track timer stopped · player unavailable" }
+            return
+        }
+        missing = 0
+        let projected = (previous.position ?? 0) + max(0, date.timeIntervalSince(trackMeasuredAt)) * (previous.rate ?? 0)
+        let nearEnd = date.timeIntervalSince(trackMeasuredAt) <= 5 && (previous.rate ?? 0) > 0
+            && projected >= (previous.duration ?? .infinity) - 0.3
+        let changed = identifier != previous.identifier
+        let repeated = position < 2 && position + 1 < (previous.position ?? 0) && nearEnd
+        if changed && !nearEnd {
+            self.schedule = nil; status = "Track timer cancelled · track changed"; return
+        }
+        let reachedEnd = !changed && position >= duration
+        if (changed && nearEnd) || repeated || reachedEnd {
+            firing = true; self.schedule = nil
+            let result = rate == 0 ? MediaCommandResult.submitted : await pauseTrack(snapshot)
+            guard ticket == revision else { return }
+            firing = false
+            status = result == .submitted ? "Paused \(schedule.player.name)" : "\(schedule.player.name) couldn’t be paused"
+            return
+        }
+        track = snapshot; trackMeasuredAt = date
+        self.schedule = .init(player: schedule.player,
+            deadline: date.addingTimeInterval(max(0, duration - position)), endOfTrack: true)
     }
 }

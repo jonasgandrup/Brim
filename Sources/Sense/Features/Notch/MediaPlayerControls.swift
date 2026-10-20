@@ -34,10 +34,14 @@ struct MediaPlayerControls: View {
             .accessibilityLabel("Player picker")
         Menu {
             if let schedule = media.sleepTimer.schedule {
-                Text("Pause \(schedule.player.name) in \(MediaTimeline.label(media.sleepTimer.remaining))")
+                Text(schedule.endOfTrack ? "Pause \(schedule.player.name) at end of track" : "Pause \(schedule.player.name) in \(MediaTimeline.label(media.sleepTimer.remaining))")
                 Button("Cancel sleep timer") { media.sleepTimer.cancel() }
             } else {
                 if let status = media.sleepTimer.status { Text(status) }
+                Button("End of Current Track") { media.startTrackEndSleepTimer() }
+                    .disabled(!media.canSleepAtTrackEnd || media.sleepTimer.firing)
+                if !media.canSleepAtTrackEnd { Text("Requires track duration and playback information") }
+                Divider()
                 ForEach([15, 30, 45, 60, 90], id: \.self) { minutes in
                     Button("Pause \(media.sourceName) after \(minutes) min") { media.startSleepTimer(minutes: minutes) }
                         .disabled(media.currentPlayer == nil || media.selectionLoading || media.sleepTimer.firing)
@@ -48,7 +52,7 @@ struct MediaPlayerControls: View {
             Image(systemName: media.sleepTimer.schedule == nil ? "moon" : "moon.zzz.fill").frame(width: 20, height: 20)
                 .foregroundStyle(media.sleepTimer.schedule == nil ? Color.white.opacity(0.7) : .orange)
         }.menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Media sleep timer")
-            .help(media.sleepTimer.schedule.map { "Pauses \($0.player.name) in \(MediaTimeline.label(media.sleepTimer.remaining))" } ?? "Set a sleep timer for this player")
+            .help(media.sleepTimer.schedule.map { $0.endOfTrack ? "Pauses \($0.player.name) at end of track" : "Pauses \($0.player.name) in \(MediaTimeline.label(media.sleepTimer.remaining))" } ?? "Set a sleep timer for this player")
     }
 }
 
