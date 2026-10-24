@@ -11,9 +11,44 @@ final class SwitcherWindow: Identifiable {
     let title: String
     let frame: CGRect
     let minimized: Bool
+    /// The window server's number for this window, which pairs it exactly with its screen image.
+    let windowID: CGWindowID?
     var thumbnail: NSImage?
-    init(element: AXUIElement, app: NSRunningApplication, title: String, frame: CGRect, minimized: Bool) {
-        self.element = element; self.app = app; self.title = title; self.frame = frame; self.minimized = minimized
+    init(element: AXUIElement, app: NSRunningApplication, title: String, frame: CGRect, minimized: Bool, windowID: CGWindowID? = nil) {
+        self.element = element; self.app = app; self.title = title; self.frame = frame; self.minimized = minimized; self.windowID = windowID
+    }
+}
+
+/// Accessibility has no public window number, so previews used to be matched by title and position,
+/// which fails whenever an app reports a different title to each API. `_AXUIElementGetWindow` is the
+/// long-standing call window managers use for this; it's looked up at runtime and simply skipped if absent.
+enum AXWindowNumber {
+    private typealias GetWindow = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
+    private static let function: GetWindow? = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "_AXUIElementGetWindow")
+        .map { unsafeBitCast($0, to: GetWindow.self) }
+    static func of(_ element: AXUIElement) -> CGWindowID? {
+        guard let function else { return nil }
+        var id: CGWindowID = 0
+        return function(element, &id) == .success && id != 0 ? id : nil
+    }
+}
+
+enum ThumbnailMatch {
+    struct Candidate: Equatable { let windowID: CGWindowID; let pid: pid_t; let title: String?; let frame: CGRect }
+    /// Exact window number first. Otherwise the same app's window with the closest bounds, preferring a
+    /// matching title, and only when it's clearly the one (within a few points, and no tie).
+    static func pick(windowID: CGWindowID?, pid: pid_t, title: String, frame: CGRect, from candidates: [Candidate]) -> CGWindowID? {
+        if let windowID, candidates.contains(where: { $0.windowID == windowID }) { return windowID }
+        func distance(_ other: CGRect) -> CGFloat {
+            abs(other.minX - frame.minX) + abs(other.minY - frame.minY) + abs(other.width - frame.width) + abs(other.height - frame.height)
+        }
+        let close = candidates.filter { $0.pid == pid && distance($0.frame) < 12 }
+        let titled = close.filter { $0.title == title }
+        let pool = titled.isEmpty ? close : titled
+        let ranked = pool.sorted { distance($0.frame) < distance($1.frame) }
+        guard let best = ranked.first else { return nil }
+        if ranked.count > 1, distance(ranked[1].frame) - distance(best.frame) < 1 { return nil }
+        return best.windowID
     }
 }
 
@@ -224,6 +259,7 @@ final class WindowSwitcher {
         let title: String?
         let frame: CGRect
         let minimized: Bool
+        let windowID: CGWindowID?
     }
     nonisolated private static func scan(pids: [pid_t], includeMinimized: Bool) -> [RawWindow] {
         var result: [RawWindow] = []
@@ -245,7 +281,7 @@ final class WindowSwitcher {
                 }
                 guard size.width > 80, size.height > 50 else { continue }
                 result.append(RawWindow(element: element, pid: pid, title: attribute(element, kAXTitleAttribute) as? String,
-                                        frame: CGRect(origin: origin, size: size), minimized: minimized))
+                                        frame: CGRect(origin: origin, size: size), minimized: minimized, windowID: AXWindowNumber.of(element)))
             }
         }
         return result
@@ -261,7 +297,7 @@ final class WindowSwitcher {
         return raw.compactMap { window in
             guard let app = byPID[window.pid] else { return nil }
             let title = window.title.flatMap { $0.isEmpty ? nil : $0 } ?? app.localizedName ?? "Untitled"
-            return SwitcherWindow(element: window.element, app: app, title: title, frame: window.frame, minimized: window.minimized)
+            return SwitcherWindow(element: window.element, app: app, title: title, frame: window.frame, minimized: window.minimized, windowID: window.windowID)
         }
     }
     func present(backwards: Bool = false) async {
@@ -286,30 +322,44 @@ final class WindowSwitcher {
         captureTask?.cancel()
         captureTask = Task { await loadThumbnails() }
     }
+    private(set) var previewsNeedPermission = false
     private func loadThumbnails() async {
-        guard hasScreenAccess() else { return }
-        do {
-            let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
-            for window in windows {
-                guard !Task.isCancelled, visible else { return }
-                // Public AX has no window ID. Match pid, title and bounds; omit ambiguous thumbnails.
-                let matches = content.windows.filter { candidate in
-                    candidate.owningApplication?.processID == window.app.processIdentifier &&
-                    candidate.title == window.title && abs(candidate.frame.width - window.frame.width) < 3 && abs(candidate.frame.minX - window.frame.minX) < 3 && abs(candidate.frame.minY - window.frame.minY) < 3
-                }
-                guard matches.count == 1, let capturedWindow = matches.first, !window.minimized else { continue }
-                let filter = SCContentFilter(desktopIndependentWindow: capturedWindow)
-                let configuration = SCStreamConfiguration()
-                let scale = min(520 / max(window.frame.width, 1), 320 / max(window.frame.height, 1))
-                configuration.width = max(1, Int(window.frame.width * scale))
-                configuration.height = max(1, Int(window.frame.height * scale))
-                configuration.showsCursor = false; configuration.ignoreShadowsSingleWindow = true
-                if let image = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration) {
-                    guard !Task.isCancelled else { return }
-                    window.thumbnail = NSImage(cgImage: image, size: .zero)
-                }
-            }
-        } catch { status = "Thumbnails unavailable. Window switching still works." }
+        guard hasScreenAccess() else { previewsNeedPermission = true; return }
+        previewsNeedPermission = false
+        let content: SCShareableContent
+        do { content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false) }
+        catch { status = "Thumbnails unavailable. Window switching still works."; return }
+        let candidates = content.windows.map {
+            ThumbnailMatch.Candidate(windowID: $0.windowID, pid: $0.owningApplication?.processID ?? 0, title: $0.title, frame: $0.frame)
+        }
+        let byID = Dictionary(content.windows.map { ($0.windowID, $0) }, uniquingKeysWith: { first, _ in first })
+        // The selected window and its neighbours first, then the rest, four at a time.
+        let order = windows.indices.sorted { abs($0 - selected) < abs($1 - selected) }
+        let jobs: [(SwitcherWindow, SCWindow)] = order.compactMap { index in
+            let window = windows[index]
+            guard !window.minimized,
+                  let id = ThumbnailMatch.pick(windowID: window.windowID, pid: window.app.processIdentifier, title: window.title, frame: window.frame, from: candidates),
+                  let captured = byID[id] else { return nil }
+            return (window, captured)
+        }
+        var start = 0
+        while start < jobs.count, !Task.isCancelled, visible {
+            let batch = jobs[start..<min(jobs.count, start + 4)].map { job in Task { await self.capture(job.1, into: job.0) } }
+            for task in batch { await task.value }
+            start += 4
+        }
+    }
+    private func capture(_ captured: SCWindow, into window: SwitcherWindow) async {
+        let frame = window.frame
+        let configuration = SCStreamConfiguration()
+        // Twice the card size so previews stay sharp on Retina displays.
+        let scale = min(2, min(520 / max(frame.width, 1), 320 / max(frame.height, 1)) * 2)
+        configuration.width = max(1, Int(frame.width * scale))
+        configuration.height = max(1, Int(frame.height * scale))
+        configuration.showsCursor = false; configuration.ignoreShadowsSingleWindow = true
+        guard let image = try? await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(desktopIndependentWindow: captured), configuration: configuration),
+              !Task.isCancelled, visible else { return }
+        window.thumbnail = NSImage(cgImage: image, size: NSSize(width: CGFloat(image.width) / 2, height: CGFloat(image.height) / 2))
     }
     func move(backwards: Bool) { selected = SwitcherSelection.next(selected, count: shown.count, backwards: backwards) }
     func choose(_ index: Int) { selected = index; dismiss(activate: true) }
@@ -355,7 +405,8 @@ struct SwitcherView: View {
                                         else {
                                             VStack(spacing: 8) {
                                                 if let icon = window.app.icon { Image(nsImage: icon).resizable().frame(width: 40, height: 40) }
-                                                Text(window.minimized ? "Minimized" : "Preview unavailable").font(.caption).foregroundStyle(.secondary)
+                                                Text(window.minimized ? "Minimized" : controller.previewsNeedPermission ? "Allow Screen Recording for previews" : "Preview unavailable")
+                                                    .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                                             }
                                         }
                                     }.frame(height: 145)

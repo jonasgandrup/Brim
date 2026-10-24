@@ -8,7 +8,7 @@ import ScreenCaptureKit
 @MainActor enum SmokeCapture {
     static func png(of window: NSWindow) async -> Data? {
         if #available(macOS 14.4, *), let content = try? await SCShareableContent.currentProcess,
-           let match = content.windows.first(where: { $0.windowID == CGWindowID(window.windowNumber) }) {
+           let match = content.windows.first(where: { $0.windowID == window.windowID }) {
             let configuration = SCStreamConfiguration()
             configuration.width = Int(window.frame.width * 2); configuration.height = Int(window.frame.height * 2)
             configuration.showsCursor = false

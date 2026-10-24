@@ -61,7 +61,7 @@ struct LidSetupStatus: Equatable {
 final class LidEffectService {
     /// Injected by the app so every check shares one permission truth (preflight or a real capture probe).
     var hasScreenAccess: @MainActor () -> Bool = { CGPreflightScreenCaptureAccess() }
-    var style: LidFoldStyle = .fold
+    var style: LidFoldStyle = .duo
     var angle: Double?
     var referenceAngle: Double?
     var progress: Double = 0
@@ -227,7 +227,7 @@ final class LidEffectService {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let display = content.displays.first(where: { $0.displayID == displayID }) else { throw CaptureFailure.noBuiltInDisplay }
         try Task.checkCancellation()
-        let ownOverlayIDs = Set(NSApp.windows.filter { $0.level.rawValue >= NSWindow.Level.statusBar.rawValue }.map { CGWindowID($0.windowNumber) })
+        let ownOverlayIDs = Set(NSApp.windows.filter { $0.level.rawValue >= NSWindow.Level.statusBar.rawValue }.compactMap(\.windowID))
         let filter = SCContentFilter(display: display, excludingWindows: content.windows.filter { ownOverlayIDs.contains($0.windowID) })
         let config = SCStreamConfiguration()
         config.width = min(display.width, 2560)

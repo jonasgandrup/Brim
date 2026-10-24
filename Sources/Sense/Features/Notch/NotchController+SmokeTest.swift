@@ -105,7 +105,7 @@ extension NotchController {
         // This API exposes only our own capturable windows; no Screen Recording grant is requested.
         if #available(macOS 14.4, *), presentation != .hidden {
             if let content = try? await SCShareableContent.currentProcess,
-               let window = content.windows.first(where: { $0.windowID == CGWindowID(panel.windowNumber) }) {
+               let window = content.windows.first(where: { $0.windowID == panel.windowID }) {
                 let configuration = SCStreamConfiguration()
                 configuration.width = Int(panel.frame.width * 2)
                 configuration.height = Int(panel.frame.height * 2)

@@ -26,7 +26,7 @@ final class Preferences {
         "toolShortcutsEnabled": true, "notchEnabled": true, "switcherEnabled": false, "scaleEnabled": true,
         "lockEnabled": true, "lidEffectEnabled": true, "hoverToExpand": true, "showOnExternal": false,
         "followActiveDisplay": false, "shortcut": "command", "includeMinimized": true, "chargingFeedback": true,
-        "chargeTarget": 80, "lowBatteryAlert": 20, "mediaEnabled": false, "lidFoldStyle": "fold",
+        "chargeTarget": 80, "lowBatteryAlert": 20, "mediaEnabled": false, "lidFoldStyle": "duo",
         "liveTransfers": false, "autoHideFocus": false, "autoHideSharing": false, "calendarPreview": false,
         "clipboardHistory": false, "toolShortcutModifiers": "ctrlOptCmd", "menuBarStatus": "off",
         "screenshotShelf": false, "appearance": "system", "sensorIndicator": false, "systemHUD": false,
@@ -92,7 +92,7 @@ final class Preferences {
         switcherEnabled = flag("switcherEnabled")
         scaleEnabled = flag("scaleEnabled")
         lidEffectEnabled = flag("lidEffectEnabled")
-        lidFoldStyle = choice("lidFoldStyle", LidFoldStyle.fold)
+        lidFoldStyle = choice("lidFoldStyle", LidFoldStyle.duo)
         clipboardHistory = flag("clipboardHistory")
         calendarPreview = flag("calendarPreview")
         liveTransfers = flag("liveTransfers")

@@ -58,7 +58,7 @@ Reference for compatibility behavior only: [MRNowPlayingRequest / controller res
 
 Sense uses an event tap only while the switcher is enabled and Accessibility is granted. It intercepts the configured Tab chord and navigation while the switcher is visible, rather than consuming every system shortcut. Stopping/disabling the feature removes the tap. If the tap cannot be created, Settings reports the failure; some configurations also require Input Monitoring. Secure Input, protected sessions, and system-reserved contexts may prevent interception. The panel appears on the display containing the pointer, and enumerates windows from running regular applications across displays.
 
-ScreenCaptureKit and Accessibility do not share a public window identifier. Thumbnails are matched by owning process, title, and geometry; uncertain matches are omitted. A live snapshot is not guaranteed for a minimized or protected window. AX failures (closed windows, apps refusing focus) are left to macOS; the system has final authority over activation and Spaces.
+Thumbnails are matched to windows by their window-server number (read with `_AXUIElementGetWindow`, loaded at runtime), falling back to the same app's window with matching bounds; uncertain matches are omitted. Without Screen Recording, cards say so instead of showing a preview. A live snapshot is not guaranteed for a minimized or protected window. AX failures (closed windows, apps refusing focus) are left to macOS; the system has final authority over activation and Spaces.
 
 ### Native trackpad weighing
 
@@ -219,7 +219,7 @@ Lid-fold troubleshooting: if no fold appears, open **Lid Fold & Lock** and check
 - **Battery** (⌃⌥⌘5, or the island's battery tab): level, charging state, time to full or empty, battery health, cycle count and adapter wattage. Plugging in shows a battery glyph in the island, colored like the system's (green charging, yellow Low Power Mode, red nearly empty). Missing readings are left out, never invented.
 - **Screenshot shelf** (opt-in): new screenshots appear in the island with a draggable preview and land on the file shelf. It learns about them through Spotlight, so Sense never watches a folder, and screenshots taken before launch are ignored.
 - **Menu bar status** (opt-in): shows the battery level or the running timer or stopwatch beside the icon.
-- **Lid fold styles**: Fold, Doors or Shrink. Settings → Lid Fold & Lock → Closing style. Open position is learned automatically, and re-learned if you rest the screen at a new angle.
+- **Lid fold styles**: Duo (the default: the screen tips back from the hinge and softens toward its edges), Fold, Doors or Shrink. Settings → Lid Fold & Lock → Closing style. Open position is learned automatically, and re-learned if you rest the screen at a new angle.
 - **Window Switcher extras**: while the switcher is open, `/` or F searches window titles and apps (release the modifier freely, press Return to switch); Q quits the selected app, W closes the window, H hides the app. ⌃Tab is also available.
 - **Island tool shortcuts**: choose the modifier combination (⌃⌥⌘, ⌃⌥, ⌃⌘ or ⌥⌘) in Dynamic Island settings.
 - **Clock**: repeating alarms (daily or weekdays; a Mac that is asleep rings on wake). A calendar line shows your next timed event; opt in under Dynamic Island settings. Events are read locally with EventKit and never stored.

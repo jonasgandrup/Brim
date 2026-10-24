@@ -26,13 +26,14 @@ struct DesktopFold {
 
 /// How the desktop closes with the lid.
 enum LidFoldStyle: String, CaseIterable, Identifiable {
-    case fold, doors, shrink
+    case duo, fold, doors, shrink
     var id: String { rawValue }
     var title: String {
-        switch self { case .fold: "Fold"; case .doors: "Doors"; case .shrink: "Shrink" }
+        switch self { case .duo: "Duo"; case .fold: "Fold"; case .doors: "Doors"; case .shrink: "Shrink" }
     }
     var detail: String {
         switch self {
+        case .duo: "The screen tips back as the lid closes, softening and darkening toward its edges."
         case .fold: "Top and bottom meet at a recessed hinge."
         case .doors: "Left and right panels swing shut."
         case .shrink: "The desktop gently recedes and dims."
@@ -41,6 +42,14 @@ enum LidFoldStyle: String, CaseIterable, Identifiable {
 }
 
 extension DesktopFold {
+    /// The Duo pose: one panel hinged at the bottom edge. The top edge recedes (narrower and lower)
+    /// as if the screen were being pushed away, while the bottom stays put at the hinge.
+    func pushBackCorners(size: CGSize) -> [CGPoint] {
+        let w = size.width, h = size.height, p = phase
+        let topInset = w * 0.16 * p, topDrop = h * 0.34 * pow(p, 1.1), bottomInset = w * 0.02 * p
+        return [CGPoint(x: topInset, y: topDrop), CGPoint(x: w - topInset, y: topDrop),
+                CGPoint(x: w - bottomInset, y: h), CGPoint(x: bottomInset, y: h)]
+    }
     enum Panel { case top, bottom, leading, trailing }
     /// Corners of one panel in its own frame. `size` is the full desktop size.
     /// Side panels reuse the vertical fold with the axes swapped.
@@ -94,10 +103,22 @@ struct FoldProjection: GeometryEffect {
     }
 }
 
+/// Applies the Duo pose to a full-size view.
+struct PushBackProjection: GeometryEffect {
+    var progress: Double
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        ProjectionTransform(FoldProjection.matrix(size: size, corners: DesktopFold(progress: progress).pushBackCorners(size: size)))
+    }
+}
+
 struct DesktopFoldView: View {
     let snapshot: NSImage
     var progress: Double
-    var style: LidFoldStyle = .fold
+    var style: LidFoldStyle = .duo
     var body: some View {
         GeometryReader { geometry in
             let size = geometry.size
@@ -105,6 +126,8 @@ struct DesktopFoldView: View {
             ZStack {
                 Color.black
                 switch style {
+                case .duo:
+                    pushBack(size: size, phase: fold.phase).opacity(fold.opacity)
                 case .fold:
                     VStack(spacing: 0) {
                         half(size: size, panel: .top, phase: fold.phase)
@@ -125,6 +148,21 @@ struct DesktopFoldView: View {
                 }
             }
         }.clipped().allowsHitTesting(false).accessibilityHidden(true)
+    }
+    /// Sharp in the middle, blurred and darker toward the outer edges, then tipped back as one panel.
+    private func pushBack(size: CGSize, phase: Double) -> some View {
+        let edge = RadialGradient(colors: [.clear, .clear, .white], center: .center,
+                                  startRadius: 0, endRadius: max(size.width, size.height) * 0.62)
+        return ZStack {
+            Image(nsImage: snapshot).resizable().frame(width: size.width, height: size.height)
+            Image(nsImage: snapshot).resizable().frame(width: size.width, height: size.height)
+                .blur(radius: 18 * phase).mask(edge)
+            edge.opacity(0.55 * phase).colorMultiply(.black)
+            Color.black.opacity(0.28 * phase)
+        }
+        .frame(width: size.width, height: size.height)
+        .clipShape(RoundedRectangle(cornerRadius: 22 * phase, style: .continuous))
+        .modifier(PushBackProjection(progress: progress))
     }
     private func half(size: CGSize, panel: DesktopFold.Panel, phase: Double) -> some View {
         let vertical = panel == .top || panel == .bottom
@@ -162,7 +200,7 @@ extension DesktopFoldView {
             panel.orderFrontRegardless()
             try? await Task.sleep(for: .milliseconds(250))
             if let content = try? await SCShareableContent.currentProcess,
-               let window = content.windows.first(where: { $0.windowID == CGWindowID(panel.windowNumber) }) {
+               let window = content.windows.first(where: { $0.windowID == panel.windowID }) {
                 let configuration = SCStreamConfiguration()
                 configuration.width = 1920; configuration.height = 1240; configuration.showsCursor = false
                 configuration.ignoreShadowsSingleWindow = true

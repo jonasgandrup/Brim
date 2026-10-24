@@ -670,3 +670,29 @@ import Testing
     #expect(SettingsPage.allCases.contains(.welcome))
     #expect(!SettingsPage.sidebar.contains(.welcome))
 }
+
+@Test func duoTipsTheScreenBackFromTheBottomHinge() {
+    let size = CGSize(width: 1000, height: 600)
+    #expect(DesktopFold(progress: 0).pushBackCorners(size: size) == [CGPoint(x: 0, y: 0), CGPoint(x: 1000, y: 0), CGPoint(x: 1000, y: 600), CGPoint(x: 0, y: 600)])
+    let closing = DesktopFold(progress: 0.8).pushBackCorners(size: size)
+    #expect(closing[2].y == 600 && closing[3].y == 600)                       // the hinge edge stays put
+    #expect(closing[1].x - closing[0].x < closing[2].x - closing[3].x)        // the top recedes: narrower
+    #expect(closing[0].y > 0)                                                  // and lower
+    #expect(FoldProjection.matrix(size: size, corners: closing).m14 != 0 || FoldProjection.matrix(size: size, corners: closing).m24 != 0)
+    #expect(LidFoldStyle.allCases.first == .duo)
+}
+
+@Test func switcherPreviewsMatchByWindowNumberThenByBounds() {
+    let frame = CGRect(x: 100, y: 80, width: 900, height: 600)
+    let candidates: [ThumbnailMatch.Candidate] = [
+        .init(windowID: 11, pid: 7, title: "Inbox", frame: frame),
+        .init(windowID: 12, pid: 7, title: "Other", frame: frame.offsetBy(dx: 400, dy: 0)),
+        .init(windowID: 13, pid: 8, title: "Inbox", frame: frame),
+    ]
+    #expect(ThumbnailMatch.pick(windowID: 12, pid: 7, title: "Inbox", frame: frame, from: candidates) == 12)
+    // Without a number, a differing title no longer blocks the match; bounds decide.
+    #expect(ThumbnailMatch.pick(windowID: nil, pid: 7, title: "Inbox — Mail", frame: frame.offsetBy(dx: 2, dy: 1), from: candidates) == 11)
+    // Two equally close windows of the same app are ambiguous, so no preview rather than the wrong one.
+    let twins = [ThumbnailMatch.Candidate(windowID: 1, pid: 7, title: nil, frame: frame), .init(windowID: 2, pid: 7, title: nil, frame: frame)]
+    #expect(ThumbnailMatch.pick(windowID: nil, pid: 7, title: "A", frame: frame, from: twins) == nil)
+}

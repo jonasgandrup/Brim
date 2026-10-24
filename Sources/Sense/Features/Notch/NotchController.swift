@@ -2,6 +2,12 @@ import SwiftUI
 import AppKit
 import Observation
 
+extension NSWindow {
+    /// The window server's ID, or nil before the window has one. `windowNumber` is negative until a
+    /// window is first shown, and converting that to `CGWindowID` traps.
+    var windowID: CGWindowID? { windowNumber > 0 ? CGWindowID(exactly: windowNumber) : nil }
+}
+
 class FloatingPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
