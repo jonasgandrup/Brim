@@ -44,6 +44,15 @@ import CoreGraphics
         guard display != nil, let shown = gate.receive(level, at: ProcessInfo.processInfo.systemUptime) else { return }
         onChange(shown)
     }
+    private typealias SetBrightness = @convention(c) (CGDirectDisplayID, Float) -> Int32
+    /// The built-in panel's brightness, 0...1, or nil where the panel can't be read (no built-in display).
+    static func currentLevel() -> Double? { builtInDisplay().flatMap(read) }
+    static var canSet: Bool { builtInDisplay() != nil && framework.map { dlsym($0, "DisplayServicesSetBrightness") != nil } == true }
+    /// Sets the built-in panel's brightness. External displays keep their own controls.
+    @discardableResult static func setLevel(_ level: Double) -> Bool {
+        guard level.isFinite, let display = builtInDisplay(), let framework, let symbol = dlsym(framework, "DisplayServicesSetBrightness") else { return false }
+        return unsafeBitCast(symbol, to: SetBrightness.self)(display, Float(min(1, max(0, level)))) == 0
+    }
     private static func read(_ display: CGDirectDisplayID) -> Double? {
         guard let framework, let symbol = dlsym(framework, "DisplayServicesGetBrightness") else { return nil }
         var value: Float = 0
@@ -79,4 +88,21 @@ struct BrightnessChangeGate {
         lastShown = time
         return level
     }
+}
+
+/// The brightness slider's state. Reads the panel when the pane opens and after each change.
+@MainActor @Observable final class BrightnessControl {
+    private(set) var level: Double?
+    private(set) var available = BrightnessMonitor.canSet
+    func refresh() {
+        available = BrightnessMonitor.canSet
+        let next = available ? BrightnessMonitor.currentLevel() : nil
+        if next != level { level = next }
+    }
+    func set(_ value: Double) {
+        guard available, BrightnessMonitor.setLevel(value) else { return }
+        level = min(1, max(0, value))
+    }
+    /// Keys or Auto-Brightness changed it elsewhere.
+    func receive(_ value: Double) { if available, value != level { level = value } }
 }

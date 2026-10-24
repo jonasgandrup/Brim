@@ -2,6 +2,28 @@ import AppKit
 import IOKit.ps
 import CoreAudio
 
+/// A sound output as Control Center lists it.
+struct AudioOutput: Identifiable, Equatable, Sendable {
+    let id: AudioDeviceID
+    let name: String
+    let transport: UInt32
+    var symbol: String {
+        let lower = name.lowercased()
+        switch transport {
+        case kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE:
+            if lower.contains("airpods max") { return "airpods.max" }
+            if lower.contains("airpods pro") { return "airpods.pro" }
+            if lower.contains("airpods") { return "airpods" }
+            return "headphones"
+        case kAudioDeviceTransportTypeAirPlay: return "airplayaudio"
+        case kAudioDeviceTransportTypeHDMI, kAudioDeviceTransportTypeDisplayPort: return "tv"
+        case kAudioDeviceTransportTypeBuiltIn: return lower.contains("headphone") ? "headphones" : "laptopcomputer"
+        case kAudioDeviceTransportTypeUSB: return "hifispeaker.fill"
+        default: return "speaker.wave.2.fill"
+        }
+    }
+}
+
 @MainActor @Observable
 final class SystemStatus {
     var battery: Int?
@@ -9,6 +31,11 @@ final class SystemStatus {
     var volume: Double?
     var muted = false
     private(set) var details = BatteryDetails()
+    /// Every device that can play sound, for the island's output picker.
+    private(set) var outputs: [AudioOutput] = []
+    private(set) var outputID = AudioDeviceID(0)
+    /// False for outputs whose volume is fixed by the device (some HDMI and USB DACs).
+    private(set) var volumeSettable = false
     @ObservationIgnored var onPowerSample: (PowerSample) -> Void = { _ in }
     /// Volume or mute changed on the current output device (not on a routine refresh or device switch).
     @ObservationIgnored var onVolumeChange: (_ volume: Double?, _ muted: Bool) -> Void = { _, _ in }
@@ -75,9 +102,16 @@ final class SystemStatus {
     private func refreshVolume(announce: Bool = false) {
         var device = AudioDeviceID(0)
         guard read(AudioObjectID(kAudioObjectSystemObject), address(kAudioHardwarePropertyDefaultOutputDevice), as: &device), device != 0 else {
-            volume = nil; muted = false; return
+            volume = nil; muted = false; outputID = 0; volumeSettable = false; return
         }
         if device != volumeDevice { watchVolume(of: device) }
+        if outputID != device { outputID = device }
+        let settable = volumeElements(device).contains { element in
+            var a = address(kAudioDevicePropertyVolumeScalar, scope: kAudioDevicePropertyScopeOutput, element: element)
+            var flag: DarwinBoolean = false
+            return AudioObjectHasProperty(device, &a) && AudioObjectIsPropertySettable(device, &a, &flag) == noErr && flag.boolValue
+        }
+        if volumeSettable != settable { volumeSettable = settable }
         // Many HDMI/USB outputs have no master volume; average the first two channels instead.
         var levels: [Double] = []
         for element in [kAudioObjectPropertyElementMain, 1, 2] as [AudioObjectPropertyElement] {
@@ -94,6 +128,73 @@ final class SystemStatus {
         if volume != next { volume = next }
         if muted != isMuted { muted = isMuted }
         if announce && changed { onVolumeChange(next, isMuted) }
+    }
+    private func write<T>(_ device: AudioObjectID, _ address: AudioObjectPropertyAddress, _ value: T) -> Bool {
+        var address = address
+        var settable: DarwinBoolean = false
+        guard AudioObjectHasProperty(device, &address),
+              AudioObjectIsPropertySettable(device, &address, &settable) == noErr, settable.boolValue else { return false }
+        var value = value
+        return AudioObjectSetPropertyData(device, &address, 0, nil, UInt32(MemoryLayout<T>.size), &value) == noErr
+    }
+    /// The elements that carry volume: the master if the device has one, otherwise the first two channels.
+    private func volumeElements(_ device: AudioDeviceID) -> [AudioObjectPropertyElement] {
+        var master = address(kAudioDevicePropertyVolumeScalar, scope: kAudioDevicePropertyScopeOutput)
+        var settable: DarwinBoolean = false
+        if AudioObjectHasProperty(device, &master), AudioObjectIsPropertySettable(device, &master, &settable) == noErr, settable.boolValue {
+            return [kAudioObjectPropertyElementMain]
+        }
+        return [1, 2]
+    }
+
+    // MARK: Quick controls
+
+    /// Sets the current output's volume. Raising it from zero unmutes, as the volume keys do.
+    func setVolume(_ level: Double) {
+        let device = outputID
+        guard device != 0, level.isFinite else { return }
+        let scalar = Float32(min(1, max(0, level)))
+        var wrote = false
+        for element in volumeElements(device) {
+            wrote = write(device, address(kAudioDevicePropertyVolumeScalar, scope: kAudioDevicePropertyScopeOutput, element: element), scalar) || wrote
+        }
+        if wrote, muted, scalar > 0 { _ = write(device, address(kAudioDevicePropertyMute, scope: kAudioDevicePropertyScopeOutput), UInt32(0)) }
+        refreshVolume()
+    }
+    func setMuted(_ mute: Bool) {
+        guard outputID != 0 else { return }
+        _ = write(outputID, address(kAudioDevicePropertyMute, scope: kAudioDevicePropertyScopeOutput), UInt32(mute ? 1 : 0))
+        refreshVolume()
+    }
+    /// Makes a device the system's sound output, as choosing it in Control Center does.
+    func selectOutput(_ device: AudioDeviceID) {
+        guard device != outputID, outputs.contains(where: { $0.id == device }) else { return }
+        _ = write(AudioObjectID(kAudioObjectSystemObject), address(kAudioHardwarePropertyDefaultOutputDevice), device)
+        refreshVolume()
+    }
+    private func refreshOutputs() {
+        let system = AudioObjectID(kAudioObjectSystemObject)
+        var list = address(kAudioHardwarePropertyDevices)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(system, &list, 0, nil, &size) == noErr, size > 0 else { if !outputs.isEmpty { outputs = [] }; return }
+        var ids = [AudioDeviceID](repeating: 0, count: Int(size) / MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(system, &list, 0, nil, &size, &ids) == noErr else { return }
+        let next: [AudioOutput] = ids.compactMap { device in
+            var streams = address(kAudioDevicePropertyStreams, scope: kAudioDevicePropertyScopeOutput)
+            var streamSize: UInt32 = 0
+            guard AudioObjectGetPropertyDataSize(device, &streams, 0, nil, &streamSize) == noErr, streamSize > 0 else { return nil }
+            var hidden: UInt32 = 0
+            if read(device, address(kAudioDevicePropertyIsHidden), as: &hidden), hidden != 0 { return nil }
+            var name: Unmanaged<CFString>?
+            var nameAddress = address(kAudioObjectPropertyName)
+            var nameSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+            guard AudioObjectGetPropertyData(device, &nameAddress, 0, nil, &nameSize, &name) == noErr,
+                  let title = name?.takeRetainedValue() as String?, !title.isEmpty else { return nil }
+            var transport: UInt32 = 0
+            _ = read(device, address(kAudioDevicePropertyTransportType), as: &transport)
+            return AudioOutput(id: device, name: title, transport: transport)
+        }
+        if next != outputs { outputs = next }
     }
     /// Listen for volume/mute changes on the current output device, and for the device itself changing.
     private func watchVolume(of device: AudioDeviceID) {
@@ -124,16 +225,21 @@ final class SystemStatus {
     private func watchDefaultDevice() {
         guard deviceListener == nil else { return }
         let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            Task { @MainActor in self?.refreshVolume() }
+            Task { @MainActor in self?.refreshOutputs(); self?.refreshVolume() }
         }
         deviceListener = listener
         var a = address(kAudioHardwarePropertyDefaultOutputDevice)
         AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &a, .main, listener)
+        var devices = address(kAudioHardwarePropertyDevices)
+        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &devices, .main, listener)
+        refreshOutputs()
     }
     private func unwatchDefaultDevice() {
         guard let listener = deviceListener else { return }
         var a = address(kAudioHardwarePropertyDefaultOutputDevice)
         AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &a, .main, listener)
+        var devices = address(kAudioHardwarePropertyDevices)
+        AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &devices, .main, listener)
         deviceListener = nil
     }
 }

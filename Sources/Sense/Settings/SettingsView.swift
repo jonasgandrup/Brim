@@ -64,7 +64,7 @@ struct SettingsView: View {
             .selectionDisabled()
             .accessibilityElement(children: .combine)
             Section {
-                ForEach(SettingsPage.allCases) { page in
+                ForEach(SettingsPage.sidebar) { page in
                     Label {
                         Text(page.title)
                     } icon: {
@@ -80,12 +80,53 @@ struct SettingsView: View {
     }
     @ViewBuilder private var content: some View {
         switch model.page {
+        case .welcome: welcome
         case .general: general
         case .notch: notch
         case .switcher: switcher
         case .scale: scale
         case .lock: lock
         case .permissions: permissions
+        }
+    }
+
+    // MARK: Welcome
+
+    /// First launch: choose features in one place, then go straight to whatever they need.
+    @ViewBuilder private var welcome: some View {
+        Section {
+            welcomeToggle("capsule.fill", .black, "Dynamic Island", "Activities, files, timers and system status around the camera.", binding(\.notchEnabled))
+            welcomeToggle("play.fill", .pink, "Now Playing", "What’s playing in any app, with controls and artwork.", binding(\.mediaEnabled))
+                .disabled(!preferences.notchEnabled)
+            welcomeToggle("camera.viewfinder", .teal, "Screenshot Shelf", "New screenshots appear in the island, ready to drag.", binding(\.screenshotShelf))
+                .disabled(!preferences.notchEnabled)
+            welcomeToggle("arrow.down.circle.fill", .blue, "Downloads & AirDrop", "Files still arriving show as a progress ring.", binding(\.liveTransfers))
+                .disabled(!preferences.notchEnabled)
+        } header: { Text("The Island") }
+        Section {
+            welcomeToggle(SettingsPage.switcher.symbol, SettingsPage.switcher.tint, "Window Switcher", "Every window, not just apps, on ⌘ Tab.", binding(\.switcherEnabled))
+            welcomeToggle("laptopcomputer", .indigo, "Lid Fold", "Your desktop folds as you close the lid.", binding(\.lidEffectEnabled))
+            welcomeToggle(SettingsPage.scale.symbol, SettingsPage.scale.tint, "Trackpad Scale", "Weigh small objects on your Force Touch trackpad.", binding(\.scaleEnabled))
+            Toggle(isOn: Binding(get: { model.loginEnabled }, set: { model.setLogin($0) })) {
+                Label { SettingsLabel(title: "Open at Login", detail: "Ready when your Mac is.") } icon: { SettingsIcon(symbol: "power", tint: .gray, size: 26) }
+            }
+        } header: { Text("Around Your Mac") } footer: {
+            Footnote(text: "Sense asks for a permission only when a feature you turned on needs it. Nothing leaves your Mac.", symbol: "lock.shield")
+        }
+        Section {
+            HStack {
+                Button("Skip") { model.page = .general }
+                Spacer()
+                Button("Continue") { model.permissions.refresh(); model.page = .permissions }
+                    .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+            }
+        } footer: {
+            Footnote(text: "Continue shows a checklist of anything your choices still need, each with a one-click fix.")
+        }
+    }
+    private func welcomeToggle(_ symbol: String, _ tint: Color, _ title: String, _ detail: String, _ isOn: Binding<Bool>) -> some View {
+        Toggle(isOn: isOn) {
+            Label { SettingsLabel(title: title, detail: detail) } icon: { SettingsIcon(symbol: symbol, tint: tint, size: 26) }
         }
     }
 
@@ -110,6 +151,11 @@ struct SettingsView: View {
             Picker("Appearance", selection: binding(\.appearance)) {
                 ForEach(Appearance.allCases) { Text($0.title).tag($0) }
             }
+            LabeledContent {
+                Button("Show") { model.page = .welcome }
+            } label: {
+                SettingsLabel(title: "Welcome Tour", detail: "Choose features again from one page.")
+            }
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
                 if let message = model.loginMessage { Footnote(text: message, symbol: "exclamationmark.circle") }
@@ -131,6 +177,9 @@ struct SettingsView: View {
             }.disabled(!preferences.notchEnabled)
             Toggle(isOn: binding(\.showOnExternal)) {
                 SettingsLabel(title: "Show on Displays Without a Notch", detail: "Adds a small island at the top of the display.")
+            }.disabled(!preferences.notchEnabled)
+            Toggle(isOn: binding(\.haptics)) {
+                SettingsLabel(title: "Haptic Feedback", detail: "A soft tap on the trackpad when the island opens, a file lands or a timer ends. Felt only while a finger rests on a Force Touch trackpad.")
             }.disabled(!preferences.notchEnabled)
             Toggle(isOn: binding(\.followActiveDisplay)) {
                 SettingsLabel(title: "Follow the Active Display", detail: "With several displays, the island moves to the one you’re working on.")
@@ -154,7 +203,7 @@ struct SettingsView: View {
                 SettingsLabel(title: "File Shelf", detail: "Drop files on the island, switch windows or Spaces, then drag them out.")
             }.disabled(!preferences.notchEnabled)
             Toggle(isOn: binding(\.keepShelf)) {
-                SettingsLabel(title: "Keep Shelf Files After Quitting", detail: "Remembers where the files are, never copies them.")
+                SettingsLabel(title: "Keep Shelf and Pins After Quitting", detail: "Files are remembered by location, never copied. Clipboard pins are saved on this Mac; turning this off deletes them. History is never saved.")
             }
             Toggle(isOn: binding(\.screenshotShelf)) {
                 SettingsLabel(title: "Screenshot Shelf", detail: "New screenshots slide into the island and wait on the shelf. Uses Spotlight, so only indexed folders are seen.")

@@ -42,8 +42,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if CommandLine.arguments.contains("--lid-setup") { model.openSettings(page: .lock) }
         else if !UserDefaults.standard.bool(forKey: "hasLaunched") || CommandLine.arguments.contains("--settings") || AppEnvironment.isSmokeTest {
+            let firstLaunch = !UserDefaults.standard.bool(forKey: "hasLaunched") && !AppEnvironment.isSmokeTest
             if !AppEnvironment.isSmokeTest { UserDefaults.standard.set(true, forKey: "hasLaunched") }
-            model.openSettings()
+            model.openSettings(page: firstLaunch ? .welcome : nil)
         }
         #if DEBUG
         if AppEnvironment.isSmokeTest {

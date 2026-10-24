@@ -158,6 +158,7 @@ final class NotchController {
     let sensors = SensorActivity()
     let bluetooth = BluetoothBatteries()
     private let brightness = BrightnessMonitor()
+    let brightnessControl = BrightnessControl()
     private var powerFeedback = PowerFeedbackTracker()
     private(set) var dropTargeted = false
     private(set) var fileDragActive = false
@@ -330,6 +331,7 @@ final class NotchController {
         clock.onAlarm = { [weak self] in
             guard let self else { return }
             self.selectedTab = .timer
+            self.haptic(.finish)
             self.showFeedback("Alarm", symbol: "alarm.fill", tint: .orange)
         }
         countdown.onFinish = { [weak self] in
@@ -337,6 +339,7 @@ final class NotchController {
             let focus = self.countdown.focus
             self.selectedTab = .timer
             self.clock.mode = focus == nil ? .timer : .focus
+            self.haptic(.finish)
             self.showFeedback(self.countdown.finishedTitle, symbol: focus == nil ? "timer" : "brain.head.profile",
                               tint: focus.map { $0.phase == .focus ? Color.red : .green } ?? .orange)
             if AppEnvironment.allowsAlerts {
@@ -351,6 +354,7 @@ final class NotchController {
         transfers.onFinished = { [weak self] activity in self?.transferFinished(activity) }
         sensors.onChange = { [weak self] camera, microphone in self?.sensorsChanged(camera: camera, microphone: microphone) }
         brightness.onChange = { [weak self] level in
+            self?.brightnessControl.receive(level)
             self?.showHUD(.init(symbol: NotchController.brightnessSymbol(level), level: level, label: "Brightness"))
         }
         bluetooth.onConnected = { [weak self] device in self?.deviceConnected(device) }
@@ -600,8 +604,11 @@ final class NotchController {
             // A brief dwell avoids opening the island when crossing the menu bar.
             hoverTask = Task { [weak self] in
                 try? await Task.sleep(for: .milliseconds(60))
-                guard !Task.isCancelled else { return }
-                self?.hoverTask = nil; self?.setExpanded(true)
+                guard !Task.isCancelled, let self else { return }
+                self.hoverTask = nil
+                let wasExpanded = self.expanded
+                self.setExpanded(true)
+                if !wasExpanded && self.expanded { self.haptic(.open) }
             }
         } else if !inside && expanded { collapseAfterDelay() }
     }
@@ -709,11 +716,13 @@ final class NotchController {
         if expanded && !pointerInside { collapseAfterDelay() }
     }
     func setDropTargeted(_ targeted: Bool, clipboard: Bool = false) {
+        if targeted && !dropTargeted { haptic(.open) }
         dropTargeted = targeted
         if targeted { selectedTab = clipboard ? .clipboard : .files; setExpanded(true) }
         else if !pointerInside { collapseAfterDelay() }
     }
     func finishFileDrop(clipboard: Bool = false) {
+        haptic(.land)
         dropTargeted = false; fileDragActive = false; selectedTab = clipboard ? .clipboard : .files
         // The shelf stays open only while hovered; retained references survive collapse and Space changes.
         updateInteraction(scheduleHover: false)
@@ -780,6 +789,13 @@ final class NotchController {
         } else if !keep, shelf.persistence != nil {
             shelf.persistence = nil
         }
+        // Clipboard pins follow the same switch; turning it off deletes the saved copies.
+        if keep, clipboard.persistence == nil, let store = ClipboardPinStore.standard {
+            clipboard.restore(from: store)
+            clipboard.persistence = store
+        } else if !keep, clipboard.persistence != nil {
+            clipboard.persistence = nil
+        }
     }
 
     // MARK: System events
@@ -792,6 +808,7 @@ final class NotchController {
             case .airDropReceive: "Received \(activity.name)"
             case .download: "Downloaded \(activity.name)"
             }
+            haptic(.finish)
             showFeedback(text, symbol: activity.symbol, tint: .blue, seconds: 3)
         case .failed(let message):
             Log.island.notice("Transfer failed: \(message, privacy: .private)")
@@ -834,6 +851,7 @@ final class NotchController {
         guard preferences?.notchEnabled == true, preferences?.screenshotShelf == true else { return }
         shelf.add([url]); shelf.select([url.standardizedFileURL])
         selectedTab = .files
+        haptic(.land)
         showFeedback("Screenshot", symbol: "camera.viewfinder", image: ScreenshotWatcher.thumbnail(for: url), url: url, seconds: 4)
     }
 
@@ -860,6 +878,17 @@ final class NotchController {
     }
     private func clearFeedback() {
         feedback = nil; feedbackBattery = nil; feedbackImage = nil; feedbackURL = nil; feedbackAction = nil
+    }
+    /// The trackpad only plays this while a finger rests on it, so it's felt, never heard.
+    enum Haptic { case open, land, finish }
+    func haptic(_ kind: Haptic) {
+        guard preferences?.haptics == true, AppEnvironment.allowsAlerts else { return }
+        let pattern: NSHapticFeedbackManager.FeedbackPattern = switch kind {
+        case .open: .alignment
+        case .land: .generic
+        case .finish: .levelChange
+        }
+        NSHapticFeedbackManager.defaultPerformer.perform(pattern, performanceTime: .now)
     }
     /// Volume, brightness and privacy changes stay compact: they never open the island or take focus.
     func showHUD(_ value: IslandHUD, seconds: Double = 1.6) {

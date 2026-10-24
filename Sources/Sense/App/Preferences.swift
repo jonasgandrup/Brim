@@ -30,7 +30,7 @@ final class Preferences {
         "liveTransfers": false, "autoHideFocus": false, "autoHideSharing": false, "calendarPreview": false,
         "clipboardHistory": false, "toolShortcutModifiers": "ctrlOptCmd", "menuBarStatus": "off",
         "screenshotShelf": false, "appearance": "system", "sensorIndicator": false, "systemHUD": false,
-        "bluetoothBatteries": true, "keepShelf": true,
+        "bluetoothBatteries": true, "keepShelf": true, "haptics": true,
     ]
     var toolShortcutsEnabled: Bool { didSet { save(toolShortcutsEnabled, "toolShortcutsEnabled") } }
     var toolShortcutModifiers: ShortcutModifiers { didSet { save(toolShortcutModifiers.rawValue, "toolShortcutModifiers") } }
@@ -74,8 +74,10 @@ final class Preferences {
     /// Volume and brightness changes appear in the island.
     var systemHUD: Bool { didSet { save(systemHUD, "systemHUD") } }
     var bluetoothBatteries: Bool { didSet { save(bluetoothBatteries, "bluetoothBatteries") } }
-    /// Keep shelf files (as references, never copies) across relaunches.
+    /// Keep shelf files (as references, never copies) and clipboard pins across relaunches.
     var keepShelf: Bool { didSet { save(keepShelf, "keepShelf") } }
+    /// A soft trackpad tap for island moments that are worth feeling.
+    var haptics: Bool { didSet { save(haptics, "haptics") } }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -113,6 +115,7 @@ final class Preferences {
         systemHUD = flag("systemHUD")
         bluetoothBatteries = flag("bluetoothBatteries")
         keepShelf = flag("keepShelf")
+        haptics = flag("haptics")
     }
     static func clampTarget(_ value: Int) -> Int { min(100, max(50, value)) }
     static func clampLow(_ value: Int) -> Int { value <= 0 ? 0 : min(50, max(5, value)) }
@@ -127,12 +130,16 @@ final class Preferences {
 }
 
 enum SettingsPage: String, CaseIterable, Identifiable {
+    case welcome = "Welcome"
     case general = "General", notch = "Dynamic Island", switcher = "Window Switcher"
     case scale = "Trackpad Scale", lock = "Lock Screen", permissions = "Permissions"
     var id: String { rawValue }
-    var title: String { self == .lock ? "Lid Fold & Lock" : rawValue }
+    var title: String { self == .lock ? "Lid Fold & Lock" : self == .welcome ? "Welcome to Sense" : rawValue }
+    /// The welcome page is reached on first launch or from General, not from the sidebar.
+    static var sidebar: [SettingsPage] { allCases.filter { $0 != .welcome } }
     var symbol: String {
         switch self {
+        case .welcome: "sparkles"
         case .general: "gearshape.fill"
         case .notch: "capsule.fill"
         case .switcher: "rectangle.on.rectangle"
@@ -144,6 +151,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     /// The tile color behind the sidebar icon, as in System Settings.
     var tint: Color {
         switch self {
+        case .welcome: .purple
         case .general: .gray
         case .notch: .black
         case .switcher: .blue
@@ -154,6 +162,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     }
     var subtitle: String {
         switch self {
+        case .welcome: "Turn on what you want. Everything else stays off, and you can change it anytime."
         case .general: "A little more Mac."
         case .notch: "A quiet home for what’s happening."
         case .switcher: "Every window. One shortcut."

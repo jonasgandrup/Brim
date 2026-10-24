@@ -50,35 +50,32 @@ struct ChargeFeedbackView: View {
     }
 }
 
+/// Battery at a glance, then the controls you reach for most: volume, output and brightness,
+/// like Control Center's Sound and Display modules.
 struct BatteryPaneView: View {
     let status: SystemStatus
     var bluetooth: BluetoothBatteries?
+    var brightness: BrightnessControl?
     var body: some View {
         let details = status.details
-        VStack(alignment: .leading, spacing: 6) {
-            IslandPaneHeader(title: "Battery", symbol: "battery.100percent") {
-                if details.lowPowerMode { Label("Low Power", systemImage: "leaf.fill").font(.system(size: 10)).foregroundStyle(.yellow) }
-            }
+        VStack(alignment: .leading, spacing: 7) {
             if let level = status.battery {
-                HStack(spacing: 18) {
-                    BatteryGlyph(level: level, charging: details.charging, lowPower: details.lowPowerMode, height: 40)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("\(level)%").font(.system(size: 34, weight: .light, design: .rounded)).monospacedDigit().contentTransition(.numericText())
-                        Text(details.summary(level: level, externalPower: status.charging))
-                            .font(.system(size: 11)).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
-                    }
+                HStack(spacing: 10) {
+                    BatteryGlyph(level: level, charging: details.charging, lowPower: details.lowPowerMode, height: 18)
+                    Text("\(level)%").font(.system(size: 20, weight: .semibold, design: .rounded)).monospacedDigit().contentTransition(.numericText())
+                    Text(details.summary(level: level, externalPower: status.charging))
+                        .font(.system(size: 11)).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
                     Spacer(minLength: 0)
-                }.padding(.top, 4)
-                tiles(details: details)
-            } else if let devices = bluetooth?.devices, !devices.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) { ForEach(devices) { device($0) } }
-                }.padding(.top, 4)
+                    if details.lowPowerMode { Image(systemName: "leaf.fill").font(.system(size: 11)).foregroundStyle(.yellow).help("Low Power Mode") }
+                }.frame(height: 26)
             } else {
-                IslandEmptyState(symbol: "powerplug", title: "This Mac has no battery", detail: "Connected AirPods and Magic accessories appear here.", minHeight: 95)
+                IslandPaneHeader(title: "Sound & Display", symbol: "slider.horizontal.3") { EmptyView() }
             }
+            QuickControls(status: status, brightness: brightness)
+            let devices = bluetooth?.devices ?? []
+            if status.battery != nil || !devices.isEmpty { tiles(details: details) }
         }.foregroundStyle(.white)
-        .onAppear { bluetooth?.refreshIfStale() }
+        .onAppear { bluetooth?.refreshIfStale(); brightness?.refresh() }
     }
     /// Battery facts first, then each connected accessory, in one row that scrolls if it runs long.
     private func tiles(details: BatteryDetails) -> some View {
@@ -119,5 +116,87 @@ struct BatteryPaneView: View {
         if let batteryCase = device.batteryCase { parts.append("Case \(batteryCase)%") }
         if parts.isEmpty, let main = device.main { parts.append("\(main)%") }
         return device.name + " · " + parts.joined(separator: " · ")
+    }
+}
+
+/// Volume with mute and an output picker, and built-in display brightness. Each row is a capsule slider.
+struct QuickControls: View {
+    let status: SystemStatus
+    var brightness: BrightnessControl?
+    var body: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                Button { status.setMuted(!status.muted) } label: {
+                    Image(systemName: volumeSymbol).font(.system(size: 12, weight: .semibold)).frame(width: 20, height: 20)
+                        .contentTransition(.symbolEffect(.replace)).contentShape(Rectangle())
+                }.buttonStyle(IslandPressStyle()).help(status.muted ? "Unmute" : "Mute").accessibilityLabel(status.muted ? "Unmute" : "Mute")
+                    .disabled(status.outputID == 0)
+                if status.volumeSettable, let volume = status.volume {
+                    IslandSlider(value: status.muted ? 0 : volume, label: "Volume") { status.setVolume($0) }
+                } else {
+                    Text(status.outputID == 0 ? "No sound output" : "Volume is set on the device")
+                        .font(.system(size: 10)).foregroundStyle(.white.opacity(0.5)).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                outputMenu
+            }
+            if let brightness, brightness.available, let level = brightness.level {
+                HStack(spacing: 8) {
+                    Image(systemName: level < 0.5 ? "sun.min.fill" : "sun.max.fill").font(.system(size: 12, weight: .semibold)).frame(width: 20, height: 20)
+                    IslandSlider(value: level, label: "Brightness") { brightness.set($0) }
+                    Color.clear.frame(width: 26, height: 20)
+                }
+            }
+        }
+    }
+    private var volumeSymbol: String {
+        let level = status.muted ? 0 : (status.volume ?? 0)
+        return status.muted || level == 0 ? "speaker.slash.fill" : level < 0.34 ? "speaker.wave.1.fill" : level < 0.67 ? "speaker.wave.2.fill" : "speaker.wave.3.fill"
+    }
+    private var outputMenu: some View {
+        let current = status.outputs.first { $0.id == status.outputID }
+        return Menu {
+            Section("Sound Output") {
+                ForEach(status.outputs) { output in
+                    Button { status.selectOutput(output.id) } label: {
+                        Label(output.name, systemImage: output.id == status.outputID ? "checkmark" : output.symbol)
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: current?.symbol ?? "speaker.wave.2.fill").font(.system(size: 11, weight: .semibold)).frame(width: 18, height: 18)
+        }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().frame(width: 26)
+            .disabled(status.outputs.count < 2)
+            .help(current.map { "Output: \($0.name)" } ?? "Sound output").accessibilityLabel("Sound output")
+    }
+}
+
+/// A Control Center–style capsule: the fill is the value, and clicking or dragging anywhere sets it.
+struct IslandSlider: View {
+    let value: Double
+    let label: String
+    let onChange: (Double) -> Void
+    var body: some View {
+        GeometryReader { geometry in
+            let width = max(1, geometry.size.width)
+            Capsule().fill(.white.opacity(0.16))
+                .overlay(alignment: .leading) {
+                    Capsule().fill(.white).frame(width: max(8, width * min(1, max(0, value))))
+                }
+                .contentShape(Capsule())
+                .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
+                    onChange(min(1, max(0, drag.location.x / width)))
+                })
+        }
+        .frame(height: 8).padding(.vertical, 6)
+        .animation(.snappy(duration: 0.12), value: value)
+        .accessibilityElement().accessibilityLabel(label)
+        .accessibilityValue("\(Int((value * 100).rounded())) percent")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: onChange(min(1, value + 0.0625))
+            case .decrement: onChange(max(0, value - 0.0625))
+            @unknown default: break
+            }
+        }
     }
 }

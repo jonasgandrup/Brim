@@ -1,5 +1,6 @@
 import UniformTypeIdentifiers
 import ImageIO
+import CoreAudio
 
 import Foundation
 import AppKit
@@ -624,4 +625,48 @@ import Testing
     #expect(controller.presentationMode)
     controller.setPresentationMode(false)
     #expect(!controller.presentationMode)
+}
+
+@Test @MainActor func clipboardPinsSurviveARelaunchAndForgetWhenTurnedOff() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("SensePins-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = ClipboardPinStore(directory: directory)
+    let context = try #require(CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 0,
+                                         space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    let cgImage = try #require(context.makeImage())
+    let png = try #require(NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:]))
+
+    let first = ClipboardShelf()
+    first.persistence = store
+    first.add(.text("Remember me")); first.add(.link(URL(string: "https://example.com")!)); first.add(.image(png))
+    let second = ClipboardShelf()
+    second.restore(from: store)
+    #expect(second.pins.map(\.payload) == first.pins.map(\.payload))
+    #expect(second.pins.map(\.id) == first.pins.map(\.id))
+
+    // Removing an image pin deletes its file; turning persistence off deletes everything.
+    second.persistence = store
+    if let image = second.pins.last { second.remove(image) }
+    let pngs = try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.hasSuffix(".png") }
+    #expect(pngs.isEmpty)
+    second.persistence = nil
+    #expect(!FileManager.default.fileExists(atPath: directory.path))
+}
+
+@Test func islandTabsShowTransfersOnlyWhenUseful() {
+    let off = IslandTabBar.visible(showsTransfers: false, hasBattery: true)
+    #expect(!off.map(\.tab).contains(.transfers) && off.count == 5)
+    #expect(IslandTabBar.visible(showsTransfers: true, hasBattery: true).map(\.tab).last == .transfers)
+    #expect(IslandTabBar.visible(showsTransfers: false, hasBattery: false).first { $0.tab == .battery }?.title == "Controls")
+}
+
+@Test func soundOutputsUseTheirDeviceSymbol() {
+    #expect(AudioOutput(id: 1, name: "AirPods Pro", transport: kAudioDeviceTransportTypeBluetooth).symbol == "airpods.pro")
+    #expect(AudioOutput(id: 2, name: "MacBook Pro Speakers", transport: kAudioDeviceTransportTypeBuiltIn).symbol == "laptopcomputer")
+    #expect(AudioOutput(id: 3, name: "Living Room", transport: kAudioDeviceTransportTypeAirPlay).symbol == "airplayaudio")
+}
+
+@Test @MainActor func welcomePageIsReachableButNotInTheSidebar() {
+    #expect(SettingsPage.allCases.contains(.welcome))
+    #expect(!SettingsPage.sidebar.contains(.welcome))
 }

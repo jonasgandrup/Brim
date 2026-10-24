@@ -172,7 +172,9 @@ struct IslandView: View {
     private var expandedPane: some View {
         VStack(spacing: 8) {
             if controller.feedback == nil {
-                IslandTabBar(selection: $controller.selectedTab)
+                IslandTabBar(selection: $controller.selectedTab,
+                             tabs: IslandTabBar.visible(showsTransfers: preferences.liveTransfers || controller.transfers.hasRunning || controller.selectedTab == .transfers,
+                                                        hasBattery: status.battery != nil))
             }
             if controller.feedback != nil { feedbackContent }
             else {
@@ -188,7 +190,7 @@ struct IslandView: View {
         case .files: FileShelfView(shelf: controller.shelf, dropTargeted: controller.dropTargeted)
         case .clipboard: ClipboardShelfView(shelf: controller.clipboard, pinClipboard: { controller.pinClipboard() })
         case .timer: IslandClockView(clock: controller.clock, timer: controller.countdown, calendar: controller.calendar)
-        case .battery: BatteryPaneView(status: status, bluetooth: preferences.bluetoothBatteries ? controller.bluetooth : nil)
+        case .battery: BatteryPaneView(status: status, bluetooth: preferences.bluetoothBatteries ? controller.bluetooth : nil, brightness: controller.brightnessControl)
         case .transfers:
             TransfersPaneView(transfers: controller.transfers, enabled: preferences.liveTransfers, enable: { controller.connectTransfers() },
                               addToShelf: { url in controller.shelf.add([url]); controller.selectedTab = .files })
@@ -300,14 +302,21 @@ struct IslandView: View {
 }
 
 /// The island's sections as a strip of symbols with one sliding highlight, like Control Center's modules.
-private struct IslandTabBar: View {
+struct IslandTabBar: View {
+    typealias Item = (tab: IslandTab, symbol: String, title: String)
     @Binding var selection: IslandTab
+    let tabs: [Item]
     @Namespace private var highlight
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private let tabs: [(tab: IslandTab, symbol: String, title: String)] = [
-        (.music, "play.fill", "Now Playing"), (.files, "tray.fill", "Files"), (.clipboard, "pin.fill", "Clipboard"),
-        (.timer, "clock.fill", "Clock"), (.battery, "battery.100percent", "Battery"), (.transfers, "arrow.down.circle.fill", "Transfers"),
-    ]
+    /// Only the sections that have something to offer: Transfers appears once it's turned on or busy,
+    /// and the controls tab is named for what this Mac has.
+    static func visible(showsTransfers: Bool, hasBattery: Bool) -> [Item] {
+        var items: [Item] = [(.music, "play.fill", "Now Playing"), (.files, "tray.fill", "Files"), (.clipboard, "pin.fill", "Clipboard"),
+                             (.timer, "clock.fill", "Clock"),
+                             (.battery, hasBattery ? "battery.100percent" : "slider.horizontal.3", hasBattery ? "Battery & Controls" : "Controls")]
+        if showsTransfers { items.append((.transfers, "arrow.down.circle.fill", "Transfers")) }
+        return items
+    }
     var body: some View {
         HStack(spacing: 2) {
             ForEach(tabs, id: \.tab) { item in

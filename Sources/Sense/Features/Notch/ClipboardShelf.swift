@@ -4,8 +4,9 @@ import UniformTypeIdentifiers
 
 struct ClipboardPin: Identifiable, Equatable {
     enum Payload: Equatable { case text(String), link(URL), image(Data) }
-    let id = UUID()
+    let id: UUID
     let payload: Payload
+    init(id: UUID = UUID(), payload: Payload) { self.id = id; self.payload = payload }
     var title: String {
         switch payload {
         case .text(let text): String(text.prefix(120))
@@ -33,11 +34,74 @@ struct ClipboardPin: Identifiable, Equatable {
     }
 }
 
+/// Pinned clips on disk: a small index plus one PNG per image pin, in a folder only Sense uses.
+/// Text and links are only written here because you pinned them; clipboard history never is.
+struct ClipboardPinStore: Sendable {
+    let directory: URL
+    static var standard: ClipboardPinStore? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            .map { ClipboardPinStore(directory: $0.appendingPathComponent("Sense/Clipboard Pins", isDirectory: true)) }
+    }
+    private var index: URL { directory.appendingPathComponent("pins.json") }
+    private struct Entry: Codable { let id: UUID; let kind: String; let value: String }
+
+    func save(_ pins: [ClipboardPin]) throws {
+        let manager = FileManager.default
+        try manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        var entries: [Entry] = []
+        var images: Set<String> = []
+        for pin in pins {
+            switch pin.payload {
+            case .text(let text): entries.append(Entry(id: pin.id, kind: "text", value: text))
+            case .link(let url): entries.append(Entry(id: pin.id, kind: "link", value: url.absoluteString))
+            case .image(let data):
+                let name = pin.id.uuidString + ".png"
+                images.insert(name)
+                let file = directory.appendingPathComponent(name)
+                // Images never change once pinned, so each is written only once.
+                if !manager.fileExists(atPath: file.path) { try data.write(to: file, options: .atomic) }
+                entries.append(Entry(id: pin.id, kind: "image", value: name))
+            }
+        }
+        try JSONEncoder().encode(entries).write(to: index, options: .atomic)
+        for name in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where name.hasSuffix(".png") && !images.contains(name) {
+            try? manager.removeItem(at: directory.appendingPathComponent(name))
+        }
+    }
+    func load() -> [ClipboardPin] {
+        guard let data = try? Data(contentsOf: index), let entries = try? JSONDecoder().decode([Entry].self, from: data) else { return [] }
+        return entries.compactMap { entry in
+            switch entry.kind {
+            case "text": return ClipboardPin(id: entry.id, payload: .text(entry.value))
+            case "link": return URL(string: entry.value).map { ClipboardPin(id: entry.id, payload: .link($0)) }
+            case "image":
+                // Only a plain file name inside the store; never follow a path out of it.
+                guard !entry.value.contains("/"), let image = try? Data(contentsOf: directory.appendingPathComponent(entry.value)) else { return nil }
+                return ClipboardPin(id: entry.id, payload: .image(image))
+            default: return nil
+            }
+        }
+    }
+    func erase() { try? FileManager.default.removeItem(at: directory) }
+}
+
 @MainActor @Observable final class ClipboardShelf {
     static let linkSchemes: Set<String> = ["https", "http", "mailto"]
     static func isSupportedLink(_ url: URL) -> Bool { linkSchemes.contains(url.scheme?.lowercased() ?? "") }
     private static let totalImageBytes = 60_000_000
-    private(set) var pins: [ClipboardPin] = []
+    private(set) var pins: [ClipboardPin] = [] { didSet { if pins != oldValue { try? persistence?.save(pins) } } }
+    /// When set, pins survive relaunches in Application Support. History never does.
+    @ObservationIgnored var persistence: ClipboardPinStore? {
+        didSet {
+            if persistence == nil { oldValue?.erase() } else { try? persistence?.save(pins) }
+        }
+    }
+    /// Brings back pins saved by an earlier session, without saving over them first.
+    func restore(from store: ClipboardPinStore) {
+        guard pins.isEmpty else { return }
+        let saved = store.load()
+        if !saved.isEmpty { pins = saved }
+    }
     /// Optional, in-memory only: text and links copied recently. Never written to disk.
     private(set) var history: [ClipboardPin] = []
     var showingHistory = false
