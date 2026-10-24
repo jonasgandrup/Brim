@@ -178,12 +178,11 @@ struct ClipboardShelfView: View {
                 TextField("Filter recent copies", text: $shelf.historyFilter).textFieldStyle(.roundedBorder).controlSize(.small)
             }
             if items.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: shelf.showingHistory ? "clock.arrow.circlepath" : "doc.on.clipboard").font(.system(size: 24, weight: .light))
-                    Text(shelf.showingHistory ? "Nothing copied yet." : "Pin text, links and images.").font(.system(size: 12))
-                    Text(shelf.showingHistory ? "Recent text and links stay in memory only. Password managers are skipped." : "Only reads the clipboard when you ask.")
-                        .font(.system(size: 10)).foregroundStyle(.white.opacity(0.45)).multilineTextAlignment(.center)
-                }.frame(maxWidth: .infinity, minHeight: shelf.showingHistory ? 74 : 95).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 15))
+                IslandEmptyState(symbol: shelf.showingHistory ? "clock.arrow.circlepath" : "doc.on.clipboard",
+                                 title: shelf.showingHistory ? "Nothing Copied Yet" : "Pin Text, Links and Images",
+                                 detail: shelf.showingHistory ? "Recent text and links stay in memory only. Password managers are skipped." : "Sense reads the clipboard only when you ask.",
+                                 minHeight: shelf.showingHistory ? 74 : 95)
+                    .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
@@ -199,7 +198,7 @@ struct ClipboardShelfView: View {
             if case .image(let data) = pin.payload, let image = NSImage(data: data) {
                 Image(nsImage: image).resizable().scaledToFit().frame(width: 94, height: 48)
             } else {
-                Image(systemName: pin.symbol).font(.system(size: 15)).foregroundStyle(.white.opacity(0.5))
+                Image(systemName: pin.symbol).font(.system(size: 14, weight: .medium)).foregroundStyle(pin.symbol == "link" ? Color.blue : .white.opacity(0.55))
                 Text(pin.title).font(.system(size: 10)).lineLimit(pin.symbol == "link" ? 1 : 2).truncationMode(.middle).frame(height: 28, alignment: .topLeading)
             }
             HStack(spacing: 8) {
@@ -207,7 +206,7 @@ struct ClipboardShelfView: View {
                 if shelf.showingHistory { Button("Pin", systemImage: "pin") { shelf.pinFromHistory(pin) } }
             }.font(.system(size: 9)).buttonStyle(.plain)
         }.padding(9).frame(width: 112, height: 96, alignment: .topLeading)
-            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+            .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .onDrag { pin.provider() }
             .contextMenu {
                 Button("Copy") { shelf.copy(pin) }

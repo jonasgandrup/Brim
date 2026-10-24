@@ -114,7 +114,7 @@ final class MediaService {
     @ObservationIgnored var playerReader: @Sendable (MediaPlayer) async -> SystemMediaSnapshot? = { await SystemMediaBridge.snapshot(for: $0) }
     @ObservationIgnored var playersReader: @MainActor () async -> [MediaPlayer] = { await MediaPlayerDiscovery.players() }
     init(defaults: UserDefaults? = nil) {
-        self.defaults = defaults ?? (Bundle.main.bundleURL.pathExtension == "app" ? (CommandLine.arguments.contains("--smoke-test") ? UserDefaults(suiteName: "Sense.MediaSmoke") : .standard) : nil)
+        self.defaults = defaults ?? AppEnvironment.persistentDefaults
         if let source = self.defaults?.string(forKey: "mediaPinnedSource"), !source.isEmpty {
             pinnedPlayer = MediaPlayer(source: source, name: self.defaults?.string(forKey: "mediaPinnedName") ?? source, processID: 0)
         }
@@ -250,8 +250,9 @@ final class MediaService {
         refresh()
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
-                // Position is extrapolated locally; this only catches changes apps do not announce.
-                try? await Task.sleep(for: .seconds(self?.playing == true ? 3 : 6))
+                // Position is extrapolated locally; this catches changes apps do not announce.
+                // Reads go to a resident helper, so a one-second cadence costs a few milliseconds.
+                try? await Task.sleep(for: .seconds(self?.playing == true ? 1 : 3))
                 guard !Task.isCancelled else { return }
                 self?.refresh()
             }
@@ -355,6 +356,7 @@ final class MediaService {
         updateTask?.cancel(); updateTask = nil; refreshing = false
         pollTask?.cancel(); pollTask = nil; artworkTask?.cancel(); commandTask?.cancel()
         observers.forEach { DistributedNotificationCenter.default().removeObserver($0) }; observers.removeAll()
+        NowPlayingHelper.shared.stop()
         commandPending = false
         clearPlayback(); message = nil; systemAvailable = false
     }

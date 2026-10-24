@@ -34,10 +34,29 @@ import Testing
     let preferences = Preferences(defaults: defaults)
     #expect(!preferences.switcherEnabled)
     #expect(!preferences.mediaEnabled)
-    preferences.notchEnabled = false; preferences.shortcut = "option"
+    preferences.notchEnabled = false; preferences.shortcut = .option
     let restored = Preferences(defaults: defaults)
     #expect(!restored.notchEnabled)
-    #expect(restored.shortcut == "option")
+    #expect(restored.shortcut == .option)
+    // Keys are the property names, so values written by earlier versions still load.
+    #expect(defaults.string(forKey: "shortcut") == "option")
+    #expect(defaults.object(forKey: "notchEnabled") as? Bool == false)
+}
+@Test @MainActor func preferencesClampOnWriteAndIgnoreUnknownValues() throws {
+    let suite = "SenseTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    defaults.set("sepia", forKey: "appearance")
+    let preferences = Preferences(defaults: defaults)
+    #expect(preferences.appearance == .system)
+    preferences.chargeTarget = 140
+    #expect(preferences.chargeTarget == 100)
+    #expect(defaults.integer(forKey: "chargeTarget") == 100)
+    preferences.lowBatteryAlert = 2
+    #expect(preferences.lowBatteryAlert == 5)
+    preferences.lowBatteryAlert = 0
+    #expect(preferences.lowBatteryAlert == 0)
+    #expect(Preferences(defaults: defaults).lowBatteryAlert == 0)
 }
 @Test func islandKeepsCameraClearAndAnchorsExpansionToTopCenter() {
     let layout = IslandLayout(cutoutWidth: 190, menuBarHeight: 32, hasHardwareNotch: true)
@@ -517,10 +536,10 @@ import Testing
     let now = Date(timeIntervalSince1970: 1_000_000)
     let hour: TimeInterval = 3600
     let event = NextEvent.pick(from: [
-        (id: "a", title: "Holiday", start: now - hour, end: now + 10 * hour, allDay: true),
-        (id: "b", title: "Done", start: now - 2 * hour, end: now - hour, allDay: false),
-        (id: "c", title: "Standup", start: now + 12 * 60, end: now + hour, allDay: false),
-        (id: "d", title: "Later", start: now + 5 * hour, end: now + 6 * hour, allDay: false)], now: now)
+        (id: "a", title: "Holiday", start: now - hour, end: now + 10 * hour, allDay: true, meetingURL: nil),
+        (id: "b", title: "Done", start: now - 2 * hour, end: now - hour, allDay: false, meetingURL: nil),
+        (id: "c", title: "Standup", start: now + 12 * 60, end: now + hour, allDay: false, meetingURL: nil),
+        (id: "d", title: "Later", start: now + 5 * hour, end: now + 6 * hour, allDay: false, meetingURL: nil)], now: now)
     #expect(event?.title == "Standup")
     #expect(event?.relative(at: now) == "in 12 min")
 }

@@ -1,64 +1,128 @@
 import SwiftUI
 
+enum Appearance: String, CaseIterable, Identifiable {
+    case system, light, dark
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+}
+
+enum MenuBarStatus: String, CaseIterable, Identifiable {
+    case off, battery, activity
+    var id: String { rawValue }
+    var title: String { switch self { case .off: "Off"; case .battery: "Battery"; case .activity: "Timer" } }
+}
+
+enum SwitcherShortcut: String, CaseIterable, Identifiable {
+    case command, option, control
+    var id: String { rawValue }
+    var title: String { switch self { case .command: "⌘ Tab"; case .option: "⌥ Tab"; case .control: "⌃ Tab" } }
+}
+
+/// Every setting is stored under its own property name.
 @MainActor @Observable
 final class Preferences {
     private let defaults: UserDefaults
-    var toolShortcutsEnabled: Bool { didSet { save("toolShortcutsEnabled", toolShortcutsEnabled) } }
-    var notchEnabled: Bool { didSet { save("notchEnabled", notchEnabled) } }
-    var switcherEnabled: Bool { didSet { save("switcherEnabled", switcherEnabled) } }
-    var scaleEnabled: Bool { didSet { save("scaleEnabled", scaleEnabled) } }
-    var lidEffectEnabled: Bool { didSet { save("lidEffectEnabled", lidEffectEnabled) } }
-    var toolShortcutModifiers: String { didSet { save("toolShortcutModifiers", toolShortcutModifiers) } }
-    var clipboardHistory: Bool { didSet { save("clipboardHistory", clipboardHistory) } }
-    var calendarPreview: Bool { didSet { save("calendarPreview", calendarPreview) } }
-    var liveTransfers: Bool { didSet { save("liveTransfers", liveTransfers) } }
-    var autoHideFocus: Bool { didSet { save("autoHideFocus", autoHideFocus) } }
-    var autoHideSharing: Bool { didSet { save("autoHideSharing", autoHideSharing) } }
-    var lidFoldStyle: String { didSet { save("lidFoldStyle", lidFoldStyle) } }
-    var menuBarStatus: String { didSet { save("menuBarStatus", menuBarStatus) } }
-    var screenshotShelf: Bool { didSet { save("screenshotShelf", screenshotShelf) } }
-    var lockEnabled: Bool { didSet { save("lockEnabled", lockEnabled) } }
-    var hoverToExpand: Bool { didSet { save("hoverToExpand", hoverToExpand) } }
-    var showOnExternal: Bool { didSet { save("showOnExternal", showOnExternal) } }
-    var shortcut: String { didSet { save("shortcut", shortcut) } }
-    var includeMinimized: Bool { didSet { save("includeMinimized", includeMinimized) } }
-    var mediaEnabled: Bool { didSet { save("mediaEnabled", mediaEnabled) } }
-    var appearance: String { didSet { save("appearance", appearance); applyAppearance() } }
-    var chargingFeedback: Bool { didSet { save("chargingFeedback", chargingFeedback) } }
-    var chargeTarget: Int { didSet { save("chargeTarget", chargeTarget) } }
+    private static let initial: [String: Any] = [
+        "toolShortcutsEnabled": true, "notchEnabled": true, "switcherEnabled": false, "scaleEnabled": true,
+        "lockEnabled": true, "lidEffectEnabled": true, "hoverToExpand": true, "showOnExternal": false,
+        "followActiveDisplay": false, "shortcut": "command", "includeMinimized": true, "chargingFeedback": true,
+        "chargeTarget": 80, "lowBatteryAlert": 20, "mediaEnabled": false, "lidFoldStyle": "fold",
+        "liveTransfers": false, "autoHideFocus": false, "autoHideSharing": false, "calendarPreview": false,
+        "clipboardHistory": false, "toolShortcutModifiers": "ctrlOptCmd", "menuBarStatus": "off",
+        "screenshotShelf": false, "appearance": "system", "sensorIndicator": false, "systemHUD": false,
+        "bluetoothBatteries": true, "keepShelf": true,
+    ]
+    var toolShortcutsEnabled: Bool { didSet { save(toolShortcutsEnabled, "toolShortcutsEnabled") } }
+    var toolShortcutModifiers: ShortcutModifiers { didSet { save(toolShortcutModifiers.rawValue, "toolShortcutModifiers") } }
+    var notchEnabled: Bool { didSet { save(notchEnabled, "notchEnabled") } }
+    var switcherEnabled: Bool { didSet { save(switcherEnabled, "switcherEnabled") } }
+    var scaleEnabled: Bool { didSet { save(scaleEnabled, "scaleEnabled") } }
+    var lidEffectEnabled: Bool { didSet { save(lidEffectEnabled, "lidEffectEnabled") } }
+    var lidFoldStyle: LidFoldStyle { didSet { save(lidFoldStyle.rawValue, "lidFoldStyle") } }
+    var clipboardHistory: Bool { didSet { save(clipboardHistory, "clipboardHistory") } }
+    var calendarPreview: Bool { didSet { save(calendarPreview, "calendarPreview") } }
+    var liveTransfers: Bool { didSet { save(liveTransfers, "liveTransfers") } }
+    var autoHideFocus: Bool { didSet { save(autoHideFocus, "autoHideFocus") } }
+    var autoHideSharing: Bool { didSet { save(autoHideSharing, "autoHideSharing") } }
+    var menuBarStatus: MenuBarStatus { didSet { save(menuBarStatus.rawValue, "menuBarStatus") } }
+    var screenshotShelf: Bool { didSet { save(screenshotShelf, "screenshotShelf") } }
+    var lockEnabled: Bool { didSet { save(lockEnabled, "lockEnabled") } }
+    var hoverToExpand: Bool { didSet { save(hoverToExpand, "hoverToExpand") } }
+    var showOnExternal: Bool { didSet { save(showOnExternal, "showOnExternal") } }
+    /// On Macs with more than one display, the island moves to the display with the active window.
+    var followActiveDisplay: Bool { didSet { save(followActiveDisplay, "followActiveDisplay") } }
+    var shortcut: SwitcherShortcut { didSet { save(shortcut.rawValue, "shortcut") } }
+    var includeMinimized: Bool { didSet { save(includeMinimized, "includeMinimized") } }
+    var mediaEnabled: Bool { didSet { save(mediaEnabled, "mediaEnabled") } }
+    var appearance: Appearance { didSet { save(appearance.rawValue, "appearance"); applyAppearance() } }
+    var chargingFeedback: Bool { didSet { save(chargingFeedback, "chargingFeedback") } }
+    var chargeTarget: Int {
+        didSet {
+            let clamped = Self.clampTarget(chargeTarget)
+            if clamped != chargeTarget { chargeTarget = clamped } else { save(chargeTarget, "chargeTarget") }
+        }
+    }
+    /// 0 turns the warning off.
+    var lowBatteryAlert: Int {
+        didSet {
+            let clamped = Self.clampLow(lowBatteryAlert)
+            if clamped != lowBatteryAlert { lowBatteryAlert = clamped } else { save(lowBatteryAlert, "lowBatteryAlert") }
+        }
+    }
+    /// A small camera/microphone dot in the island, like iPhone's privacy indicators.
+    var sensorIndicator: Bool { didSet { save(sensorIndicator, "sensorIndicator") } }
+    /// Volume and brightness changes appear in the island.
+    var systemHUD: Bool { didSet { save(systemHUD, "systemHUD") } }
+    var bluetoothBatteries: Bool { didSet { save(bluetoothBatteries, "bluetoothBatteries") } }
+    /// Keep shelf files (as references, never copies) across relaunches.
+    var keepShelf: Bool { didSet { save(keepShelf, "keepShelf") } }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        defaults.register(defaults: ["toolShortcutsEnabled": true, "notchEnabled": true, "switcherEnabled": false,
-            "scaleEnabled": true, "lockEnabled": true, "lidEffectEnabled": true, "hoverToExpand": true,
-            "showOnExternal": false, "shortcut": "command", "includeMinimized": true,
-            "chargingFeedback": true, "chargeTarget": 80, "mediaEnabled": false, "lidFoldStyle": "fold", "liveTransfers": false, "autoHideFocus": false, "autoHideSharing": false, "calendarPreview": false, "clipboardHistory": false, "toolShortcutModifiers": "ctrlOptCmd", "menuBarStatus": "off", "screenshotShelf": false, "appearance": "system"])
-        toolShortcutsEnabled = defaults.bool(forKey: "toolShortcutsEnabled")
-        notchEnabled = defaults.bool(forKey: "notchEnabled")
-        switcherEnabled = defaults.bool(forKey: "switcherEnabled")
-        scaleEnabled = defaults.bool(forKey: "scaleEnabled")
-        toolShortcutModifiers = defaults.string(forKey: "toolShortcutModifiers") ?? "ctrlOptCmd"
-        clipboardHistory = defaults.bool(forKey: "clipboardHistory")
-        calendarPreview = defaults.bool(forKey: "calendarPreview")
-        liveTransfers = defaults.bool(forKey: "liveTransfers")
-        autoHideFocus = defaults.bool(forKey: "autoHideFocus")
-        autoHideSharing = defaults.bool(forKey: "autoHideSharing")
-        lidFoldStyle = defaults.string(forKey: "lidFoldStyle") ?? "fold"
-        menuBarStatus = defaults.string(forKey: "menuBarStatus") ?? "off"
-        screenshotShelf = defaults.bool(forKey: "screenshotShelf")
-        lockEnabled = defaults.bool(forKey: "lockEnabled")
-        lidEffectEnabled = defaults.bool(forKey: "lidEffectEnabled")
-        hoverToExpand = defaults.bool(forKey: "hoverToExpand")
-        showOnExternal = defaults.bool(forKey: "showOnExternal")
-        shortcut = defaults.string(forKey: "shortcut") ?? "command"
-        includeMinimized = defaults.bool(forKey: "includeMinimized")
-        mediaEnabled = defaults.bool(forKey: "mediaEnabled")
-        appearance = defaults.string(forKey: "appearance") ?? "system"
-        chargingFeedback = defaults.bool(forKey: "chargingFeedback")
-        chargeTarget = min(100, max(50, defaults.integer(forKey: "chargeTarget")))
+        defaults.register(defaults: Self.initial)
+        func flag(_ key: String) -> Bool { defaults.bool(forKey: key) }
+        func choice<T: RawRepresentable>(_ key: String, _ fallback: T) -> T where T.RawValue == String {
+            defaults.string(forKey: key).flatMap(T.init(rawValue:)) ?? fallback
+        }
+        toolShortcutsEnabled = flag("toolShortcutsEnabled")
+        toolShortcutModifiers = choice("toolShortcutModifiers", ShortcutModifiers.ctrlOptCmd)
+        notchEnabled = flag("notchEnabled")
+        switcherEnabled = flag("switcherEnabled")
+        scaleEnabled = flag("scaleEnabled")
+        lidEffectEnabled = flag("lidEffectEnabled")
+        lidFoldStyle = choice("lidFoldStyle", LidFoldStyle.fold)
+        clipboardHistory = flag("clipboardHistory")
+        calendarPreview = flag("calendarPreview")
+        liveTransfers = flag("liveTransfers")
+        autoHideFocus = flag("autoHideFocus")
+        autoHideSharing = flag("autoHideSharing")
+        menuBarStatus = choice("menuBarStatus", MenuBarStatus.off)
+        screenshotShelf = flag("screenshotShelf")
+        lockEnabled = flag("lockEnabled")
+        hoverToExpand = flag("hoverToExpand")
+        showOnExternal = flag("showOnExternal")
+        followActiveDisplay = flag("followActiveDisplay")
+        shortcut = choice("shortcut", SwitcherShortcut.command)
+        includeMinimized = flag("includeMinimized")
+        mediaEnabled = flag("mediaEnabled")
+        appearance = choice("appearance", Appearance.system)
+        chargingFeedback = flag("chargingFeedback")
+        chargeTarget = Self.clampTarget(defaults.integer(forKey: "chargeTarget"))
+        lowBatteryAlert = Self.clampLow(defaults.integer(forKey: "lowBatteryAlert"))
+        sensorIndicator = flag("sensorIndicator")
+        systemHUD = flag("systemHUD")
+        bluetoothBatteries = flag("bluetoothBatteries")
+        keepShelf = flag("keepShelf")
     }
-    private func save(_ key: String, _ value: Any) { defaults.set(value, forKey: key) }
+    static func clampTarget(_ value: Int) -> Int { min(100, max(50, value)) }
+    static func clampLow(_ value: Int) -> Int { value <= 0 ? 0 : min(50, max(5, value)) }
+    private func save(_ value: Any, _ key: String) { defaults.set(value, forKey: key) }
     func applyAppearance() {
-        NSApp.appearance = appearance == "system" ? nil : NSAppearance(named: appearance == "dark" ? .darkAqua : .aqua)
+        NSApp.appearance = switch appearance {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
     }
 }
 
@@ -69,12 +133,23 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     var title: String { self == .lock ? "Lid Fold & Lock" : rawValue }
     var symbol: String {
         switch self {
-        case .general: "slider.horizontal.3"
-        case .notch: "inset.filled.topthird.rectangle"
+        case .general: "gearshape.fill"
+        case .notch: "capsule.fill"
         case .switcher: "rectangle.on.rectangle"
-        case .scale: "scalemass"
-        case .lock: "lock"
-        case .permissions: "hand.raised"
+        case .scale: "scalemass.fill"
+        case .lock: "lock.fill"
+        case .permissions: "hand.raised.fill"
+        }
+    }
+    /// The tile color behind the sidebar icon, as in System Settings.
+    var tint: Color {
+        switch self {
+        case .general: .gray
+        case .notch: .black
+        case .switcher: .blue
+        case .scale: .orange
+        case .lock: .indigo
+        case .permissions: .blue
         }
     }
     var subtitle: String {

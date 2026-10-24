@@ -11,7 +11,13 @@ struct ShelfFile: Identifiable, Equatable {
 /// Stores file references only. Adding/removing an item never copies, moves or deletes the source.
 @MainActor @Observable
 final class FileShelf {
-    private(set) var files: [ShelfFile] = []
+    private(set) var files: [ShelfFile] = [] { didSet { if files != oldValue { save() } } }
+    /// When set, the shelf remembers its files across relaunches as bookmarks (references that follow a
+    /// moved or renamed file), never as copies. Clearing it forgets the saved list.
+    @ObservationIgnored var persistence: UserDefaults? {
+        didSet { if persistence == nil { oldValue?.removeObject(forKey: Self.storageKey) } else { save() } }
+    }
+    static let storageKey = "fileShelfBookmarks"
     var message: String?
     private(set) var selectedURLs: Set<URL> = []
     var systemUIActive = false
@@ -43,6 +49,23 @@ final class FileShelf {
         if selectedURLs.remove(old.standardizedFileURL) != nil { selectedURLs.insert(normalized) }
     }
     func clear() { files.removeAll(); selectedURLs.removeAll(); message = nil }
+    private func save() {
+        guard let persistence else { return }
+        let bookmarks = files.compactMap { try? $0.url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) }
+        if bookmarks.isEmpty { persistence.removeObject(forKey: Self.storageKey) } else { persistence.set(bookmarks, forKey: Self.storageKey) }
+    }
+    /// Brings back the files saved by an earlier session that still exist.
+    func restore(from defaults: UserDefaults) {
+        guard files.isEmpty, let bookmarks = defaults.array(forKey: Self.storageKey) as? [Data] else { return }
+        var urls: [URL] = []
+        for bookmark in bookmarks {
+            var stale = false
+            guard let url = try? URL(resolvingBookmarkData: bookmark, options: [.withoutUI, .withoutMounting], relativeTo: nil, bookmarkDataIsStale: &stale) else { continue }
+            urls.append(url)
+        }
+        if !urls.isEmpty { add(urls); message = nil }
+        Log.shelf.debug("Restored \(urls.count) of \(bookmarks.count) shelf files")
+    }
     /// Collects every dropped provider first, so the shelf reports one result for the whole drop.
     @MainActor private final class DropBatch {
         var urls: [URL] = []
@@ -98,12 +121,21 @@ struct FileShelfView: View {
                         .disabled(!shelf.actions.canAirDrop)
                     Button("Compress…", systemImage: "doc.zipper") { shelf.actions.chooseArchiveDestination() }
                     Button("Copy Files", systemImage: "doc.on.doc") { shelf.actions.copy() }
-                    Button("Copy to Folder…", systemImage: "folder") { shelf.actions.copyToFolder() }
+                    Button("Copy Path", systemImage: "link") { shelf.actions.copyPaths() }
+                    Button("Reveal in Finder", systemImage: "folder") { shelf.actions.reveal() }
+                    Button("Copy to Folder…", systemImage: "folder.badge.plus") { shelf.actions.copyToFolder() }
                     Button("Rename…", systemImage: "pencil") { shelf.actions.rename() }
                     Menu("Image Tools", systemImage: "photo") {
                         Button("Convert to PNG") { shelf.actions.convertImages(to: .png) }
                         Button("Convert to JPEG") { shelf.actions.convertImages(to: .jpeg) }
                         Button("Convert to HEIC") { shelf.actions.convertImages(to: .heic) }
+                        Divider()
+                        Menu("Resize") {
+                            ForEach(ShelfImageTools.resizeOptions, id: \.self) { side in
+                                Button("Longest Side \(side) px") { shelf.actions.resizeImages(longestSide: side) }
+                            }
+                            Button("Half Size") { shelf.actions.resizeImages(scale: 0.5) }
+                        }
                         Divider()
                         Button("Remove Metadata") { shelf.actions.stripImageMetadata() }
                     }.disabled(!shelf.actions.selectionHasImages)
@@ -118,12 +150,13 @@ struct FileShelfView: View {
                 Button("Clear") { shelf.clear() }.disabled(shelf.files.isEmpty || shelf.compressing)
             }
             if shelf.files.isEmpty {
-                VStack(spacing: 9) {
-                    Image(systemName: "tray.and.arrow.down").font(.system(size: 25, weight: .light))
-                    Text(dropTargeted ? "Release to keep files here" : "Drop files here. Drag them out anywhere.").font(.system(size: 12))
-                    Text("Switch windows or Spaces while they wait.").font(.system(size: 10)).foregroundStyle(.white.opacity(0.45))
-                }.frame(maxWidth: .infinity, minHeight: 95)
-                    .background(.white.opacity(dropTargeted ? 0.1 : 0.035), in: RoundedRectangle(cornerRadius: 15))
+                IslandEmptyState(symbol: dropTargeted ? "tray.and.arrow.down.fill" : "tray.and.arrow.down",
+                                 title: dropTargeted ? "Release to Keep Files Here" : "Drop Files Here",
+                                 detail: "Drag them out anywhere. They wait while you switch windows or Spaces.", minHeight: 95)
+                    .background(.white.opacity(dropTargeted ? 0.12 : 0.04), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(dropTargeted ? Color.accentColor : .white.opacity(0.1), style: StrokeStyle(lineWidth: 1, dash: dropTargeted ? [] : [4, 3])))
+                    .animation(.snappy(duration: 0.2), value: dropTargeted)
             } else {
                 FileCollection(shelf: shelf).frame(height: 103)
                 Text("⌘-click to select · Space to preview · drag selected files together")

@@ -140,7 +140,7 @@ final class ShelfCollectionView: NSCollectionView {
             if let shelf, shelf.files.indices.contains(path.item) { shelf.select([shelf.files[path.item].url]) }
         }
         let menu = NSMenu()
-        for (title, action) in [("AirDrop…", #selector(airDropFiles)), ("Compress…", #selector(compressFiles)), ("Copy Files", #selector(copyFiles)), ("Copy to Folder…", #selector(copyToFolderFiles)), ("Rename…", #selector(renameFile)), ("Convert to PNG", #selector(toPNG)), ("Convert to JPEG", #selector(toJPEG)), ("Remove Image Metadata", #selector(stripMetadata)), ("Quick Look", #selector(previewFiles)), ("Reveal in Finder", #selector(revealFiles)), ("Remove from Shelf", #selector(removeFiles))] {
+        for (title, action) in [("AirDrop…", #selector(airDropFiles)), ("Compress…", #selector(compressFiles)), ("Copy Files", #selector(copyFiles)), ("Copy Path", #selector(copyPathFiles)), ("Copy to Folder…", #selector(copyToFolderFiles)), ("Rename…", #selector(renameFile)), ("Convert to PNG", #selector(toPNG)), ("Convert to JPEG", #selector(toJPEG)), ("Remove Image Metadata", #selector(stripMetadata)), ("Quick Look", #selector(previewFiles)), ("Reveal in Finder", #selector(revealFiles)), ("Remove from Shelf", #selector(removeFiles))] {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: ""); item.target = self
             item.isEnabled = !(shelf?.availableSelection.isEmpty ?? true) && shelf?.compressing != true
             if title == "AirDrop…" { item.isEnabled = item.isEnabled && shelf?.actions.canAirDrop == true }
@@ -152,6 +152,7 @@ final class ShelfCollectionView: NSCollectionView {
     @objc private func airDropFiles() { shelf?.actions.airDrop() }
     @objc private func compressFiles() { shelf?.actions.chooseArchiveDestination() }
     @objc private func copyToFolderFiles() { shelf?.actions.copyToFolder() }
+    @objc private func copyPathFiles() { shelf?.actions.copyPaths() }
     @objc private func renameFile() { shelf?.actions.rename() }
     @objc private func toPNG() { shelf?.actions.convertImages(to: .png) }
     @objc private func toJPEG() { shelf?.actions.convertImages(to: .jpeg) }
@@ -159,7 +160,7 @@ final class ShelfCollectionView: NSCollectionView {
     @objc private func copyFiles() { shelf?.actions.copy() }
     @objc func copy(_ sender: Any?) { shelf?.actions.copy() }
     @objc private func previewFiles() { shelf?.actions.preview() }
-    @objc private func revealFiles() { if let urls = shelf?.availableSelection { NSWorkspace.shared.activateFileViewerSelecting(urls) } }
+    @objc private func revealFiles() { shelf?.actions.reveal() }
     @objc private func removeFiles() { shelf?.removeSelection() }
 }
 

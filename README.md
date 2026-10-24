@@ -40,7 +40,7 @@ Battery/output volume are refreshed every 15 seconds with timer tolerance. Openi
 
 **Now Playing** is opt-in and uses the active macOS media session, so compatible browser audio/video, podcasts and other players can appear alongside Music and Spotify. It does not enumerate browser tabs, inspect page contents, inject JavaScript into websites or request browser Automation access. The Now Playing tab shows one session at a time, with an explicit “Playing/Paused in [app]” label. Automatic follows macOS; choosing an app in the header’s player menu pins it, even when browser videos become active. Choose Automatic to unpin. The pin is saved locally and follows that app on relaunch. A closed or nonpublishing pinned app shows an unavailable state instead of switching to someone else. That status describes the shown session, not every app. It reads only the session an app publishes to macOS. Apps that do not publish a session are unavailable.
 
-Apple’s public Now Playing APIs publish an app’s own media; they do not expose this global feed to third-party utilities. Sense therefore isolates an **undocumented MediaRemote compatibility bridge** in a short-lived JavaScript for Automation process with a four-second timeout. It uses the runtime’s local Now Playing request and controller, without linking or shipping a private framework, impersonating another app, adding entitlements, or changing system files. Compatibility is not guaranteed after macOS updates. If the bridge is unavailable or no session is published, the existing public Music/Spotify AppleScript adapters remain available. This local build is not an App Store compatibility claim.
+Apple’s public Now Playing APIs publish an app’s own media; they do not expose this global feed to third-party utilities. Sense therefore isolates an **undocumented MediaRemote compatibility bridge** in a JavaScript for Automation helper process. Routine reads go to one resident helper that answers over stdin/stdout in a few milliseconds; commands and seeks still use a short-lived process. Every request has a four-second timeout, a hung helper is replaced, and every 15 seconds a fresh one-shot read is compared with the helper — any disagreement switches the session back to one-shot reads. It uses the runtime’s local Now Playing request and controller, without linking or shipping a private framework, impersonating another app, adding entitlements, or changing system files. Compatibility is not guaranteed after macOS updates. If the bridge is unavailable or no session is published, the existing public Music/Spotify AppleScript adapters remain available. This local build is not an App Store compatibility claim.
 
 The bridge polls once per second during playback and every three seconds otherwise. A real playback rate, position and duration drive the playback scrubber, including nonstandard playback speeds; missing or invalid timeline values leave that strip empty. Click or drag the bar to seek when the player advertises an enabled absolute-seek command. Dragging previews locally; release sends one bounded seek. A source or track change during a drag cancels it, and live streams without a usable duration have no scrubber. Unsupported players show a disabled bar. Playback is not assumed to change after a command; the thumb returns to the player’s published position. Commands capture the displayed app, track identity and full macOS player path (including the client process and player session). They recheck that identity, then use a controller bound to that captured player rather than the global media route. Play and Pause are explicit actions, and further transport clicks are disabled during dispatch. A failed or stale system command is never retried through a different adapter; native Music/Spotify automation is used only when its own snapshot supplied the card. Reads begun before a click are discarded. The user can open the source app from the media header. Some players may ignore transport commands; use their own controls in that case.
 
@@ -88,14 +88,14 @@ The script does not create certificates, change the keychain, enable login items
 
 ```text
 Sources/Sense/
-  App/                      App lifecycle, menu, persisted preferences
+  App/                      App lifecycle, menu, preferences, sense:// commands, environment and logging
   DesignSystem/             Native reusable settings components
   Features/Notch/           Panel geometry and island UI
   Features/WindowSwitcher/  Event tap, AX windows, ScreenCaptureKit previews
   Features/TrackpadScale/   Actual pressure input and calibration
   Features/LockScreen/      System lock handoff and visual feedback
   Services/                 Permissions, media, battery and volume
-  Settings/                 Six-section settings window
+  Settings/                 System Settings–style window
 Resources/                  Bundle metadata and app icon
 Tests/SenseTests/           Calibration, selection, persistence and input-state tests
 scripts/                    Reproducible native icon renderer
@@ -192,7 +192,7 @@ Scale remains an optional experimental feature. No error margin has been measure
 
 ### Native design conventions
 
-Settings uses the system sidebar list and selection behavior, semantic macOS content surfaces, and a compact title hierarchy. Island sections use a native segmented picker. The island stays pure opaque black to merge with the physical camera; glass is reserved for appropriate controls. Secondary text uses stronger contrast, and artwork remains distinct from app identity. These choices follow [Apple’s material guidance](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass), without presenting Sense as an Apple system component.
+Settings follows System Settings: a sidebar on the system sidebar material with colored icon tiles, grouped forms with a large icon and title at the top of each page, and title-plus-explanation rows. Island sections use a symbol strip with one sliding highlight, colors are semantic system colors, and controls give a small press response. The island stays pure opaque black to merge with the physical camera; glass is reserved for appropriate controls. Secondary text uses stronger contrast, and artwork remains distinct from app identity. These choices follow [Apple’s material guidance](https://developer.apple.com/documentation/technologyoverviews/adopting-liquid-glass), without presenting Sense as an Apple system component.
 
 
 ### Direct tool shortcuts and end-of-track sleep
@@ -227,6 +227,25 @@ Lid-fold troubleshooting: if no fold appears, open **Lid Fold & Lock** and check
 - **File shelf tools**: Rename, Copy to Folder, convert images to PNG, JPEG or HEIC, and remove image metadata. New files are written beside the originals; sources are never modified (except Rename, which is an explicit rename on disk).
 - **Live transfers** (opt-in, ⌃⌥⌘6): files still arriving in your Downloads folder (Safari, Chrome, Firefox and similar) and AirDrops you send from the shelf show as a progress ring in the island, with a Transfers tab listing them and recent finishes (Reveal, add to shelf). Safari reports real percentages; browsers that don't show a spinner and the size so far, never a guessed percentage. AirDrops received into Downloads are announced when they finish, recognised by the app that quarantined them. macOS asks once to let Sense read Downloads.
 - **Automatic hiding** (opt-in): the island steps aside during any Focus (Do Not Disturb included) using Apple's Focus Status permission, which only tells Sense that a Focus is on. It also hides while displays are mirrored or while Zoom's share helper or macOS Screen Sharing is running. macOS has no public "screen is being shared" flag, so meetings that share from inside a browser aren't detected; use Presentation Mode for those. Manual Presentation Mode and automatic hiding are independent.
+- **Focus sessions** (Clock → Focus, or the menu bar): 25 minutes of focus, 5-minute breaks and a 15-minute break after every fourth session. Phases roll into each other on their own; skip or end from the island.
+- **Timers survive relaunch**: a running or paused countdown (and its focus phase) picks up where it was after Sense quits or the Mac restarts.
+- **Keep the shelf** (on by default): shelf files are remembered across relaunches as bookmarks that follow moved or renamed files. Files are never copied.
+- **More shelf tools**: Copy Path (one POSIX path per line), Reveal in Finder, and Resize images to a longest side or half size, written beside the original.
+- **Next meeting**: when the next calendar event has a Zoom, Meet, Teams, Webex, FaceTime or similar link, the Clock tab and the five-minute alert show a **Join** button. Only known video-call hosts count.
+- **Camera & microphone indicator** (opt-in): a green (camera) or orange (microphone) dot in the island while any app uses them, plus a brief compact notice when one starts. It reads the same public "running somewhere" properties macOS uses for its own indicator, so no permission is needed and nothing is captured.
+- **Volume & brightness** (opt-in): changes appear as a compact level in the island without expanding it. Brightness comes from DisplayServices' change notification (loaded at runtime; absent on some displays). Slow Auto-Brightness drift is ignored.
+- **Accessory batteries** (on by default): AirPods (each bud and the case), headphones and Magic Keyboard, Mouse and Trackpad appear in the Battery tab, with a brief note when one connects. Levels come from System Information's report, so no Bluetooth permission is requested.
+- **Low battery warning** (20% by default; Off, 10, 15, 20 or 30): one reminder per discharge, on battery power.
+- **Follow the active display** (with "Show on displays without a notch"): on multi-display setups the island moves to the display holding the frontmost window. Only window bounds are read, which needs no Screen Recording permission.
+- **Shortcuts and automation**: `sense://` links work from Shortcuts' Open URLs action, scripts (`open "sense://…"`) and other apps:
+  - `sense://open?tool=music|files|clipboard|clock|battery|transfers`
+  - `sense://timer/start?minutes=10`, `sense://timer/cancel`, `sense://focus/start`
+  - `sense://clipboard/pin`, `sense://shelf/add?path=~/Desktop/file.pdf`
+  - `sense://message?text=Build%20finished&symbol=hammer.fill` (80 characters at most)
+  - `sense://presentation?enabled=on|off|toggle`, `sense://settings`
+
+  App Intents would make these native Shortcuts actions, but registering them needs Xcode's metadata processor, which the Command Line Tools build doesn't include.
+- **Logging**: `log stream --predicate 'subsystem == "dk.jonasgandrup.Sense"'` shows media, island, calendar, shelf and system events. Titles and file names are never logged.
 - **Setup & diagnostics**: Settings → Permissions starts with a checklist of everything the features you've turned on need, each with a one-click fix, and a Copy Diagnostics button for bug reports.
 
 ### Not included

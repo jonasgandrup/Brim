@@ -119,9 +119,10 @@ enum ShelfArchive {
 /// Image tools write new files beside the originals and never modify the source.
 enum ShelfImageTools {
     enum Failure: LocalizedError {
-        case unreadable, unsupported, writeFailed
+        case unreadable, unsupported, writeFailed, alreadySmall
         var errorDescription: String? {
             switch self {
+            case .alreadySmall: "That image is already that size or smaller."
             case .unreadable: "That file isn’t an image Sense can read."
             case .unsupported: "This Mac can’t write that format."
             case .writeFailed: "The new file couldn’t be saved. Check that the folder is writable."
@@ -167,6 +168,28 @@ enum ShelfImageTools {
     }
     /// Conversion keeps the image's own look (orientation baked in) without carrying metadata blocks along.
     private static func cleanImageKeepingMetadata(_ source: CGImageSource) -> CGImage? { cleanImage(from: source) }
+    static let resizeOptions = [640, 1280, 1920, 2560]
+    /// Scales so the longest side fits, never enlarging. Orientation is baked in and metadata dropped, as with conversion.
+    static func targetSize(width: Int, height: Int, longestSide: Int? = nil, scale: Double? = nil) -> (width: Int, height: Int)? {
+        guard width > 0, height > 0 else { return nil }
+        let factor: Double
+        if let longestSide { factor = min(1, Double(longestSide) / Double(max(width, height))) }
+        else if let scale, scale > 0 { factor = min(1, scale) }
+        else { return nil }
+        guard factor < 1 else { return nil }
+        return (max(1, Int((Double(width) * factor).rounded())), max(1, Int((Double(height) * factor).rounded())))
+    }
+    static func resize(_ url: URL, longestSide: Int? = nil, scale: Double? = nil) throws -> URL {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), let original = cleanImage(from: source),
+              let identifier = CGImageSourceGetType(source), let type = UTType(identifier as String) else { throw Failure.unreadable }
+        guard let size = targetSize(width: original.width, height: original.height, longestSide: longestSide, scale: scale) else { throw Failure.alreadySmall }
+        let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
+                                        kCGImageSourceThumbnailMaxPixelSize: max(size.width, size.height)]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { throw Failure.unreadable }
+        let output = uniqueURL(for: url, suffix: " (\(image.width)×\(image.height))", ext: url.pathExtension.isEmpty ? (type.preferredFilenameExtension ?? "img") : url.pathExtension)
+        try write(image, as: type, to: output, quality: type == .png ? nil : 0.9)
+        return output
+    }
     static func stripMetadata(_ url: URL) throws -> URL {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), let image = cleanImage(from: source),
               let identifier = CGImageSourceGetType(source), let type = UTType(identifier as String) else { throw Failure.unreadable }
@@ -181,6 +204,23 @@ extension FileShelfActions {
 
     func convertImages(to type: UTType) { runImageJob("Converting") { try ShelfImageTools.convert($0, to: type) } }
     func stripImageMetadata() { runImageJob("Removing metadata from") { try ShelfImageTools.stripMetadata($0) } }
+    func resizeImages(longestSide: Int? = nil, scale: Double? = nil) {
+        runImageJob("Resizing") { try ShelfImageTools.resize($0, longestSide: longestSide, scale: scale) }
+    }
+    /// POSIX paths, one per line, ready to paste into Terminal or a document.
+    @discardableResult func copyPaths(to pasteboard: NSPasteboard = .general) -> Bool {
+        guard let shelf else { return false }
+        let urls = shelf.availableSelection
+        guard !urls.isEmpty else { shelf.message = "Select accessible files first."; return false }
+        pasteboard.clearContents()
+        let copied = pasteboard.setString(urls.map(\.path).joined(separator: "\n"), forType: .string)
+        shelf.message = copied ? (urls.count == 1 ? "Copied path" : "Copied \(urls.count) paths") : "Paths couldn’t be copied."
+        return copied
+    }
+    func reveal() {
+        guard let urls = shelf?.availableSelection, !urls.isEmpty else { return }
+        NSWorkspace.shared.activateFileViewerSelecting(urls)
+    }
 
     private func runImageJob(_ verb: String, _ work: @escaping @Sendable (URL) throws -> URL) {
         guard let shelf, !shelf.compressing else { return }

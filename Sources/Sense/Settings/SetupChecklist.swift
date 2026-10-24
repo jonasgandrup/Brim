@@ -78,27 +78,24 @@ struct SetupChecklist: View {
     var body: some View {
         let items = model.setupItems
         let problems = items.filter { $0.state == .attention }.count
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: problems == 0 ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                    .foregroundStyle(problems == 0 ? Color.green : Color.orange)
-                Text(problems == 0 ? "Everything you’ve turned on is ready" : "\(problems) \(problems == 1 ? "thing needs" : "things need") attention")
-                    .font(.system(size: 13, weight: .semibold))
-                Spacer()
-            }.padding(.horizontal, 4)
-            SettingsCard {
-                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    if index > 0 { Divider().padding(.leading, 16) }
-                    SettingRow(title: item.title, detail: item.detail) {
-                        switch item.state {
-                        case .ready: Label("Ready", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
-                        case .notNeeded: Text("Not needed").font(.caption).foregroundStyle(.secondary)
-                        case .attention:
-                            if let title = item.actionTitle, let action = item.action { Button(title, action: action) }
-                        }
+        Section {
+            ForEach(items) { item in
+                LabeledContent {
+                    switch item.state {
+                    case .ready: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Ready")
+                    case .notNeeded: Text("Not needed").foregroundStyle(.secondary)
+                    case .attention:
+                        if let title = item.actionTitle, let action = item.action { Button(title, action: action) }
+                        else { Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange) }
                     }
+                } label: {
+                    SettingsLabel(title: item.title, detail: item.detail)
                 }
             }
+        } header: {
+            Label(problems == 0 ? "Everything you’ve turned on is ready" : "\(problems) \(problems == 1 ? "thing needs" : "things need") attention",
+                  systemImage: problems == 0 ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(problems == 0 ? Color.green : .orange)
         }
     }
 }
@@ -119,13 +116,15 @@ extension SenseAppModel {
             "Sense \(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))",
             "macOS \(ProcessInfo.processInfo.operatingSystemVersionString) · \(sysctl("hw.model"))",
             "Accessibility: \(yes(permissions.accessibility)) · Screen Recording: \(yes(permissions.screenRecording))",
-            "Lid fold: \(yes(preferences.lidEffectEnabled)) (\(preferences.lidFoldStyle)) · hinge: \(lid.status) · capture check: \(lid.captureCheck.title)",
+            "Lid fold: \(yes(preferences.lidEffectEnabled)) (\(preferences.lidFoldStyle.rawValue)) · hinge: \(lid.status) · capture check: \(lid.captureCheck.title)",
             "Now Playing: \(yes(preferences.mediaEnabled)) · system bridge available: \(yes(media.systemAvailable))",
             "Trackpad devices seen: \(notch.trackpadDeviceCount) · scale format recognized: \(yes(!scale.formatUnrecognized))",
             "Island: \(yes(preferences.notchEnabled)) · switcher: \(yes(preferences.switcherEnabled)) (\(switcher.status))",
             "Tool shortcuts unavailable: \(toolShortcuts.unavailable.isEmpty ? "none" : toolShortcuts.unavailable.joined(separator: ", "))",
             "Live transfers: \(yes(preferences.liveTransfers)) · hide on Focus: \(yes(preferences.autoHideFocus)) · hide on sharing: \(yes(preferences.autoHideSharing)) · auto-hidden now: \(notch.autoHideReason ?? "no")",
-            "Screenshot shelf: \(yes(preferences.screenshotShelf)) · clipboard history: \(yes(preferences.clipboardHistory)) · calendar: \(notch.calendar.access)"
+            "Screenshot shelf: \(yes(preferences.screenshotShelf)) · keep shelf: \(yes(preferences.keepShelf)) · clipboard history: \(yes(preferences.clipboardHistory)) · calendar: \(notch.calendar.access)",
+            "Camera/mic indicator: \(yes(preferences.sensorIndicator)) · volume & brightness: \(yes(preferences.systemHUD)) (brightness API: \(yes(BrightnessMonitor.available))) · accessory batteries: \(yes(preferences.bluetoothBatteries)) (\(notch.bluetooth.devices.count) connected)",
+            "Low battery warning: \(preferences.lowBatteryAlert == 0 ? "off" : "\(preferences.lowBatteryAlert)%") · follow active display: \(yes(preferences.followActiveDisplay)) · Now Playing helper: \(NowPlayingHelper.shared.enabled ? "resident" : "one-shot")"
         ]
         lines.append("Needs attention: " + (setupItems.filter { $0.state == .attention }.map(\.title).joined(separator: ", ").nonEmpty ?? "nothing"))
         return lines.joined(separator: "\n")

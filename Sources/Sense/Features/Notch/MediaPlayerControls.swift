@@ -27,7 +27,7 @@ struct MediaPlayerControls: View {
                 if media.selectionLoading { ProgressView().controlSize(.mini).frame(width: 12, height: 12) }
                 else if media.pinnedPlayer != nil { Image(systemName: "pin.fill").font(.system(size: 9)) }
                 else if let icon = media.sourceIcon { Image(nsImage: icon).resizable().frame(width: 13, height: 13) }
-                Text(media.pinnedPlayer?.name ?? media.sourceName).lineLimit(1).frame(maxWidth: 82, alignment: .leading)
+                Text(media.pinnedPlayer?.name ?? (media.source == nil ? "Automatic" : media.sourceName)).lineLimit(1).frame(maxWidth: 82, alignment: .leading)
             }
         }.menuStyle(.borderlessButton).fixedSize().disabled(media.commandPending)
             .help(media.pinnedPlayer == nil ? "Choose and pin a player" : "Player pinned · choose Automatic to follow macOS")

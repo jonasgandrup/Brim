@@ -3,9 +3,9 @@ import SwiftUI
 /// Battery colors follow the system: green while charging, yellow in Low Power Mode, red when nearly empty.
 enum BatteryTint {
     static func color(level: Int, charging: Bool, lowPower: Bool) -> Color {
-        if charging { return Color(red: 0.19, green: 0.82, blue: 0.35) }
-        if lowPower { return Color(red: 1.0, green: 0.84, blue: 0.04) }
-        return level <= 10 ? Color(red: 1.0, green: 0.27, blue: 0.23) : .white
+        if charging { return .green }
+        if lowPower { return .yellow }
+        return level <= 10 ? .red : .white
     }
 }
 
@@ -52,11 +52,12 @@ struct ChargeFeedbackView: View {
 
 struct BatteryPaneView: View {
     let status: SystemStatus
+    var bluetooth: BluetoothBatteries?
     var body: some View {
         let details = status.details
         VStack(alignment: .leading, spacing: 6) {
-            IslandPaneHeader(title: "Battery", symbol: "battery.100") {
-                if details.lowPowerMode { Label("Low Power", systemImage: "leaf.fill").font(.system(size: 10)).foregroundStyle(Color(red: 1, green: 0.84, blue: 0.04)) }
+            IslandPaneHeader(title: "Battery", symbol: "battery.100percent") {
+                if details.lowPowerMode { Label("Low Power", systemImage: "leaf.fill").font(.system(size: 10)).foregroundStyle(.yellow) }
             }
             if let level = status.battery {
                 HStack(spacing: 18) {
@@ -68,24 +69,55 @@ struct BatteryPaneView: View {
                     }
                     Spacer(minLength: 0)
                 }.padding(.top, 4)
-                HStack(spacing: 8) {
-                    if let health = details.healthPercent { stat("Health", "\(health)%") }
-                    if let cycles = details.cycleCount { stat("Cycles", "\(cycles)") }
-                    if let watts = details.adapterWatts, status.charging { stat("Adapter", "\(watts) W") }
-                }
+                tiles(details: details)
+            } else if let devices = bluetooth?.devices, !devices.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) { ForEach(devices) { device($0) } }
+                }.padding(.top, 4)
             } else {
-                VStack(spacing: 8) {
-                    Image(systemName: "powerplug").font(.system(size: 24, weight: .light)).foregroundStyle(.white.opacity(0.35))
-                    Text("This Mac has no battery").font(.system(size: 12))
-                }.frame(maxWidth: .infinity, minHeight: 95)
+                IslandEmptyState(symbol: "powerplug", title: "This Mac has no battery", detail: "Connected AirPods and Magic accessories appear here.", minHeight: 95)
             }
         }.foregroundStyle(.white)
+        .onAppear { bluetooth?.refreshIfStale() }
+    }
+    /// Battery facts first, then each connected accessory, in one row that scrolls if it runs long.
+    private func tiles(details: BatteryDetails) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                if let health = details.healthPercent { stat("Health", "\(health)%") }
+                if let cycles = details.cycleCount { stat("Cycles", "\(cycles)") }
+                if let watts = details.adapterWatts, status.charging { stat("Adapter", "\(watts) W") }
+                ForEach(bluetooth?.devices ?? []) { device($0) }
+            }
+        }
     }
     private func stat(_ title: String, _ value: String) -> some View {
         VStack(spacing: 2) {
-            Text(value).font(.system(size: 13, weight: .medium)).monospacedDigit()
-            Text(title).font(.system(size: 9)).foregroundStyle(.white.opacity(0.45))
-        }.frame(maxWidth: .infinity).padding(.vertical, 7)
-            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            Text(value).font(.system(size: 13, weight: .semibold)).monospacedDigit()
+            Text(title).font(.system(size: 9)).foregroundStyle(.white.opacity(0.5))
+        }.frame(minWidth: 72).padding(.vertical, 7).padding(.horizontal, 6)
+            .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+    private func device(_ device: BluetoothDevice) -> some View {
+        let level = device.level ?? 0
+        return VStack(spacing: 2) {
+            HStack(spacing: 4) {
+                Image(systemName: device.symbol).font(.system(size: 11))
+                Text("\(level)%").font(.system(size: 13, weight: .semibold)).monospacedDigit()
+                    .foregroundStyle(level <= 20 ? Color.red : .white)
+            }
+            Text(device.name).font(.system(size: 9)).foregroundStyle(.white.opacity(0.5)).lineLimit(1).truncationMode(.middle)
+        }.frame(minWidth: 72, maxWidth: 110).padding(.vertical, 7).padding(.horizontal, 6)
+            .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .help(deviceDetail(device))
+            .accessibilityElement(children: .combine)
+    }
+    private func deviceDetail(_ device: BluetoothDevice) -> String {
+        var parts: [String] = []
+        if let left = device.left { parts.append("Left \(left)%") }
+        if let right = device.right { parts.append("Right \(right)%") }
+        if let batteryCase = device.batteryCase { parts.append("Case \(batteryCase)%") }
+        if parts.isEmpty, let main = device.main { parts.append("\(main)%") }
+        return device.name + " · " + parts.joined(separator: " · ")
     }
 }

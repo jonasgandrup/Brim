@@ -106,10 +106,10 @@ final class WindowSwitcher {
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return false
         }
-        let modifier: CGEventFlags = switch preferences?.shortcut {
-        case "option": .maskAlternate
-        case "control": .maskControl
-        default: .maskCommand
+        let modifier: CGEventFlags = switch preferences?.shortcut ?? .command {
+        case .option: .maskAlternate
+        case .control: .maskControl
+        case .command: .maskCommand
         }
         let otherHeld = [CGEventFlags.maskCommand, .maskAlternate, .maskControl].filter { $0 != modifier }.contains { event.flags.contains($0) }
         let held = event.flags.contains(modifier)

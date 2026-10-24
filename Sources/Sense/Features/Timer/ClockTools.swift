@@ -36,7 +36,12 @@ struct AlarmSchedule {
     }
 }
 
-enum ClockMode: String, CaseIterable { case timer = "Timer", stopwatch = "Stopwatch", alarm = "Alarm" }
+enum ClockMode: String, CaseIterable {
+    case timer = "Timer", focus = "Focus", stopwatch = "Stopwatch", alarm = "Alarm"
+    var symbol: String {
+        switch self { case .timer: "timer"; case .focus: "brain.head.profile"; case .stopwatch: "stopwatch"; case .alarm: "alarm" }
+    }
+}
 
 @MainActor @Observable final class ClockTools {
     var mode: ClockMode = .timer
@@ -65,9 +70,8 @@ enum ClockMode: String, CaseIterable { case timer = "Timer", stopwatch = "Stopwa
         return fractions ? text + String(format: ".%02d", Int(max(0, seconds) * 100) % 100) : text
     }
     init(defaults: UserDefaults? = nil, notificationsEnabled: Bool? = nil) {
-        let smoke = CommandLine.arguments.contains("--smoke-test")
-        self.defaults = defaults ?? (smoke ? UserDefaults(suiteName: "dk.jonasgandrup.Sense.SmokeTest")! : .standard)
-        self.notificationsEnabled = notificationsEnabled ?? (!smoke && Bundle.main.bundleURL.pathExtension == "app")
+        self.defaults = defaults ?? AppEnvironment.defaults
+        self.notificationsEnabled = notificationsEnabled ?? AppEnvironment.allowsAlerts
         alarmRepeat = AlarmRepeat(rawValue: self.defaults.string(forKey: "clockAlarmRepeat") ?? "") ?? .once
         if let saved = self.defaults.object(forKey: "clockAlarmDate") as? Date, saved > Date() {
             alarmDate = saved; alarmTime = saved; runAlarmTicker()
@@ -155,24 +159,38 @@ struct IslandClockView: View {
     var calendar: CalendarPeek?
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            IslandPaneHeader(title: clock.mode.rawValue, symbol: clock.mode == .timer ? "timer" : clock.mode == .stopwatch ? "stopwatch" : "alarm") {
+            IslandPaneHeader(title: clock.mode.rawValue, symbol: clock.mode.symbol) {
                 HStack(spacing: 2) {
                     ForEach(ClockMode.allCases, id: \.self) { mode in
-                        Button(mode.rawValue) { clock.mode = mode }
-                            .buttonStyle(.plain).font(.system(size: 9, weight: .medium))
-                            .padding(.horizontal, 7).padding(.vertical, 4)
-                            .background(clock.mode == mode ? .white.opacity(0.13) : .clear, in: Capsule())
+                        Button { clock.mode = mode } label: {
+                            Text(mode.rawValue).font(.system(size: 10, weight: clock.mode == mode ? .semibold : .medium))
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(clock.mode == mode ? .white.opacity(0.16) : .clear, in: Capsule())
+                                .foregroundStyle(.white.opacity(clock.mode == mode ? 1 : 0.6))
+                                .contentShape(Capsule())
+                        }.buttonStyle(.plain).accessibilityAddTraits(clock.mode == mode ? .isSelected : [])
                     }
-                }
+                }.padding(2).background(.white.opacity(0.06), in: Capsule())
             }
             if let event = calendar?.next {
                 TimelineView(.periodic(from: .now, by: 30)) { context in
-                    Label("\(event.title) · \(event.relative(at: context.date))", systemImage: "calendar")
-                        .font(.system(size: 10)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
+                    HStack(spacing: 6) {
+                        Image(systemName: "calendar").foregroundStyle(.red)
+                        Text("\(event.title) · \(event.relative(at: context.date))").lineLimit(1)
+                        Spacer(minLength: 4)
+                        if let link = event.meetingURL {
+                            Button("Join") { NSWorkspace.shared.open(link) }
+                                .buttonStyle(.plain).font(.system(size: 10, weight: .semibold))
+                                .padding(.horizontal, 8).padding(.vertical, 2)
+                                .background(Color.green, in: Capsule()).foregroundStyle(.black)
+                                .help("Join \(link.host ?? "the meeting")")
+                        }
+                    }.font(.system(size: 10)).foregroundStyle(.white.opacity(0.7))
                 }
             }
             switch clock.mode {
             case .timer: IslandTimerView(timer: timer, showsHeader: false)
+            case .focus: FocusTimerView(timer: timer)
             case .stopwatch:
                 VStack(alignment: .leading, spacing: 8) {
                     Text(ClockTools.label(clock.stopwatch.value(at: clock.uptime), fractions: true))

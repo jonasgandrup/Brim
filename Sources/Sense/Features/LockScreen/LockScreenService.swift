@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Carbon
 
 @MainActor @Observable
 final class LockScreenService {
@@ -35,8 +36,10 @@ final class LockScreenService {
             try? await Task.sleep(for: .milliseconds(450))
             // Hand off to macOS. No credentials or authentication are handled by Sense.
             let source = CGEventSource(stateID: .hidSystemState)
-            let down = CGEvent(keyboardEventSource: source, virtualKey: 12, keyDown: true)
-            let up = CGEvent(keyboardEventSource: source, virtualKey: 12, keyDown: false)
+            // Menu shortcuts match the character, so find the key that types "q" on this keyboard (A on AZERTY).
+            let key = LockShortcutKey.keyCode(for: "q") ?? CGKeyCode(kVK_ANSI_Q)
+            let down = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: true)
+            let up = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: false)
             down?.flags = [.maskControl, .maskCommand]; up?.flags = [.maskControl, .maskCommand]
             down?.post(tap: .cghidEventTap); up?.post(tap: .cghidEventTap)
             try? await Task.sleep(for: .milliseconds(800))
@@ -50,6 +53,29 @@ final class LockScreenService {
         panel.ignoresMouseEvents = true
         panel.contentView = NSHostingView(rootView: LockTransition())
         self.panel = panel; panel.orderFrontRegardless()
+    }
+}
+
+/// Physical key codes are positional; characters depend on the active keyboard layout.
+enum LockShortcutKey {
+    static func keyCode(for character: String) -> CGKeyCode? {
+        guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
+              let pointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return nil }
+        let data = Unmanaged<CFData>.fromOpaque(pointer).takeUnretainedValue() as Data
+        // Command held: layouts such as "Dvorak – QWERTY ⌘" switch to QWERTY for shortcuts.
+        let modifiers = UInt32((cmdKey >> 8) & 0xFF)
+        return data.withUnsafeBytes { raw -> CGKeyCode? in
+            guard let layout = raw.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else { return nil }
+            for code in 0..<UInt16(128) {
+                var deadKeys: UInt32 = 0
+                var length = 0
+                var characters = [UniChar](repeating: 0, count: 4)
+                let status = UCKeyTranslate(layout, code, UInt16(kUCKeyActionDown), modifiers, UInt32(LMGetKbdType()),
+                                            OptionBits(kUCKeyTranslateNoDeadKeysBit), &deadKeys, characters.count, &length, &characters)
+                if status == noErr, length == 1, String(utf16CodeUnits: characters, count: 1).lowercased() == character { return CGKeyCode(code) }
+            }
+            return nil
+        }
     }
 }
 

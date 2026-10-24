@@ -39,22 +39,118 @@ struct MediaTimeline: Sendable {
 
 enum MediaScriptRunner {
     static func run(_ script: String, javaScript: Bool = false, arguments: [String] = [], timeout: TimeInterval = 4) async -> (String, Bool) {
-        await Task.detached(priority: .utility) {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            process.arguments = (javaScript ? ["-l", "JavaScript"] : []) + ["-e", script] + arguments
-            let output = Pipe(); process.standardOutput = output; process.standardError = FileHandle.nullDevice
-            do {
-                try process.run()
-                let limit = DispatchWorkItem { if process.isRunning { process.terminate() } }
-                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout, execute: limit)
-                let data = output.fileHandleForReading.readDataToEndOfFile()
-                process.waitUntilExit(); limit.cancel()
-                guard data.count < 4_000_000 else { return ("", false) }
-                return (String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "", process.terminationStatus == 0)
-            } catch { return ("", false) }
-        }.value
+        let result = await ProcessRunner.run("/usr/bin/osascript", arguments: (javaScript ? ["-l", "JavaScript"] : []) + ["-e", script] + arguments, timeout: timeout)
+        if !result.succeeded { Log.media.debug("Media script failed (status \(result.status), timed out: \(result.timedOut))") }
+        return (result.text, result.succeeded)
     }
+}
+
+/// One long-lived scripting process answers Now Playing reads over stdin/stdout, instead of a new
+/// `osascript` launch per poll. Requests are answered in order. A hung or crashed helper is replaced on
+/// the next read, and a periodic one-shot comparison turns the helper off if it ever disagrees.
+final class NowPlayingHelper: @unchecked Sendable {
+    static let shared = NowPlayingHelper()
+    private let lock = NSLock()
+    private var process: Process?
+    private var input: FileHandle?
+    private var buffer = Data()
+    private var pending: [(id: Int, continuation: CheckedContinuation<String?, Never>)] = []
+    private var nextID = 0
+    private var served = 0
+    private var disabled = false
+    private var lastVerified: TimeInterval = -.infinity
+    /// Bounds memory growth inside the scripting runtime.
+    private let recycleAfter = 600
+
+    var enabled: Bool { lock.withLock { !disabled } }
+    func disable(reason: String) {
+        Log.media.error("Now Playing helper disabled: \(reason, privacy: .public)")
+        let failed = lock.withLock { disabled = true; return tearDownLocked() }
+        failed.forEach { $0.resume(returning: nil) }
+    }
+    /// True roughly every 15 seconds: time to compare the helper against a fresh one-shot read.
+    func dueForVerification(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
+        lock.withLock {
+            guard now - lastVerified >= 15 else { return false }
+            lastVerified = now; return true
+        }
+    }
+    func read(_ arguments: [String]) async -> String? {
+        guard let line = try? JSONSerialization.data(withJSONObject: arguments) else { return nil }
+        return await withCheckedContinuation { continuation in
+            let id: Int? = lock.withLock {
+                guard !disabled, let input = launchIfNeededLocked() else { return nil }
+                nextID += 1
+                pending.append((nextID, continuation))
+                do { try input.write(contentsOf: line + Data([0x0A])) } catch {
+                    pending.removeLast(); return nil
+                }
+                return nextID
+            }
+            guard let id else { continuation.resume(returning: nil); return }
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 4) { [weak self] in self?.expire(id) }
+        }
+    }
+    private func expire(_ id: Int) {
+        let failed: [CheckedContinuation<String?, Never>] = lock.withLock {
+            guard pending.contains(where: { $0.id == id }) else { return [] }
+            Log.media.notice("Now Playing helper didn’t answer in time; restarting it")
+            return tearDownLocked()
+        }
+        failed.forEach { $0.resume(returning: nil) }
+    }
+    private func launchIfNeededLocked() -> FileHandle? {
+        if served >= recycleAfter, pending.isEmpty { _ = tearDownLocked() }
+        if let process, process.isRunning, let input { return input }
+        _ = tearDownLocked()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-l", "JavaScript", "-e", SystemMediaBridge.serveScript]
+        let stdin = Pipe(), stdout = Pipe()
+        process.standardInput = stdin; process.standardOutput = stdout; process.standardError = FileHandle.nullDevice
+        stdout.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty { handle.readabilityHandler = nil } else { self?.receive(chunk) }
+        }
+        process.terminationHandler = { [weak self] ended in self?.ended(ended) }
+        do { try process.run() } catch {
+            Log.media.error("Couldn’t start the Now Playing helper: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        self.process = process; self.input = stdin.fileHandleForWriting; served = 0; buffer.removeAll()
+        return input
+    }
+    private func receive(_ chunk: Data) {
+        var replies: [(CheckedContinuation<String?, Never>, String)] = []
+        lock.withLock {
+            buffer.append(chunk)
+            while let newline = buffer.firstIndex(of: 0x0A) {
+                let line = buffer[buffer.startIndex..<newline]
+                buffer.removeSubrange(buffer.startIndex...newline)
+                guard !pending.isEmpty else { continue }
+                served += 1
+                replies.append((pending.removeFirst().continuation, String(decoding: line, as: UTF8.self)))
+            }
+        }
+        replies.forEach { $0.0.resume(returning: $0.1) }
+    }
+    private func ended(_ process: Process) {
+        let failed: [CheckedContinuation<String?, Never>] = lock.withLock {
+            guard process === self.process else { return [] }
+            return tearDownLocked()
+        }
+        failed.forEach { $0.resume(returning: nil) }
+    }
+    /// Stops the helper and hands back every waiting request so the caller can fail them outside the lock.
+    private func tearDownLocked() -> [CheckedContinuation<String?, Never>] {
+        let waiting = pending.map(\.continuation)
+        pending.removeAll()
+        try? input?.close()
+        if let process, process.isRunning { process.terminate() }
+        process = nil; input = nil; buffer.removeAll()
+        return waiting
+    }
+    func stop() { let failed = lock.withLock { tearDownLocked() }; failed.forEach { $0.resume(returning: nil) } }
 }
 
 enum SystemMediaBridge {
@@ -131,8 +227,8 @@ enum SystemMediaBridge {
         return result;
     }
     """#
-    static let readScript = bootstrap + "ObjC.import('AppKit');" + playerFunctions + #"""
-    function run(argv) {
+    static let readFunction = #"""
+    function readOnce(argv) {
         if (!frameworkReady()) return JSON.stringify({available:false});
         let value;
         try {
@@ -152,6 +248,28 @@ enum SystemMediaBridge {
             return JSON.stringify(value ? snapshotFrom(value) : {available:true});
         } catch(_){return JSON.stringify({available:false});}
         finally {if(value)value.close();}
+    }
+    """#
+    static let readScript = bootstrap + "ObjC.import('AppKit');" + playerFunctions + readFunction + "\nfunction run(argv) { return readOnce(argv); }"
+    /// The helper loop: one JSON argument array per input line, one JSON snapshot per output line.
+    static let serveScript = bootstrap + "ObjC.import('AppKit');" + playerFunctions + readFunction + #"""
+    function run() {
+        const input=$.NSFileHandle.fileHandleWithStandardInput, output=$.NSFileHandle.fileHandleWithStandardOutput;
+        let buffer='';
+        while (true) {
+            const data=input.availableData;
+            if (Number(data.length)===0) return '';
+            buffer+=ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data,$.NSUTF8StringEncoding));
+            let index;
+            while ((index=buffer.indexOf('\n'))>=0) {
+                const line=buffer.slice(0,index); buffer=buffer.slice(index+1);
+                // Let MediaRemote deliver any queued updates before answering.
+                $.NSRunLoop.currentRunLoop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(0.01));
+                let reply;
+                try { reply=readOnce(JSON.parse(line)); } catch(_) { reply=JSON.stringify({available:false}); }
+                output.writeData($(String(reply).replace(/\n/g,' ')+'\n').dataUsingEncoding($.NSUTF8StringEncoding));
+            }
+        }
     }
     """#
     static let commandScript = bootstrap + "ObjC.import('AppKit');" + playerFunctions + #"""
@@ -211,14 +329,31 @@ enum SystemMediaBridge {
         return success && result == (validateOnly ? "validated" : "submitted")
     }
     static func snapshot(for player: MediaPlayer) async -> SystemMediaSnapshot? {
-        let (text, success) = await MediaScriptRunner.run(readScript, javaScript: true, arguments: [player.source, String(player.processID)])
-        guard success, let data = text.data(using: .utf8) else { return nil }
+        await read([player.source, String(player.processID)])
+    }
+    static func snapshot() async -> SystemMediaSnapshot? { await read([]) }
+    private static func decode(_ text: String?) -> SystemMediaSnapshot? {
+        guard let data = text?.data(using: .utf8) else { return nil }
         return try? JSONDecoder().decode(SystemMediaSnapshot.self, from: data)
     }
-    static func snapshot() async -> SystemMediaSnapshot? {
-        let (text, success) = await MediaScriptRunner.run(readScript, javaScript: true)
-        guard success, let data = text.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(SystemMediaSnapshot.self, from: data)
+    static func oneShotSnapshot(_ arguments: [String]) async -> SystemMediaSnapshot? {
+        let (text, success) = await MediaScriptRunner.run(readScript, javaScript: true, arguments: arguments)
+        return success ? decode(text) : nil
+    }
+    private static func read(_ arguments: [String]) async -> SystemMediaSnapshot? {
+        let helper = NowPlayingHelper.shared
+        guard helper.enabled else { return await oneShotSnapshot(arguments) }
+        guard let fromHelper = decode(await helper.read(arguments)) else { return await oneShotSnapshot(arguments) }
+        if helper.dueForVerification(), let fresh = await oneShotSnapshot(arguments), !agrees(fromHelper, fresh) {
+            helper.disable(reason: "a long-lived read disagreed with a fresh one")
+            return fresh
+        }
+        return fromHelper
+    }
+    /// The parts that would make the island show the wrong thing. Position naturally drifts between reads.
+    static func agrees(_ a: SystemMediaSnapshot, _ b: SystemMediaSnapshot) -> Bool {
+        a.available == b.available && a.title == b.title && a.source == b.source && a.identifier == b.identifier
+            && ((a.rate ?? 0) > 0) == ((b.rate ?? 0) > 0)
     }
     static func command(_ command: String, source: String) async -> Bool {
         guard ["playpause", "next track", "previous track"].contains(command),

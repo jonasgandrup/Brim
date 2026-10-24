@@ -6,8 +6,8 @@
     <key>CFBundleIdentifier</key><string>dk.jonasgandrup.Sense</string>
     <key>CFBundleExecutable</key><string>Sense</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.1.0</string>
-    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleShortVersionString</key><string>0.2.0</string>
+    <key>CFBundleVersion</key><string>2</string>
     <key>CFBundleIconFile</key><string>Sense</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
@@ -17,5 +17,13 @@
     <key>NSScreenCaptureUsageDescription</key><string>Sense captures window thumbnails for the switcher and a temporary desktop image for the optional lid-closing fold effect.</string>
     <key>NSCalendarsFullAccessUsageDescription</key><string>Sense reads your calendar on this Mac to show your next event in the island. Nothing is stored or sent anywhere.</string>
     <key>NSCalendarsUsageDescription</key><string>Sense reads your calendar on this Mac to show your next event in the island. Nothing is stored or sent anywhere.</string>
+    <key>NSDownloadsFolderUsageDescription</key><string>Sense shows downloads that are still arriving in your Downloads folder as a progress ring in the island. It only looks at file names and sizes, and nothing leaves your Mac.</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key><string>dk.jonasgandrup.Sense</string>
+            <key>CFBundleURLSchemes</key><array><string>sense</string></array>
+        </dict>
+    </array>
     <key>NSFocusStatusUsageDescription</key><string>Sense can hide the island while a Focus is on. It only learns whether a Focus is active, never which one or why.</string>
 </dict></plist>

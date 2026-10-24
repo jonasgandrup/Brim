@@ -10,6 +10,8 @@ final class SystemStatus {
     var muted = false
     private(set) var details = BatteryDetails()
     @ObservationIgnored var onPowerSample: (PowerSample) -> Void = { _ in }
+    /// Volume or mute changed on the current output device (not on a routine refresh or device switch).
+    @ObservationIgnored var onVolumeChange: (_ volume: Double?, _ muted: Bool) -> Void = { _, _ in }
     private var powerSource: CFRunLoopSource?
     var powerNotificationsActive: Bool { powerSource != nil }
     private var timer: Timer?
@@ -22,16 +24,17 @@ final class SystemStatus {
         }, Unmanaged.passUnretained(self).toOpaque())?.takeRetainedValue() {
             powerSource = source; CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         }
-        timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+        let timer = Timer(timeInterval: 15, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
         }
-        timer?.tolerance = 3
+        timer.tolerance = 3
+        RunLoop.main.add(timer, forMode: .common); self.timer = timer
     }
     func stop() {
         timer?.invalidate(); timer = nil
         unwatchVolume(); unwatchDefaultDevice()
         if let powerSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), powerSource, .commonModes) }
-        powerSource = nil; onPowerSample = { _ in }
+        powerSource = nil; onPowerSample = { _ in }; onVolumeChange = { _, _ in }
     }
     func refresh() {
         var level: Int?, onPower = false, isCharging = false, toEmpty: Int?, toFull: Int?
@@ -69,7 +72,7 @@ final class SystemStatus {
         var size = UInt32(MemoryLayout<T>.size)
         return AudioObjectGetPropertyData(device, &address, 0, nil, &size, &value) == noErr
     }
-    private func refreshVolume() {
+    private func refreshVolume(announce: Bool = false) {
         var device = AudioDeviceID(0)
         guard read(AudioObjectID(kAudioObjectSystemObject), address(kAudioHardwarePropertyDefaultOutputDevice), as: &device), device != 0 else {
             volume = nil; muted = false; return
@@ -87,15 +90,17 @@ final class SystemStatus {
         let next = levels.isEmpty ? nil : levels.reduce(0, +) / Double(levels.count)
         var mute: UInt32 = 0
         let isMuted = read(device, address(kAudioDevicePropertyMute, scope: kAudioDevicePropertyScopeOutput), as: &mute) && mute != 0
+        let changed = volume != next || muted != isMuted
         if volume != next { volume = next }
         if muted != isMuted { muted = isMuted }
+        if announce && changed { onVolumeChange(next, isMuted) }
     }
     /// Listen for volume/mute changes on the current output device, and for the device itself changing.
     private func watchVolume(of device: AudioDeviceID) {
         unwatchVolume()
         volumeDevice = device
         let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            Task { @MainActor in self?.refreshVolume() }
+            Task { @MainActor in self?.refreshVolume(announce: true) }
         }
         volumeListener = listener
         for element in [kAudioObjectPropertyElementMain, 1, 2] as [AudioObjectPropertyElement] {

@@ -144,7 +144,7 @@ final class LidEffectService {
     func verifyDesktopCapture(force: Bool = false) {
         guard task != nil, !suspended, angle != nil, hasScreenAccess(),
               !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
-              !CommandLine.arguments.contains("--smoke-test"), setupProbeTask == nil,
+              !AppEnvironment.isSmokeTest, setupProbeTask == nil,
               force || captureCheck == .unverified else { return }
         let ticket = generation
         captureCheck = .checking
@@ -177,7 +177,7 @@ final class LidEffectService {
             progress = 0; panel?.orderOut(nil); snapshot = nil; captureAttempted = false
             captureTask?.cancel(); return
         }
-        guard !CommandLine.arguments.contains("--smoke-test") else { return }
+        guard !AppEnvironment.isSmokeTest else { return }
         progress = next
         // Enter from an exactly flat snapshot if capture arrives after the lid has begun moving.
         // Subsequent sensor samples catch up smoothly, rather than jumping to an already folded pose.

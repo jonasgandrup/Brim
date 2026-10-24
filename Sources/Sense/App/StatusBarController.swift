@@ -60,16 +60,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
     private func statusText() -> (text: String, bolt: Bool)? {
         switch model.preferences.menuBarStatus {
-        case "battery":
+        case .battery:
             guard let level = model.status.battery else { return nil }
             return ("\(level)%", model.status.charging)
-        case "activity":
+        case .activity:
             let countdown = model.notch.countdown
             if countdown.active { return (countdown.state.phase == .finished ? "Done" : countdown.label, false) }
             let clock = model.notch.clock
             if clock.active { return (clock.label, false) }
             return nil
-        default: return nil
+        case .off: return nil
         }
     }
     private func updateStatusText() {
@@ -127,13 +127,14 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         add("Now Playing", action: #selector(openNowPlaying), symbol: "play.rectangle").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
         add("Open File Shelf", action: #selector(openFileShelf), symbol: "tray").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
         add("Clock…", action: #selector(openTimer), symbol: "timer").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
+        add("Start Focus Session", action: #selector(startFocus), symbol: "brain.head.profile").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode && !model.notch.countdown.active
         add("Clipboard Shelf", action: #selector(openClipboard), symbol: "pin").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
         add("Battery", action: #selector(openBattery), symbol: "battery.100").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
         add("Transfers", action: #selector(openTransfers), symbol: "arrow.down.circle").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
         if model.preferences.toolShortcutsEnabled {
             for (title, key) in [("Now Playing", "1"), ("Open File Shelf", "2"), ("Clipboard Shelf", "3"), ("Clock…", "4"), ("Battery", "5"), ("Transfers", "6")] {
                 if let entry = menu.items.first(where: { $0.title == title }) {
-                    entry.keyEquivalent = key; entry.keyEquivalentModifierMask = (ShortcutModifiers(rawValue: model.preferences.toolShortcutModifiers) ?? .ctrlOptCmd).menuMask
+                    entry.keyEquivalent = key; entry.keyEquivalentModifierMask = model.preferences.toolShortcutModifiers.menuMask
                 }
             }
         }
@@ -164,6 +165,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
     @objc private func openNowPlaying() { model.notch.openTool(.nowPlaying) }
     @objc private func openTimer() { model.notch.openTimerFromMenu() }
+    @objc private func startFocus() { model.notch.startFocus() }
     @objc private func openTransfers() { model.notch.openTransfersFromMenu() }
     @objc private func openBattery() { model.notch.openBatteryFromMenu() }
     @objc private func openClipboard() { model.notch.openClipboardFromMenu() }
