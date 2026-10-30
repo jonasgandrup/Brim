@@ -15,7 +15,7 @@ struct IslandPaneHeader<Actions: View>: View {
             HStack(spacing: 10, content: actions)
                 .font(.system(size: 10)).buttonStyle(.plain)
         }
-        .foregroundStyle(.white.opacity(0.75))
+        .foregroundStyle(.secondary)
         .frame(height: 24)
     }
 }

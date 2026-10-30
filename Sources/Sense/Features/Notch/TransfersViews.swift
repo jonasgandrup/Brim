@@ -57,9 +57,9 @@ struct TransfersPaneView: View {
                 case .running:
                     if let fraction = activity.fraction { ProgressView(value: fraction).controlSize(.mini).tint(Color.blue) }
                     else { ProgressView().progressViewStyle(.linear).controlSize(.mini) }
-                    Text(detail(activity)).font(.system(size: 9)).foregroundStyle(.white.opacity(0.5))
-                case .finished: Label("Done", systemImage: "checkmark.circle.fill").font(.system(size: 9)).foregroundStyle(.green)
-                case .failed(let message): Text(message).font(.system(size: 9)).foregroundStyle(.orange).lineLimit(1)
+                    Text(detail(activity)).font(.system(size: 10)).foregroundStyle(.secondary)
+                case .finished: Label("Done", systemImage: "checkmark.circle.fill").font(.system(size: 10)).foregroundStyle(.green)
+                case .failed(let message): Text(message).font(.system(size: 10)).foregroundStyle(.orange).lineLimit(1)
                 }
             }
             Spacer(minLength: 0)

@@ -189,7 +189,7 @@ struct IslandTimerView: View {
                 IslandPaneHeader(title: "Timer", symbol: "timer") {
                     if timer.state.phase != .idle {
                         Text(timer.state.phase == .paused ? "Paused" : timer.state.phase == .finished ? "Finished" : "Running")
-                            .foregroundStyle(.white.opacity(0.45))
+                            .foregroundStyle(.tertiary)
                     }
                 }
             }
@@ -206,7 +206,7 @@ struct IslandTimerView: View {
                 }
                 HStack {
                     Stepper(value: $timer.minutes, in: 1...180) {
-                        Text("\(timer.minutes) min").font(.system(size: 11)).monospacedDigit().foregroundStyle(.white.opacity(0.6))
+                        Text("\(timer.minutes) min").font(.system(size: 11)).monospacedDigit().foregroundStyle(.secondary)
                     }.controlSize(.mini).fixedSize()
                     Spacer()
                     TimerActionButton(title: "Start", symbol: "play.fill", prominent: true) { timer.start() }
@@ -249,7 +249,7 @@ struct CountdownReadout: View {
                 Text(timer.state.phase == .finished ? "Time’s up" : timer.label)
                     .font(.system(size: 30, weight: .light, design: .rounded)).monospacedDigit()
                     .contentTransition(.numericText(countsDown: true))
-                Text(timer.subtitle).font(.system(size: 11)).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
+                Text(timer.subtitle).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
         }
@@ -295,13 +295,13 @@ struct FocusTimerView: View {
                         .frame(width: 44, height: 44).background(.red.opacity(0.15), in: Circle())
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Focus sessions").font(.system(size: 15, weight: .semibold))
-                        Text("25 min focus · 5 min break · long break after 4").font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
+                        Text("25 min focus · 5 min break · long break after 4").font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 0)
                 }
                 HStack {
                     if timer.active {
-                        Text("A timer is already running").font(.system(size: 10)).foregroundStyle(.white.opacity(0.5))
+                        Text("A timer is already running").font(.system(size: 10)).foregroundStyle(.secondary)
                     }
                     Spacer()
                     TimerActionButton(title: "Start Focus", symbol: "play.fill", prominent: true, tint: .red) { timer.startFocus() }

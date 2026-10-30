@@ -65,6 +65,7 @@ enum SenseCommand: Equatable {
         case "clipboard": .clipboard
         case "clock", "timer": .clock
         case "battery": .battery
+        case "island", "now": .island
         case "transfers", "downloads": .transfers
         default: nil
         }

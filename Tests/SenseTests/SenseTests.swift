@@ -696,3 +696,29 @@ import Testing
     let twins = [ThumbnailMatch.Candidate(windowID: 1, pid: 7, title: nil, frame: frame), .init(windowID: 2, pid: 7, title: nil, frame: frame)]
     #expect(ThumbnailMatch.pick(windowID: nil, pid: 7, title: "A", frame: frame, from: twins) == nil)
 }
+
+@Test func islandShortcutOpensAtWhatIsHappening() {
+    #expect(SenseCommand(url: URL(string: "sense://open?tool=island")!) == .open(.island))
+    #expect(ToolShortcuts.Tool.island.title == "Island")
+    #expect(Set(IslandKeys.Key.allCases.map(\.keyCode)).count == IslandKeys.Key.allCases.count)
+}
+
+@Test func activityBubbleFitsInsideTheFixedPanel() {
+    let screen = CGRect(x: 0, y: 0, width: 1512, height: 982)
+    for layout in [IslandLayout(cutoutWidth: 190, menuBarHeight: 32, hasHardwareNotch: true),
+                   IslandLayout(cutoutWidth: 190, menuBarHeight: 28, hasHardwareNotch: false)] {
+        // The panel never resizes, so the bubble beside the compact island must land inside the expanded frame.
+        let compact = layout.frame(on: screen, expanded: false)
+        let panel = layout.frame(on: screen, expanded: true)
+        #expect(compact.maxX + IslandLayout.bubbleGap + layout.compactSize.height <= panel.maxX)
+    }
+}
+
+@Test @MainActor func experimentsLiveInLabsAndIslandSettingsAreSplit() {
+    #expect(SettingsPage.sidebar.contains(.labs))
+    #expect(SettingsPage.lock.title == "Lock Screen")
+    #expect(Set(IslandSection.allCases.map(\.symbol)).count == IslandSection.allCases.count)
+    let controller = NotchController()
+    #expect(controller.visibleTabs == [.music, .files, .clipboard, .timer, .battery])
+    #expect(!controller.showsActivityBubble && controller.bubbleFrame == nil)
+}

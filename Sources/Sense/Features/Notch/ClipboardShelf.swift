@@ -254,7 +254,7 @@ struct ClipboardShelfView: View {
                     }
                 }
             }
-            if let message = shelf.message { Text(message).font(.system(size: 10)).foregroundStyle(.white.opacity(0.5)).lineLimit(1) }
+            if let message = shelf.message { Text(message).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1) }
         }.foregroundStyle(.white)
     }
     private func card(_ pin: ClipboardPin) -> some View {
@@ -268,7 +268,7 @@ struct ClipboardShelfView: View {
             HStack(spacing: 8) {
                 Button("Copy", systemImage: "doc.on.doc") { shelf.copy(pin) }
                 if shelf.showingHistory { Button("Pin", systemImage: "pin") { shelf.pinFromHistory(pin) } }
-            }.font(.system(size: 9)).buttonStyle(.plain)
+            }.font(.system(size: 10)).buttonStyle(.plain)
         }.padding(9).frame(width: 112, height: 96, alignment: .topLeading)
             .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .onDrag { pin.provider() }

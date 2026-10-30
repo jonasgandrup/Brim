@@ -104,6 +104,8 @@ final class MediaService {
     var message: String?
     var refreshing = false
     let sleepTimer = MediaSleepTimer()
+    /// True while the playback scrubber is visible. Otherwise playback is checked every two seconds.
+    @ObservationIgnored var wantsFrequentUpdates: () -> Bool = { true }
     private(set) var players: [MediaPlayer] = []
     private(set) var pinnedPlayer: MediaPlayer?
     private(set) var selectionLoading = false
@@ -252,7 +254,7 @@ final class MediaService {
             while !Task.isCancelled {
                 // Position is extrapolated locally; this catches changes apps do not announce.
                 // Reads go to a resident helper, so a one-second cadence costs a few milliseconds.
-                try? await Task.sleep(for: .seconds(self?.playing == true ? 1 : 3))
+                try? await Task.sleep(for: .seconds(self?.playing == true ? (self?.wantsFrequentUpdates() == true ? 1 : 2) : 3))
                 guard !Task.isCancelled else { return }
                 self?.refresh()
             }

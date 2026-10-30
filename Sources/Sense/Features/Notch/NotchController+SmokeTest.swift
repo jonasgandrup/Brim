@@ -204,7 +204,7 @@ extension NotchController {
         var result: [String] = []
         let initialFrame = panel.frame
         smoke.idleHoverOpensIsland = await verifyIdleHover()
-        for preview in 0..<15 {
+        for preview in 0..<16 {
             let isExpanded = preview != 0 && (preview < 10 || preview >= 12)
             feedback = nil
             selectedTab = preview >= 8 ? .timer : (preview >= 4 ? .clipboard : (preview >= 2 ? .files : .music))
@@ -226,16 +226,22 @@ extension NotchController {
             if preview == 12 { clipboard.clear(); selectedTab = .timer; clock.mode = .stopwatch }
             if preview == 13 { clock.toggleStopwatch() }
             if preview == 14 { clock.resetStopwatch(); clock.mode = .alarm }
+            if preview == 15 {
+                // Sample levels for the rendering check only; the real card shows what System Information reports.
+                clock.mode = .timer
+                showFeedback("AirPods Pro", symbol: "airpods.pro", tint: .white,
+                             device: BluetoothDevice(id: "smoke", name: "AirPods Pro", kind: "Headphones", left: 80, right: 76, batteryCase: 45), seconds: 10)
+            }
             setExpanded(isExpanded)
             previewPointer = isExpanded ? surfaceFrame.map { CGPoint(x: $0.midX, y: $0.midY) } : CGPoint(x: -10000, y: -10000)
             try? await Task.sleep(for: .milliseconds(650))
-            let extras = [4: "clipboard-empty.png", 5: "clipboard-pins.png", 6: "timer-ready.png", 7: "timer-running.png", 8: "timer-paused.png", 9: "charging-preview.png", 10: "timer-compact.png", 11: "clipboard-compact.png", 12: "stopwatch-ready.png", 13: "stopwatch-running.png", 14: "alarm-ready.png"]
+            let extras = [4: "clipboard-empty.png", 5: "clipboard-pins.png", 6: "timer-ready.png", 7: "timer-running.png", 8: "timer-paused.png", 9: "charging-preview.png", 10: "timer-compact.png", 11: "clipboard-compact.png", 12: "stopwatch-ready.png", 13: "stopwatch-running.png", 14: "alarm-ready.png", 15: "accessory-card.png"]
             let name = extras[preview] ?? (preview == 3 ? "file-shelf-items.png" : (preview == 2 ? "file-shelf-empty.png" :
                 (isExpanded ? "island-expanded.png" : (presentation == .hidden ? "island-idle.png" : "island-compact.png"))))
             if await capturePanel(named: name, in: directory) { result.append(name) }
         }
         clock.mode = .timer
-        feedback = nil; countdown.cancel(); clipboard.clear(); shelf.add([Bundle.main.bundleURL.appendingPathComponent("Contents/Info.plist")]); selectedTab = .files; previewPointer = nil
+        dismissFeedback(); countdown.cancel(); clipboard.clear(); shelf.add([Bundle.main.bundleURL.appendingPathComponent("Contents/Info.plist")]); selectedTab = .files; previewPointer = nil
         setSwitcherOverlayActive(true)
         try? await Task.sleep(for: .milliseconds(420))
         let stayedHidden = desktopTransition && !panel.isVisible && panel.alphaValue == 0

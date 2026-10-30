@@ -64,12 +64,20 @@ struct SettingsPageHeader: View {
 }
 
 /// A title with an optional explanatory line beneath it, for use as a Form row's label.
+/// Longer explanations sit behind an ⓘ beside the title, so each row reads in a glance.
 struct SettingsLabel: View {
     let title: String
     var detail: String?
+    var info: String?
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title)
+            HStack(spacing: 4) {
+                Text(title)
+                if let info {
+                    Image(systemName: "info.circle").font(.system(size: 11)).foregroundStyle(.secondary)
+                        .help(info).accessibilityLabel(info)
+                }
+            }
             if let detail {
                 Text(detail).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }

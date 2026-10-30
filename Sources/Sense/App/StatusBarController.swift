@@ -170,10 +170,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     @objc private func openBattery() { model.notch.openBatteryFromMenu() }
     @objc private func openClipboard() { model.notch.openClipboardFromMenu() }
     @objc private func pinClipboard() { model.notch.pinClipboard() }
-    @objc private func openLidSetup() { model.openSettings(page: .lock) }
+    @objc private func openLidSetup() { model.openSettings(page: .labs) }
     @objc private func openSettings() { model.openSettings() }
     @objc private func openFileShelf() { model.notch.openShelfFromMenu() }
-    @objc private func openIsland() { model.notch.openFromMenu() }
+    @objc private func openIsland() { model.notch.openInContext() }
     @objc private func openScale() { model.openScale() }
     @objc private func lockMac() { model.lock.lock() }
     @objc private func quit() { NSApp.terminate(nil) }

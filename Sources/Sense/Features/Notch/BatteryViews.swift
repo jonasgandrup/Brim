@@ -50,6 +50,50 @@ struct ChargeFeedbackView: View {
     }
 }
 
+/// An accessory that just connected: its symbol and a ring per part that reports a level (each bud and the case).
+struct AccessoryFeedbackView: View {
+    let device: BluetoothDevice
+    private var readings: [(label: String, level: Int)] {
+        let parts = [("Left", device.left), ("Right", device.right), ("Case", device.batteryCase)].compactMap { label, level in level.map { (label, $0) } }
+        if !parts.isEmpty { return parts }
+        return device.main.map { [("", $0)] } ?? []
+    }
+    var body: some View {
+        HStack(spacing: 20) {
+            Image(systemName: device.symbol).font(.system(size: 44, weight: .light)).symbolRenderingMode(.hierarchical)
+                .frame(width: 70)
+            VStack(alignment: .leading, spacing: 10) {
+                Text(device.name).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                HStack(spacing: 14) {
+                    ForEach(readings, id: \.label) { reading in
+                        VStack(spacing: 4) {
+                            LevelRing(level: reading.level)
+                            if !reading.label.isEmpty { Text(reading.label).font(.system(size: 11)).foregroundStyle(.secondary) }
+                        }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("\(reading.label.isEmpty ? device.name : reading.label) \(reading.level) percent")
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }.padding(.horizontal, 10).frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// A battery level as a ring with the number inside, like the Batteries widget.
+struct LevelRing: View {
+    let level: Int
+    var body: some View {
+        let tint: Color = level <= 20 ? .red : .green
+        ZStack {
+            Circle().stroke(.white.opacity(0.15), lineWidth: 3)
+            Circle().trim(from: 0, to: Double(min(100, max(0, level))) / 100)
+                .stroke(tint, style: StrokeStyle(lineWidth: 3, lineCap: .round)).rotationEffect(.degrees(-90))
+            Text("\(level)").font(.system(size: 11, weight: .semibold, design: .rounded)).monospacedDigit()
+        }.frame(width: 36, height: 36)
+    }
+}
+
 /// Battery at a glance, then the controls you reach for most: volume, output and brightness,
 /// like Control Center's Sound and Display modules.
 struct BatteryPaneView: View {
@@ -64,7 +108,7 @@ struct BatteryPaneView: View {
                     BatteryGlyph(level: level, charging: details.charging, lowPower: details.lowPowerMode, height: 18)
                     Text("\(level)%").font(.system(size: 20, weight: .semibold, design: .rounded)).monospacedDigit().contentTransition(.numericText())
                     Text(details.summary(level: level, externalPower: status.charging))
-                        .font(.system(size: 11)).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
+                        .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                     Spacer(minLength: 0)
                     if details.lowPowerMode { Image(systemName: "leaf.fill").font(.system(size: 11)).foregroundStyle(.yellow).help("Low Power Mode") }
                 }.frame(height: 26)
@@ -91,7 +135,7 @@ struct BatteryPaneView: View {
     private func stat(_ title: String, _ value: String) -> some View {
         VStack(spacing: 2) {
             Text(value).font(.system(size: 13, weight: .semibold)).monospacedDigit()
-            Text(title).font(.system(size: 9)).foregroundStyle(.white.opacity(0.5))
+            Text(title).font(.system(size: 10)).foregroundStyle(.secondary)
         }.frame(minWidth: 72).padding(.vertical, 7).padding(.horizontal, 6)
             .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
@@ -103,7 +147,7 @@ struct BatteryPaneView: View {
                 Text("\(level)%").font(.system(size: 13, weight: .semibold)).monospacedDigit()
                     .foregroundStyle(level <= 20 ? Color.red : .white)
             }
-            Text(device.name).font(.system(size: 9)).foregroundStyle(.white.opacity(0.5)).lineLimit(1).truncationMode(.middle)
+            Text(device.name).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
         }.frame(minWidth: 72, maxWidth: 110).padding(.vertical, 7).padding(.horizontal, 6)
             .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .help(deviceDetail(device))
@@ -135,7 +179,7 @@ struct QuickControls: View {
                     IslandSlider(value: status.muted ? 0 : volume, label: "Volume") { status.setVolume($0) }
                 } else {
                     Text(status.outputID == 0 ? "No sound output" : "Volume is set on the device")
-                        .font(.system(size: 10)).foregroundStyle(.white.opacity(0.5)).frame(maxWidth: .infinity, alignment: .leading)
+                        .font(.system(size: 10)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
                 }
                 outputMenu
             }

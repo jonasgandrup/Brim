@@ -38,6 +38,7 @@ struct IslandLayout {
                       height: camera.height + (target.height - camera.height) * progress)
     }
     var expandedSize: CGSize { CGSize(width: max(408, compactSize.width), height: headerHeight + 202) }
+    static let bubbleGap: CGFloat = 6
     var headerHeight: CGFloat { hasHardwareNotch ? menuBarHeight : 38 }
     func idleHoverFrame(on screen: CGRect) -> CGRect {
         let width = hasHardwareNotch ? cutoutWidth + 24 : compactSize.width
@@ -131,7 +132,8 @@ private extension CGRect {
 
 @MainActor @Observable
 final class NotchController {
-    var expanded = false
+    /// Every path that collapses the island ends a keyboard session, so no key stays captured.
+    var expanded = false { didSet { if !expanded { keys.stop() } } }
     let shelf = FileShelf()
     var selectedTab: IslandTab = .music { didSet { if oldValue != selectedTab { transitionPane() } } }
     private(set) var displayedTab: IslandTab = .music
@@ -180,6 +182,8 @@ final class NotchController {
     private(set) var feedbackBattery: (level: Int, charging: Bool)?
     private(set) var feedbackImage: NSImage?
     private(set) var feedbackURL: URL?
+    /// An accessory that just connected, shown as a card with a battery ring per part, like AirPods on iPhone.
+    private(set) var feedbackDevice: BluetoothDevice?
     /// A single button under the message, such as "Join" for a meeting that's about to start.
     private(set) var feedbackAction: (title: String, url: URL)?
     private var feedbackTask: Task<Void, Never>?
@@ -249,6 +253,30 @@ final class NotchController {
     var hasDualActivities: Bool { preferences?.mediaEnabled == true && media?.source != nil && countdown.active }
     var compactLeadingTab: IslandTab { hasDualActivities ? .music : compactTab }
     var compactTrailingTab: IslandTab { countdown.active || clock.active ? .timer : compactTab }
+    /// Two things at once, like the iPhone: media keeps the island and the timer moves to a bubble beside it.
+    var showsActivityBubble: Bool { presentation == .compact && hasDualActivities && hud == nil }
+    var bubbleFrame: CGRect? {
+        guard showsActivityBubble, let frame = surfaceFrame else { return nil }
+        let side = layout.compactSize.height
+        return CGRect(x: frame.maxX + IslandLayout.bubbleGap, y: frame.maxY - side, width: side, height: side)
+    }
+    /// A small swell under the pointer says the compact island can be clicked.
+    var hoverSwell: Bool { pointerInside && !expanded && presentation == .compact }
+    var showsTransfersTab: Bool { preferences?.liveTransfers == true || transfers.hasRunning || selectedTab == .transfers }
+    var visibleTabs: [IslandTab] {
+        [.music, .files, .clipboard, .timer, .battery] + (showsTransfersTab ? [.transfers] : [])
+    }
+    /// What a plain open shows: the activity under the pointer, otherwise whatever is happening now.
+    private func contextTab(at location: CGPoint? = nil) -> IslandTab {
+        if let location, bubbleFrame?.contains(location) == true { return .timer }
+        return compactLeadingTab
+    }
+    /// Opens the island at what's happening now, rather than wherever it was last left.
+    func openInContext() {
+        guard !presentationMode else { return }
+        if !expanded { selectedTab = contextTab() }
+        openFromMenu()
+    }
     /// Shows the camera/microphone dot only when the user asked for it.
     var sensorIndicatorVisible: Bool { preferences?.sensorIndicator == true && sensors.active }
     func openCompactActivity(_ tab: IslandTab) {
@@ -312,6 +340,8 @@ final class NotchController {
         status.onVolumeChange = { [weak self] volume, muted in self?.receiveVolume(volume, muted: muted) }
         receivePower(PowerSample(percent: status.battery, externalPower: status.charging))
         configureCallbacks()
+        // The scrubber needs per-second positions only while it's on screen; compact needs track changes.
+        media.wantsFrequentUpdates = { [weak self] in self?.expanded == true && self?.displayedTab == .music }
         if observers.isEmpty { installObservers() }
         let screenPreferences = [preferences.showOnExternal, preferences.followActiveDisplay]
         if panel == nil || lastScreenPreferences != screenPreferences { rebuild() }
@@ -355,7 +385,7 @@ final class NotchController {
         screenshots.onScreenshot = { [weak self] url in self?.receiveScreenshot(url) }
         calendar.onSoon = { [weak self] event in
             let action = event.meetingURL.map { (title: "Join", url: $0) }
-            self?.showFeedback(event.title, symbol: "calendar", tint: .red, action: action, seconds: action == nil ? 5 : 8)
+            self?.showFeedback("\(event.title) · \(event.relative(at: Date()))", symbol: "calendar", tint: .red, action: action, seconds: action == nil ? 5 : 8)
         }
         transfers.onFinished = { [weak self] activity in self?.transferFinished(activity) }
         sensors.onChange = { [weak self] camera, microphone in self?.sensorsChanged(camera: camera, microphone: microphone) }
@@ -491,6 +521,7 @@ final class NotchController {
             guard !desktopTransition, !presentationMode, let displayFrame else { return false }
             return layout.idleHoverFrame(on: displayFrame).contains(point)
         }
+        if let bubble = bubbleFrame, IslandHitRegion.contains(point, frame: bubble, radius: bubble.height / 2, roundedTop: true) { return true }
         guard let frame = surfaceFrame else { return false }
         return IslandHitRegion.contains(point, frame: frame, radius: expanded ? 34 : layout.compactSize.height / 2, roundedTop: !layout.hasHardwareNotch)
     }
@@ -523,7 +554,7 @@ final class NotchController {
     func stop() {
         screenshots.stop(); clipboard.stopHistory(); calendar.stop(); transfers.stop()
         sensors.stop(); brightness.stop(); bluetooth.stop()
-        toolOpenTask?.cancel(); toolOpenTask = nil
+        toolOpenTask?.cancel(); toolOpenTask = nil; keys.stop()
         idleHideTask?.cancel(); idleHideTask = nil
         shelf.actions.closePreview()
         systemMenuDepth = 0
@@ -587,6 +618,11 @@ final class NotchController {
         panel.isMovable = false; panel.hidesOnDeactivate = false
         panel.acceptsMouseMovedEvents = true; panel.ignoresMouseEvents = true
         self.panel = panel
+        // Clicking into the island (say, the clipboard search field) gives typing back to the panel.
+        if let panelKeyObserver { NotificationCenter.default.removeObserver(panelKeyObserver) }
+        panelKeyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: panel, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.keys.stop() }
+        }
         let hosting = NSHostingView(rootView: IslandView(controller: self, preferences: preferences, status: status, media: media))
         // SwiftUI's intrinsic minimum must not enlarge the collapsed NSPanel.
         hosting.sizingOptions = []
@@ -613,6 +649,7 @@ final class NotchController {
                 guard !Task.isCancelled, let self else { return }
                 self.hoverTask = nil
                 let wasExpanded = self.expanded
+                if !wasExpanded { self.selectedTab = self.contextTab(at: self.previewPointer ?? NSEvent.mouseLocation) }
                 self.setExpanded(true)
                 if !wasExpanded && self.expanded { self.haptic(.open) }
             }
@@ -738,26 +775,53 @@ final class NotchController {
     // MARK: Opening tools
 
     private var toolOpenTask: Task<Void, Never>?
-    func openTool(_ tool: ToolShortcuts.Tool) {
+    func openTool(_ tool: ToolShortcuts.Tool, fromKeyboard: Bool = false) {
         toolOpenTask?.cancel()
         toolOpenTask = Task { [weak self] in
             // A shortcut pressed mid-swipe opens the tool once the desktop settles.
             for _ in 0..<100 {
                 guard !Task.isCancelled, let self, self.panel != nil, !self.presentationMode else { return }
                 if !self.transitioning && !self.suspended {
-                    self.selectedTab = switch tool {
-                    case .nowPlaying: .music
-                    case .files: .files
-                    case .clipboard: .clipboard
-                    case .clock: .timer
-                    case .battery: .battery
-                    case .transfers: .transfers
+                    switch tool {
+                    case .island: self.openInContext()
+                    case .nowPlaying: self.selectedTab = .music
+                    case .files: self.selectedTab = .files
+                    case .clipboard: self.selectedTab = .clipboard
+                    case .clock: self.selectedTab = .timer
+                    case .battery: self.selectedTab = .battery
+                    case .transfers: self.selectedTab = .transfers
                     }
-                    self.openFromMenu(); return
+                    if tool != .island { self.openFromMenu() }
+                    if fromKeyboard && self.expanded { self.startKeyboardSession() }
+                    return
                 }
                 try? await Task.sleep(for: .milliseconds(50))
             }
         }
+    }
+
+    // MARK: Keyboard
+
+    /// Opened from the keyboard, the island takes ←, →, Return, Space and Escape until it closes, without
+    /// activating Sense or taking focus from the app you're in.
+    private let keys = IslandKeys()
+    private var panelKeyObserver: NSObjectProtocol?
+    private func startKeyboardSession() {
+        collapseAfterDelay(seconds: 8)
+        keys.start { [weak self] key in self?.receive(key) }
+    }
+    private func receive(_ key: IslandKeys.Key) {
+        guard expanded else { keys.stop(); return }
+        switch key {
+        case .escape: setExpanded(false); return
+        case .left, .right:
+            let tabs = visibleTabs
+            let index = tabs.firstIndex(of: selectedTab) ?? 0
+            selectedTab = tabs[(index + (key == .right ? 1 : tabs.count - 1)) % tabs.count]
+        case .return, .space:
+            if displayedTab == .music, media?.source != nil { media?.command("playpause") }
+        }
+        collapseAfterDelay(seconds: 8)
     }
     func openTimerFromMenu() { selectedTab = .timer; openFromMenu() }
     func openTransfersFromMenu() { selectedTab = .transfers; openFromMenu() }
@@ -849,8 +913,14 @@ final class NotchController {
         showHUD(.init(symbol: camera ? "video.fill" : "mic.fill", tint: camera ? .green : .orange, label: label), seconds: 2.5)
     }
     private func deviceConnected(_ device: BluetoothDevice) {
-        guard preferences?.bluetoothBatteries == true, let level = device.level else { return }
-        showFeedback("\(device.name) · \(level)%", symbol: device.symbol, tint: level <= 20 ? .red : .white, seconds: 3)
+        guard preferences?.bluetoothBatteries == true, device.level != nil else { return }
+        haptic(.land)
+        showFeedback(device.name, symbol: device.symbol, tint: .white, device: device, seconds: 4)
+    }
+    /// Shown compact and brief, as on iPhone. Sense learns only that a Focus is on, not which one.
+    func focusChanged(on: Bool) {
+        guard preferences?.focusFeedback == true else { return }
+        showHUD(.init(symbol: on ? "moon.fill" : "moon", tint: .indigo, label: on ? "Focus On" : "Focus Off"), seconds: 2)
     }
     /// A new screenshot goes onto the file shelf and gets a brief preview, like the iPhone's corner thumbnail.
     func receiveScreenshot(_ url: URL) {
@@ -864,11 +934,11 @@ final class NotchController {
     // MARK: Feedback presentation
 
     func showFeedback(_ text: String, symbol: String, tint: Color = .green, battery: (level: Int, charging: Bool)? = nil,
-                      image: NSImage? = nil, url: URL? = nil, action: (title: String, url: URL)? = nil, seconds: Double = 3) {
+                      image: NSImage? = nil, url: URL? = nil, action: (title: String, url: URL)? = nil, device: BluetoothDevice? = nil, seconds: Double = 3) {
         guard preferences?.notchEnabled == true else { return }
         feedbackTask?.cancel(); hudTask?.cancel(); hud = nil
         feedback = text; feedbackSymbol = symbol; feedbackTint = tint
-        feedbackBattery = battery; feedbackImage = image; feedbackURL = url; feedbackAction = action
+        feedbackBattery = battery; feedbackImage = image; feedbackURL = url; feedbackAction = action; feedbackDevice = device
         setExpanded(true)
         feedbackTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
@@ -883,7 +953,7 @@ final class NotchController {
         if !pointerInside { setExpanded(false) }
     }
     private func clearFeedback() {
-        feedback = nil; feedbackBattery = nil; feedbackImage = nil; feedbackURL = nil; feedbackAction = nil
+        feedback = nil; feedbackBattery = nil; feedbackImage = nil; feedbackURL = nil; feedbackAction = nil; feedbackDevice = nil
     }
     /// The trackpad only plays this while a finger rests on it, so it's felt, never heard.
     enum Haptic { case open, land, finish }

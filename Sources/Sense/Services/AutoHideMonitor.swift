@@ -41,15 +41,20 @@ enum SharingDetection {
     private(set) var focusDenied = false
     private var watchFocus = false
     private var watchSharing = false
+    private var watchFocusChanges = false
+    private var lastFocused: Bool?
     private var task: Task<Void, Never>?
     @ObservationIgnored private var onChange: (String?) -> Void = { _ in }
+    @ObservationIgnored private var onFocusChange: (Bool) -> Void = { _ in }
 
-    func configure(focus: Bool, sharing: Bool, onChange: @escaping (String?) -> Void) {
-        self.onChange = onChange
-        let focusWasOff = !watchFocus
-        watchFocus = focus; watchSharing = sharing
-        guard focus || sharing else { stop(); return }
-        if focus && focusWasOff { requestFocusAccess() }
+    /// `focusChanges` reports each Focus turning on or off, independent of hiding the island for it.
+    func configure(focus: Bool, sharing: Bool, focusChanges: Bool = false, onChange: @escaping (String?) -> Void, onFocusChange: @escaping (Bool) -> Void = { _ in }) {
+        self.onChange = onChange; self.onFocusChange = onFocusChange
+        let focusWasOff = !watchFocus && !watchFocusChanges
+        watchFocus = focus; watchSharing = sharing; watchFocusChanges = focusChanges
+        guard focus || sharing || focusChanges else { stop(); return }
+        if (focus || focusChanges) && focusWasOff { requestFocusAccess() }
+        if !focusChanges { lastFocused = nil }
         guard task == nil else { evaluate(); return }
         task = Task { [weak self] in
             while !Task.isCancelled {
@@ -60,7 +65,7 @@ enum SharingDetection {
         evaluate()
     }
     func stop() {
-        task?.cancel(); task = nil; watchFocus = false; watchSharing = false
+        task?.cancel(); task = nil; watchFocus = false; watchSharing = false; watchFocusChanges = false; lastFocused = nil
         if reason != nil { reason = nil; onChange(nil) }
     }
     private func requestFocusAccess() {
@@ -77,9 +82,18 @@ enum SharingDetection {
     }
     func evaluate() {
         var next: String?
-        if watchFocus, INFocusStatusCenter.default.authorizationStatus == .authorized {
+        var focused: Bool?
+        if watchFocus || watchFocusChanges, INFocusStatusCenter.default.authorizationStatus == .authorized {
             focusAuthorized = true
-            if INFocusStatusCenter.default.focusStatus.isFocused == true { next = "Focus is on" }
+            focused = INFocusStatusCenter.default.focusStatus.isFocused
+            if watchFocus && focused == true { next = "Focus is on" }
+        }
+        defer {
+            // The first reading is the starting point, not a change.
+            if watchFocusChanges, let focused {
+                if let lastFocused, lastFocused != focused { onFocusChange(focused) }
+                lastFocused = focused
+            }
         }
         if next == nil, watchSharing,
            SharingDetection.isSharing(processNames: SharingDetection.runningProcessNames(), displaysMirrored: SharingDetection.displaysMirrored()) {

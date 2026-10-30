@@ -30,7 +30,7 @@ final class Preferences {
         "liveTransfers": false, "autoHideFocus": false, "autoHideSharing": false, "calendarPreview": false,
         "clipboardHistory": false, "toolShortcutModifiers": "ctrlOptCmd", "menuBarStatus": "off",
         "screenshotShelf": false, "appearance": "system", "sensorIndicator": false, "systemHUD": false,
-        "bluetoothBatteries": true, "keepShelf": true, "haptics": true,
+        "bluetoothBatteries": true, "keepShelf": true, "haptics": true, "focusFeedback": false,
     ]
     var toolShortcutsEnabled: Bool { didSet { save(toolShortcutsEnabled, "toolShortcutsEnabled") } }
     var toolShortcutModifiers: ShortcutModifiers { didSet { save(toolShortcutModifiers.rawValue, "toolShortcutModifiers") } }
@@ -78,6 +78,8 @@ final class Preferences {
     var keepShelf: Bool { didSet { save(keepShelf, "keepShelf") } }
     /// A soft trackpad tap for island moments that are worth feeling.
     var haptics: Bool { didSet { save(haptics, "haptics") } }
+    /// A brief compact notice when a Focus turns on or off.
+    var focusFeedback: Bool { didSet { save(focusFeedback, "focusFeedback") } }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -116,6 +118,7 @@ final class Preferences {
         bluetoothBatteries = flag("bluetoothBatteries")
         keepShelf = flag("keepShelf")
         haptics = flag("haptics")
+        focusFeedback = flag("focusFeedback")
     }
     static func clampTarget(_ value: Int) -> Int { min(100, max(50, value)) }
     static func clampLow(_ value: Int) -> Int { value <= 0 ? 0 : min(50, max(5, value)) }
@@ -132,9 +135,9 @@ final class Preferences {
 enum SettingsPage: String, CaseIterable, Identifiable {
     case welcome = "Welcome"
     case general = "General", notch = "Dynamic Island", switcher = "Window Switcher"
-    case scale = "Trackpad Scale", lock = "Lock Screen", permissions = "Permissions"
+    case lock = "Lock Screen", labs = "Labs", permissions = "Permissions"
     var id: String { rawValue }
-    var title: String { self == .lock ? "Lid Fold & Lock" : self == .welcome ? "Welcome to Sense" : rawValue }
+    var title: String { self == .welcome ? "Welcome to Sense" : rawValue }
     /// The welcome page is reached on first launch or from General, not from the sidebar.
     static var sidebar: [SettingsPage] { allCases.filter { $0 != .welcome } }
     var symbol: String {
@@ -143,8 +146,8 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .general: "gearshape.fill"
         case .notch: "capsule.fill"
         case .switcher: "rectangle.on.rectangle"
-        case .scale: "scalemass.fill"
         case .lock: "lock.fill"
+        case .labs: "flask.fill"
         case .permissions: "hand.raised.fill"
         }
     }
@@ -155,8 +158,8 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .general: .gray
         case .notch: .black
         case .switcher: .blue
-        case .scale: .orange
         case .lock: .indigo
+        case .labs: .orange
         case .permissions: .blue
         }
     }
@@ -166,9 +169,46 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .general: "A little more Mac."
         case .notch: "A quiet home for what’s happening."
         case .switcher: "Every window. One shortcut."
-        case .scale: "A small experiment in pressure."
         case .lock: "A softer landing. The same security."
+        case .labs: "Experiments that lean on your Mac’s sensors. Fun, and a little unpredictable."
         case .permissions: "You’re in control."
+        }
+    }
+}
+
+/// The Dynamic Island page's sub-pages, reached by drilling in, as System Settings does for Control Center.
+enum IslandSection: String, CaseIterable, Identifiable {
+    case nowPlaying = "Now Playing", shelf = "Shelf & Clipboard", activities = "Live Activities"
+    case battery = "Battery", hiding = "Hide Automatically", keyboard = "Keyboard & Shortcuts"
+    var id: String { rawValue }
+    var symbol: String {
+        switch self {
+        case .nowPlaying: "play.fill"
+        case .shelf: "tray.fill"
+        case .activities: "bolt.horizontal.fill"
+        case .battery: "battery.100percent"
+        case .hiding: "eye.slash.fill"
+        case .keyboard: "keyboard.fill"
+        }
+    }
+    var tint: Color {
+        switch self {
+        case .nowPlaying: .pink
+        case .shelf: .teal
+        case .activities: .blue
+        case .battery: .green
+        case .hiding: .gray
+        case .keyboard: .gray
+        }
+    }
+    var subtitle: String {
+        switch self {
+        case .nowPlaying: "What’s playing in any app, with artwork and controls."
+        case .shelf: "A place for files and snippets while you work."
+        case .activities: "Brief updates from your Mac, right where you’re looking."
+        case .battery: "Power at a glance, and a word when it matters."
+        case .hiding: "The island steps aside when it should."
+        case .keyboard: "Open the island without reaching for the pointer."
         }
     }
 }

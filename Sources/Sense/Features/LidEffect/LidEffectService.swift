@@ -13,7 +13,7 @@ enum LidFoldReadiness: Equatable {
     }
     var message: String {
         switch self {
-        case .disabled: "Turn on Lid Fold & Lock and Duo lid closing above."
+        case .disabled: "Turn on Lid Fold and Duo lid closing above."
         case .permissionNeeded: "Screen Recording permission is needed for Sense to fold your desktop."
         case .reduceMotion: "Paused while macOS Reduce Motion is enabled."
         case .sensorUnavailable: "Waiting for a compatible hinge sensor. Check the sensor status above."

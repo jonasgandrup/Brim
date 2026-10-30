@@ -114,7 +114,7 @@ struct FileShelfView: View {
         VStack(alignment: .leading, spacing: 6) {
             IslandPaneHeader(title: "Files", symbol: "tray") {
                 if shelf.selectedURLs.count > 1 {
-                    Text("\(shelf.selectedURLs.count)").monospacedDigit().foregroundStyle(.white.opacity(0.45))
+                    Text("\(shelf.selectedURLs.count)").monospacedDigit().foregroundStyle(.tertiary)
                 }
                 Menu {
                     Button("AirDrop…", systemImage: "airdrop") { shelf.actions.airDrop() }
@@ -160,9 +160,9 @@ struct FileShelfView: View {
             } else {
                 FileCollection(shelf: shelf).frame(height: 103)
                 Text("⌘-click to select · Space to preview · drag selected files together")
-                    .font(.system(size: 9)).foregroundStyle(.white.opacity(0.4))
+                    .font(.system(size: 10)).foregroundStyle(.tertiary)
             }
-            if let message = shelf.message { Text(message).font(.system(size: 10)).foregroundStyle(.white.opacity(0.5)) }
+            if let message = shelf.message { Text(message).font(.system(size: 10)).foregroundStyle(.secondary) }
         }.foregroundStyle(.white)
     }
 }

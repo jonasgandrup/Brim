@@ -65,7 +65,7 @@ struct MediaCover: View {
         ZStack {
             Color.white.opacity(0.07)
             if let image { Image(nsImage: image).resizable().scaledToFill().transition(.opacity) }
-            else { Image(systemName: "waveform").font(.system(size: size * 0.36, weight: .light)).foregroundStyle(.white.opacity(0.35)) }
+            else { Image(systemName: "waveform").font(.system(size: size * 0.36, weight: .light)).foregroundStyle(.tertiary) }
         }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: image != nil)
             .accessibilityHidden(true)

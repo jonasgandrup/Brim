@@ -40,6 +40,16 @@ extension SenseAppModel {
                     rendered.append(name)
                 }
             }
+            for section in IslandSection.allCases {
+                page = .notch; islandSection = section
+                try? await Task.sleep(for: .milliseconds(450))
+                if let window = settingsWindow, let data = await SmokeCapture.png(of: window) {
+                    let name = "island-\(section.id.replacingOccurrences(of: " & ", with: "-").replacingOccurrences(of: " ", with: "-").lowercased())-\(appearance.rawValue).png"
+                    try? data.write(to: URL(fileURLWithPath: output).appendingPathComponent(name))
+                    rendered.append(name)
+                }
+            }
+            islandSection = nil
         }
         openScale()
         try? await Task.sleep(for: .milliseconds(250))

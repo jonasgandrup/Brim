@@ -15,13 +15,19 @@ struct SettingsView: View {
             Divider().ignoresSafeArea()
             Form {
                 Section {
-                    SettingsPageHeader(symbol: model.page.symbol, tint: model.page.tint, title: model.page.title, detail: model.page.subtitle)
+                    if model.page == .notch, let section = model.islandSection {
+                        Button("Dynamic Island", systemImage: "chevron.left") { model.islandSection = nil }
+                            .buttonStyle(.borderless).keyboardShortcut("[", modifiers: .command)
+                        SettingsPageHeader(symbol: section.symbol, tint: section.tint, title: section.rawValue, detail: section.subtitle)
+                    } else {
+                        SettingsPageHeader(symbol: model.page.symbol, tint: model.page.tint, title: model.page.title, detail: model.page.subtitle)
+                    }
                 }
                 content
             }
             .formStyle(.grouped)
             .scrollDisabled(captureMode)
-            .id(model.page)
+            .id("\(model.page.id)/\(model.islandSection?.id ?? "")")
         }
         .frame(minWidth: 820, minHeight: 560)
         .onChange(of: preferences.notchEnabled) { model.apply() }
@@ -46,6 +52,7 @@ struct SettingsView: View {
         .onChange(of: preferences.autoHideSharing) { model.apply() }
         .onChange(of: preferences.menuBarStatus) { model.apply() }
         .onChange(of: preferences.lidFoldStyle) { model.apply() }
+        .onChange(of: preferences.focusFeedback) { model.apply() }
         .onChange(of: preferences.shortcut) { model.switcher.stop(); model.apply() }
     }
 
@@ -82,10 +89,19 @@ struct SettingsView: View {
         switch model.page {
         case .welcome: welcome
         case .general: general
-        case .notch: notch
+        case .notch:
+            switch model.islandSection {
+            case nil: notch
+            case .nowPlaying: nowPlayingSettings
+            case .shelf: shelfSettings
+            case .activities: activitySettings
+            case .battery: batterySettings
+            case .hiding: hidingSettings
+            case .keyboard: keyboardSettings
+            }
         case .switcher: switcher
-        case .scale: scale
         case .lock: lock
+        case .labs: labs
         case .permissions: permissions
         }
     }
@@ -106,7 +122,7 @@ struct SettingsView: View {
         Section {
             welcomeToggle(SettingsPage.switcher.symbol, SettingsPage.switcher.tint, "Window Switcher", "Every window, not just apps, on ⌘ Tab.", binding(\.switcherEnabled))
             welcomeToggle("laptopcomputer", .indigo, "Lid Fold", "Your desktop folds as you close the lid.", binding(\.lidEffectEnabled))
-            welcomeToggle(SettingsPage.scale.symbol, SettingsPage.scale.tint, "Trackpad Scale", "Weigh small objects on your Force Touch trackpad.", binding(\.scaleEnabled))
+            welcomeToggle("scalemass.fill", .orange, "Trackpad Scale", "Weigh small objects on your Force Touch trackpad.", binding(\.scaleEnabled))
             Toggle(isOn: Binding(get: { model.loginEnabled }, set: { model.setLogin($0) })) {
                 Label { SettingsLabel(title: "Open at Login", detail: "Ready when your Mac is.") } icon: { SettingsIcon(symbol: "power", tint: .gray, size: 26) }
             }
@@ -136,8 +152,12 @@ struct SettingsView: View {
         Section("Features") {
             featureToggle(.notch, detail: "Now playing, files, timers and system status around the camera.", isOn: binding(\.notchEnabled))
             featureToggle(.switcher, detail: "Move between windows, not just apps.", isOn: binding(\.switcherEnabled))
-            featureToggle(.scale, detail: "Weigh small objects on your Force Touch trackpad.", isOn: binding(\.scaleEnabled))
             featureToggle(.lock, detail: "A gentle transition into the macOS lock screen.", isOn: binding(\.lockEnabled))
+            LabeledContent {
+                Button("Show") { model.page = .labs }
+            } label: {
+                Label { SettingsLabel(title: "Labs", detail: "Trackpad Scale and Lid Fold.") } icon: { SettingsIcon(symbol: SettingsPage.labs.symbol, tint: SettingsPage.labs.tint, size: 26) }
+            }
         }
         Section {
             Toggle(isOn: Binding(get: { model.loginEnabled }, set: { model.setLogin($0) })) {
@@ -170,96 +190,143 @@ struct SettingsView: View {
         Section {
             notchPreview
             Toggle(isOn: binding(\.notchEnabled)) {
-                SettingsLabel(title: "Dynamic Island", detail: "Playback, live activities and brief updates around the camera.")
+                SettingsLabel(title: "Dynamic Island", detail: "Activities and brief updates around the camera.")
             }
             Toggle(isOn: binding(\.hoverToExpand)) {
-                SettingsLabel(title: "Expand on Hover", detail: "Point at the camera to open the island. You can always open it from the menu bar.")
-            }.disabled(!preferences.notchEnabled)
-            Toggle(isOn: binding(\.showOnExternal)) {
-                SettingsLabel(title: "Show on Displays Without a Notch", detail: "Adds a small island at the top of the display.")
+                SettingsLabel(title: "Expand on Hover", detail: "Point at the camera to open it.")
             }.disabled(!preferences.notchEnabled)
             Toggle(isOn: binding(\.haptics)) {
-                SettingsLabel(title: "Haptic Feedback", detail: "A soft tap on the trackpad when the island opens, a file lands or a timer ends. Felt only while a finger rests on a Force Touch trackpad.")
+                SettingsLabel(title: "Haptic Feedback", detail: "A soft tap at moments worth feeling.",
+                              info: "When the island opens, a file lands or a timer ends. Felt only while a finger rests on a Force Touch trackpad.")
+            }.disabled(!preferences.notchEnabled)
+            Toggle(isOn: binding(\.showOnExternal)) {
+                SettingsLabel(title: "Show on Displays Without a Notch", detail: "A small island at the top of the screen.")
             }.disabled(!preferences.notchEnabled)
             Toggle(isOn: binding(\.followActiveDisplay)) {
-                SettingsLabel(title: "Follow the Active Display", detail: "With several displays, the island moves to the one you’re working on.")
+                SettingsLabel(title: "Follow the Active Display", detail: "Moves to the display you’re working on.")
             }.disabled(!preferences.notchEnabled || !preferences.showOnExternal)
         }
         Section {
-            Toggle(isOn: binding(\.mediaEnabled)) {
-                SettingsLabel(title: "Now Playing", detail: "Audio and video from the active media app, including compatible browsers.")
+            ForEach(IslandSection.allCases) { section in
+                Button { model.islandSection = section } label: {
+                    HStack {
+                        Label { Text(section.rawValue).foregroundStyle(.primary) } icon: { SettingsIcon(symbol: section.symbol, tint: section.tint) }
+                        Spacer()
+                        Text(summary(section)).foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
+                    }.contentShape(Rectangle())
+                }.buttonStyle(.plain)
             }
-        } header: { Text("Media") } footer: {
-            VStack(alignment: .leading, spacing: 6) {
-                Footnote(text: "Works with apps that publish a Now Playing session. Some apps omit artwork or ignore playback commands. System integration uses an undocumented macOS interface and may change after updates; Music and Spotify remain available as fallbacks.")
-                if let message = model.media.message { Footnote(text: message, symbol: "exclamationmark.circle") }
-            }
+        }.disabled(!preferences.notchEnabled)
+    }
+    /// The state beside each sub-page row, like "On" or "3 on" in System Settings.
+    private func summary(_ section: IslandSection) -> String {
+        func count(_ flags: [Bool]) -> String {
+            let on = flags.filter { $0 }.count
+            return on == 0 ? "Off" : on == flags.count && flags.count == 1 ? "On" : "\(on) on"
         }
-        Section("Shelf & Clipboard") {
+        return switch section {
+        case .nowPlaying: preferences.mediaEnabled ? "On" : "Off"
+        case .shelf: count([preferences.keepShelf, preferences.screenshotShelf, preferences.clipboardHistory])
+        case .activities: count([preferences.liveTransfers, preferences.calendarPreview, preferences.sensorIndicator, preferences.systemHUD, preferences.focusFeedback])
+        case .battery: count([preferences.chargingFeedback, preferences.lowBatteryAlert > 0, preferences.bluetoothBatteries])
+        case .hiding: count([preferences.autoHideFocus, preferences.autoHideSharing])
+        case .keyboard: preferences.toolShortcutsEnabled ? "\(preferences.toolShortcutModifiers.label)0" : "Off"
+        }
+    }
+    @ViewBuilder private var nowPlayingSettings: some View {
+        Section {
+            Toggle(isOn: binding(\.mediaEnabled)) {
+                SettingsLabel(title: "Now Playing", detail: "Audio and video from any app, including browsers.",
+                              info: "Works with apps that publish a Now Playing session; some omit artwork or ignore playback commands. Uses an undocumented macOS interface that may change with updates. Music and Spotify remain available as fallbacks.")
+            }
+        } footer: {
+            if let message = model.media.message { Footnote(text: message, symbol: "exclamationmark.circle") }
+        }
+    }
+    @ViewBuilder private var shelfSettings: some View {
+        Section {
             LabeledContent {
                 Button("Open Shelf") { model.notch.openShelfFromMenu() }
                 Button("Clipboard") { model.notch.openClipboardFromMenu() }
             } label: {
-                SettingsLabel(title: "File Shelf", detail: "Drop files on the island, switch windows or Spaces, then drag them out.")
-            }.disabled(!preferences.notchEnabled)
+                SettingsLabel(title: "File Shelf", detail: "Drop files on the island, then drag them out anywhere.")
+            }
             Toggle(isOn: binding(\.keepShelf)) {
-                SettingsLabel(title: "Keep Shelf and Pins After Quitting", detail: "Files are remembered by location, never copied. Clipboard pins are saved on this Mac; turning this off deletes them. History is never saved.")
+                SettingsLabel(title: "Keep After Quitting", detail: "Shelf files and clipboard pins stay put.",
+                              info: "Files are remembered by location, never copied. Clipboard pins are saved on this Mac; turning this off deletes them. History is never saved.")
             }
             Toggle(isOn: binding(\.screenshotShelf)) {
-                SettingsLabel(title: "Screenshot Shelf", detail: "New screenshots slide into the island and wait on the shelf. Uses Spotlight, so only indexed folders are seen.")
+                SettingsLabel(title: "Screenshot Shelf", detail: "New screenshots wait in the island.", info: "Found with Spotlight, so only indexed folders are seen.")
             }
             Toggle(isOn: binding(\.clipboardHistory)) {
-                SettingsLabel(title: "Clipboard History", detail: "Keeps recent text and links in memory to search and pin. Skips password managers; nothing is saved to disk.")
+                SettingsLabel(title: "Clipboard History", detail: "Recent text and links, kept in memory.", info: "Skips password managers. Nothing is saved to disk.")
             }
         }
-        Section("Live Activities") {
+    }
+    @ViewBuilder private var activitySettings: some View {
+        Section {
             Toggle(isOn: binding(\.liveTransfers)) {
-                SettingsLabel(title: "Downloads & AirDrop", detail: model.notch.transfers.accessProblem ?? "Shows files still arriving in Downloads as a progress ring. macOS asks once for access.")
+                SettingsLabel(title: "Downloads & AirDrop", detail: model.notch.transfers.accessProblem ?? "Files still arriving, as a progress ring.",
+                              info: "macOS asks once for access to your Downloads folder.")
             }
             Toggle(isOn: binding(\.calendarPreview)) {
                 SettingsLabel(title: "Next Calendar Event", detail: calendarDetail)
             }
+            Toggle(isOn: binding(\.focusFeedback)) {
+                SettingsLabel(title: "Focus", detail: model.autoHide.focusDenied ? focusDenied : "A brief note when a Focus turns on or off.",
+                              info: "Sense learns only whether a Focus is on, not which one.")
+            }
             Toggle(isOn: binding(\.sensorIndicator)) {
-                SettingsLabel(title: "Camera & Microphone Indicator", detail: "A green or orange dot in the island while any app uses them. Sense never records anything.")
+                SettingsLabel(title: "Camera & Microphone", detail: "A dot while any app uses them.", info: "Sense never records anything.")
             }
             Toggle(isOn: binding(\.systemHUD)) {
-                SettingsLabel(title: "Volume & Brightness", detail: "Shows changes as a small level in the island.")
+                SettingsLabel(title: "Volume & Brightness", detail: "Changes appear as a small level.")
             }
         }
+    }
+    private var focusDenied: String { "Focus access is off. Allow Sense in System Settings → Privacy & Security → Focus." }
+    @ViewBuilder private var batterySettings: some View {
         Section {
             Toggle(isOn: binding(\.chargingFeedback)) {
-                SettingsLabel(title: "Charging Feedback", detail: "Brief feedback when power connects or the battery reaches your target.")
+                SettingsLabel(title: "Charging Feedback", detail: "When power connects or the battery reaches your target.")
             }
             Stepper(value: binding(\.chargeTarget), in: 50...100, step: 5) {
                 LabeledContent {
                     Text("\(preferences.chargeTarget)%").monospacedDigit()
                 } label: {
-                    SettingsLabel(title: "Battery Target", detail: "A reminder only; Sense doesn’t change charging limits.")
+                    SettingsLabel(title: "Battery Target", detail: "A reminder only. Charging isn’t limited.")
                 }
             }
             Picker(selection: binding(\.lowBatteryAlert)) {
                 Text("Off").tag(0)
                 ForEach([10, 15, 20, 30], id: \.self) { Text("\($0)%").tag($0) }
             } label: {
-                SettingsLabel(title: "Low Battery Warning", detail: "One reminder per discharge, on battery power.")
+                SettingsLabel(title: "Low Battery Warning", detail: "Once per discharge.")
             }
             Toggle(isOn: binding(\.bluetoothBatteries)) {
-                SettingsLabel(title: "Accessory Batteries", detail: "AirPods, headphones and Magic accessories in the Battery tab, with a note when they connect.")
+                SettingsLabel(title: "Accessories", detail: "AirPods and other accessories, with a card when they connect.")
             }
-        } header: { Text("Battery") }
+        }
+    }
+    @ViewBuilder private var hidingSettings: some View {
         Section {
             Toggle(isOn: binding(\.autoHideFocus)) {
-                SettingsLabel(title: "During Focus", detail: model.autoHide.focusDenied ? "Focus access is off. Allow Sense in System Settings → Privacy & Security → Focus." : "Including Do Not Disturb. Sense only learns that a Focus is on.")
+                SettingsLabel(title: "During Focus", detail: model.autoHide.focusDenied ? focusDenied : "Including Do Not Disturb.")
             }
             Toggle(isOn: binding(\.autoHideSharing)) {
-                SettingsLabel(title: "While Sharing Your Screen", detail: "Mirrored displays, Zoom and macOS Screen Sharing. Browser meetings can’t be detected; use Presentation Mode.")
+                SettingsLabel(title: "While Sharing Your Screen", detail: "Mirroring, Zoom and Screen Sharing.",
+                              info: "Browser meetings can’t be detected. Use Presentation Mode from the menu bar instead.")
             }
-        } header: { Text("Hide Automatically") } footer: {
+        } footer: {
             if let reason = model.notch.autoHideReason { Footnote(text: "Hidden right now: \(reason).", symbol: "eye.slash") }
         }
+    }
+    @ViewBuilder private var keyboardSettings: some View {
         Section {
             Toggle(isOn: binding(\.toolShortcutsEnabled)) {
-                SettingsLabel(title: "Tool Shortcuts", detail: "\(preferences.toolShortcutModifiers.label)1 Now Playing · 2 Files · 3 Clipboard · 4 Clock · 5 Battery · 6 Transfers")
+                SettingsLabel(title: "Keyboard Shortcuts", detail: "\(preferences.toolShortcutModifiers.label)0 opens the island. 1 to 6 open a section.",
+                              info: "1 Now Playing · 2 Files · 3 Clipboard · 4 Clock · 5 Battery · 6 Transfers. Opened this way, ← and → switch sections, Return plays or pauses, and Escape closes.")
             }
             Picker("Modifier Keys", selection: binding(\.toolShortcutModifiers)) {
                 ForEach(ShortcutModifiers.allCases) { Text($0.label).tag($0) }
@@ -267,12 +334,13 @@ struct SettingsView: View {
             LabeledContent {
                 Button("Copy Example") {
                     NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString("sense://timer/start?minutes=25", forType: .string)
+                    NSPasteboard.general.setString("sense://message?text=Coffee%20is%20ready&symbol=cup.and.saucer.fill", forType: .string)
                 }
             } label: {
-                SettingsLabel(title: "Shortcuts & Automation", detail: "Use sense:// links with Shortcuts’ Open URLs action: open, timer/start, focus/start, clipboard/pin, message, presentation, shelf/add.")
+                SettingsLabel(title: "Shortcuts", detail: "Show your own messages, start timers and more.",
+                              info: "Use a sense:// link with the Open URLs action: message, open, timer/start, focus/start, clipboard/pin, presentation and shelf/add.")
             }
-        } header: { Text("Keyboard & Shortcuts") } footer: {
+        } footer: {
             if !model.toolShortcuts.unavailable.isEmpty {
                 Footnote(text: "Shortcut unavailable: " + model.toolShortcuts.unavailable.joined(separator: ", ") + ". Another app may be using it.", symbol: "exclamationmark.triangle")
             }
@@ -281,7 +349,7 @@ struct SettingsView: View {
     private var calendarDetail: String {
         switch model.notch.calendar.access {
         case .denied: "Calendar access is off. Allow it in System Settings → Privacy & Security → Calendars."
-        default: "Shows the next event in the Clock tab, alerts five minutes ahead, and offers Join for video calls."
+        default: "A heads-up five minutes before, with Join for calls."
         }
     }
     private var notchPreview: some View {
@@ -338,36 +406,29 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: Trackpad Scale
+    // MARK: Lock Screen
 
-    @ViewBuilder private var scale: some View {
+    @ViewBuilder private var lock: some View {
         Section {
-            Toggle(isOn: binding(\.scaleEnabled)) {
-                SettingsLabel(title: "Trackpad Scale", detail: "Small objects. Real Force Touch sensor readings.")
+            Toggle(isOn: binding(\.lockEnabled)) {
+                SettingsLabel(title: "Lock Actions", detail: "Lock Now, and a welcome back in the island after you unlock.")
             }
             LabeledContent {
-                Button("Open Scale") { model.openScale() }.disabled(!preferences.scaleEnabled)
+                Button("Lock Now") { model.lock.lock() }.disabled(!preferences.lockEnabled)
             } label: {
-                SettingsLabel(title: "Native Weighing", detail: "Reads the built-in Force Touch sensor while Scale is open.")
+                SettingsLabel(title: "Lock Your Mac", detail: "Uses macOS’s own Lock Screen shortcut.")
             }
-            LabeledContent {
-                Button("Reset") { model.scale.reset() }
-            } label: {
-                SettingsLabel(title: "Calibration", detail: "Native grams, with optional known-mass calibration.")
+        } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                if let error = model.lock.error { Footnote(text: error, symbol: "exclamationmark.circle") }
+                Footnote(text: "macOS handles your password, Touch ID and Apple Watch. Sense never sees credentials.", symbol: "lock.shield")
             }
-        }
-        Section {
-            step(1, "Keep contact", "Rest one fingertip lightly on your built-in Force Touch trackpad.")
-            step(2, "Set a baseline", "With your finger resting lightly, press T on the keyboard to tare.")
-            step(3, "Add your object", "Keep your finger still and place a small object beside it. Calibrate with a known mass if needed.")
-        } header: { Text("Getting a Reading") } footer: {
-            Footnote(text: "Uses an optional private macOS sensor interface. Requires a built-in Force Touch trackpad and continuous fingertip contact; objects alone may not register. Readings are estimates, not precision measurements.")
         }
     }
 
-    // MARK: Lid Fold & Lock
+    // MARK: Labs
 
-    @ViewBuilder private var lock: some View {
+    @ViewBuilder private var labs: some View {
         Section {
             Toggle(isOn: binding(\.lidEffectEnabled)) {
                 SettingsLabel(title: "Lid Fold", detail: "Your desktop follows the lid as you close your MacBook.")
@@ -383,38 +444,33 @@ struct SettingsView: View {
                 SettingsLabel(title: "Closing Style", detail: preferences.lidFoldStyle.detail)
             }
             LabeledContent {
-                Text("Automatic calibration").foregroundStyle(.secondary)
+                Text("Automatic").foregroundStyle(.secondary)
             } label: {
                 SettingsLabel(title: "Hinge Sensor", detail: model.lid.status)
             }
-        } footer: {
+        } header: { Text("Lid Fold") } footer: {
             VStack(alignment: .leading, spacing: 6) {
                 if model.permissions.screenRecordingRequested && !model.permissions.screenRecording {
                     Footnote(text: "Turn on Sense in macOS settings. If it’s already on, choose Restart Sense above to finish setup.")
                 }
-                Footnote(text: "Open the lid normally, then close it slowly. macOS still controls sleep and locking.")
+                Footnote(text: "Close the lid slowly to see it. macOS still controls sleep and locking.")
             }
         }
         Section {
-            Toggle(isOn: binding(\.lockEnabled)) {
-                SettingsLabel(title: "Lock Actions", detail: "Lock Now and welcome-back feedback, independent of the lid fold.")
+            Toggle(isOn: binding(\.scaleEnabled)) {
+                SettingsLabel(title: "Trackpad Scale", detail: "Weigh small objects with the Force Touch sensor.",
+                              info: "Uses an optional private macOS sensor interface. Needs a built-in Force Touch trackpad and a fingertip resting on it; objects alone may not register. Readings are estimates, not precision measurements.")
             }
             LabeledContent {
-                Button("Lock Now") { model.lock.lock() }.disabled(!preferences.lockEnabled)
+                Button("Open Scale") { model.openScale() }.disabled(!preferences.scaleEnabled)
+                Button("Reset Calibration") { model.scale.reset() }
             } label: {
-                SettingsLabel(title: "Lock Your Mac", detail: "Sends macOS’s own Lock Screen shortcut.")
+                SettingsLabel(title: "Scale", detail: "Native grams, with optional known-mass calibration.")
             }
-            LabeledContent {
-                Text(preferences.notchEnabled ? "Island enabled" : "Enable the island").foregroundStyle(.secondary)
-            } label: {
-                SettingsLabel(title: "Welcome-Back Feedback", detail: "Appears in the island after you unlock.")
-            }
-        } header: { Text("Lock") } footer: {
-            VStack(alignment: .leading, spacing: 6) {
-                if let error = model.lock.error { Footnote(text: error, symbol: "exclamationmark.circle") }
-                Footnote(text: "macOS handles password, Touch ID and Apple Watch authentication. Sense never reads or stores credentials or draws on the login screen.", symbol: "lock.shield")
-            }
-        }
+            step(1, "Keep contact", "Rest one fingertip lightly on the trackpad.")
+            step(2, "Set a baseline", "Press T to tare.")
+            step(3, "Add your object", "Place it beside your finger without pressing harder.")
+        } header: { Text("Trackpad Scale") }
     }
     @ViewBuilder private var lidSetupControl: some View {
         switch model.lidFoldReadiness {
@@ -455,7 +511,7 @@ struct SettingsView: View {
         } header: { Text("Privacy") } footer: {
             VStack(alignment: .leading, spacing: 6) {
                 Footnote(text: "Grant only what you use. Battery, volume, the scale and the camera/microphone indicator need no permissions. Sense never captures from your camera or microphone.", symbol: "hand.raised")
-                Footnote(text: "If macOS asks you to restart after granting Screen Recording, use Restart Sense in Lid Fold & Lock.")
+                Footnote(text: "If macOS asks you to restart after granting Screen Recording, use Restart Sense in Labs.")
             }
         }
         Section {

@@ -40,7 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return
         }
-        if CommandLine.arguments.contains("--lid-setup") { model.openSettings(page: .lock) }
+        if CommandLine.arguments.contains("--lid-setup") { model.openSettings(page: .labs) }
         else if !UserDefaults.standard.bool(forKey: "hasLaunched") || CommandLine.arguments.contains("--settings") || AppEnvironment.isSmokeTest {
             let firstLaunch = !UserDefaults.standard.bool(forKey: "hasLaunched") && !AppEnvironment.isSmokeTest
             if !AppEnvironment.isSmokeTest { UserDefaults.standard.set(true, forKey: "hasLaunched") }
@@ -89,7 +89,9 @@ final class SenseAppModel {
                  reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, angle: lid.angle)
     }
     var lidSetupStatus: LidSetupStatus { .init(readiness: lidFoldReadiness, capture: lid.captureCheck) }
-    var page: SettingsPage = .general
+    var page: SettingsPage = .general { didSet { if page != oldValue { islandSection = nil } } }
+    /// A Dynamic Island sub-page, or nil for the page itself.
+    var islandSection: IslandSection?
     var loginEnabled = SMAppService.mainApp.status == .enabled
     var loginMessage: String?
     private(set) var settingsWindow: NSWindow?
@@ -114,10 +116,12 @@ final class SenseAppModel {
         } else { notch.stop(); if preferences.menuBarStatus == .battery { status.start() } else { status.stop() } }
         if preferences.notchEnabled && preferences.mediaEnabled { media.start() } else { media.stop() }
         if preferences.notchEnabled {
-            autoHide.configure(focus: preferences.autoHideFocus, sharing: preferences.autoHideSharing) { [notch] reason in notch.setAutoHide(reason: reason) }
+            autoHide.configure(focus: preferences.autoHideFocus, sharing: preferences.autoHideSharing, focusChanges: preferences.focusFeedback,
+                               onChange: { [notch] reason in notch.setAutoHide(reason: reason) },
+                               onFocusChange: { [notch] on in notch.focusChanged(on: on) })
         } else { autoHide.stop() }
         toolShortcuts.configure(enabled: preferences.notchEnabled && preferences.toolShortcutsEnabled, modifiers: preferences.toolShortcutModifiers) { [weak self] tool in
-            self?.notch.openTool(tool)
+            self?.notch.openTool(tool, fromKeyboard: true)
         }
         switcher.onVisibilityChanged = { [weak self] visible in self?.notch.setSwitcherOverlayActive(visible) }
         switcher.configure(preferences: preferences)
@@ -131,7 +135,7 @@ final class SenseAppModel {
         switch command {
         case .open(let tool):
             guard islandReady else { openSettings(page: .notch); return }
-            if let tool { notch.openTool(tool) } else { notch.openFromMenu() }
+            if let tool { notch.openTool(tool) } else { notch.openInContext() }
         case .startTimer(let minutes): if islandReady { notch.startTimer(minutes: minutes) }
         case .cancelTimer: notch.countdown.cancel()
         case .startFocus: if islandReady { notch.startFocus() }

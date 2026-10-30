@@ -27,12 +27,12 @@ enum ShortcutModifiers: String, CaseIterable, Identifiable {
 /// Registered with macOS, so these do not require an Accessibility event tap.
 @MainActor @Observable final class ToolShortcuts {
     enum Tool: UInt32, CaseIterable {
-        case nowPlaying = 1, files, clipboard, clock, battery, transfers
+        case nowPlaying = 1, files, clipboard, clock, battery, transfers, island
         var title: String {
-            switch self { case .nowPlaying: "Now Playing"; case .files: "Files"; case .clipboard: "Clipboard"; case .clock: "Clock"; case .battery: "Battery"; case .transfers: "Transfers" }
+            switch self { case .island: "Island"; case .nowPlaying: "Now Playing"; case .files: "Files"; case .clipboard: "Clipboard"; case .clock: "Clock"; case .battery: "Battery"; case .transfers: "Transfers" }
         }
         var keyCode: UInt32 {
-            switch self { case .nowPlaying: UInt32(kVK_ANSI_1); case .files: UInt32(kVK_ANSI_2)
+            switch self { case .island: UInt32(kVK_ANSI_0); case .nowPlaying: UInt32(kVK_ANSI_1); case .files: UInt32(kVK_ANSI_2)
             case .clipboard: UInt32(kVK_ANSI_3); case .clock: UInt32(kVK_ANSI_4); case .battery: UInt32(kVK_ANSI_5); case .transfers: UInt32(kVK_ANSI_6) }
         }
     }
@@ -99,5 +99,53 @@ enum ShortcutModifiers: String, CaseIterable, Identifiable {
             results[tool.title] = received.last == tool && !unavailable.contains(tool.title) && handler != nil
         }
         return results
+    }
+}
+
+/// Plain keys the island borrows while it's open from the keyboard. They're registered with macOS only for
+/// that moment, so the island responds without activating Sense, and released the moment it closes.
+@MainActor final class IslandKeys {
+    enum Key: UInt32, CaseIterable {
+        case left = 1, right, `return`, space, escape
+        var keyCode: UInt32 {
+            switch self {
+            case .left: UInt32(kVK_LeftArrow); case .right: UInt32(kVK_RightArrow); case .return: UInt32(kVK_Return)
+            case .space: UInt32(kVK_Space); case .escape: UInt32(kVK_Escape)
+            }
+        }
+    }
+    static let signature: OSType = 0x53654B79
+    private var handler: EventHandlerRef?
+    private var registered: [EventHotKeyRef] = []
+    private var receive: (Key) -> Void = { _ in }
+    var active: Bool { !registered.isEmpty }
+
+    func start(onKey: @escaping (Key) -> Void) {
+        receive = onKey
+        guard registered.isEmpty else { return }
+        if handler == nil {
+            var event = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+            InstallEventHandler(GetApplicationEventTarget(), { _, event, context in
+                guard let event, let context else { return OSStatus(eventNotHandledErr) }
+                var id = EventHotKeyID()
+                guard GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                    nil, MemoryLayout<EventHotKeyID>.size, nil, &id) == noErr,
+                    id.signature == IslandKeys.signature else { return OSStatus(eventNotHandledErr) }
+                return MainActor.assumeIsolated {
+                    let owner = Unmanaged<IslandKeys>.fromOpaque(context).takeUnretainedValue()
+                    guard let key = Key(rawValue: id.id), owner.active else { return OSStatus(eventNotHandledErr) }
+                    owner.receive(key); return noErr
+                }
+            }, 1, &event, Unmanaged.passUnretained(self).toOpaque(), &handler)
+        }
+        for key in Key.allCases {
+            var reference: EventHotKeyRef?
+            if RegisterEventHotKey(key.keyCode, 0, EventHotKeyID(signature: Self.signature, id: key.rawValue),
+                                   GetApplicationEventTarget(), 0, &reference) == noErr, let reference { registered.append(reference) }
+        }
+    }
+    func stop() {
+        registered.forEach { UnregisterEventHotKey($0) }; registered.removeAll()
+        receive = { _ in }
     }
 }

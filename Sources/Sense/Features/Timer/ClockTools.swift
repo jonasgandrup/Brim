@@ -185,7 +185,7 @@ struct IslandClockView: View {
                                 .background(Color.green, in: Capsule()).foregroundStyle(.black)
                                 .help("Join \(link.host ?? "the meeting")")
                         }
-                    }.font(.system(size: 10)).foregroundStyle(.white.opacity(0.7))
+                    }.font(.system(size: 10)).foregroundStyle(.primary)
                 }
             }
             switch clock.mode {
@@ -224,7 +224,7 @@ struct IslandClockView: View {
                         }
                         Text("\(clock.alarmRepeat == .once ? "One-time alarm" : "Repeating alarm") · sleeping Mac rings on wake").font(.system(size: 10)).foregroundStyle(.secondary)
                     }
-                    if let notice = clock.notice { Text(notice).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(2) }
+                    if let notice = clock.notice { Text(notice).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2) }
                 }
             }
         }
