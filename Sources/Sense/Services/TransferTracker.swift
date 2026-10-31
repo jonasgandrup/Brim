@@ -15,7 +15,7 @@ struct TransferActivity: Identifiable, Equatable {
     var url: URL?
 
     var symbol: String {
-        switch kind { case .download: "arrow.down.circle.fill"; case .airDropSend: "airplayaudio"; case .airDropReceive: "airdrop" }
+        switch kind { case .download: "arrow.down.circle.fill"; case .airDropSend: "airplayaudio"; case .airDropReceive: "dot.radiowaves.up.forward" }
     }
 }
 

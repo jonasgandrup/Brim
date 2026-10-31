@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Observation
+import CoreAudio
 
 extension NSWindow {
     /// The window server's ID, or nil before the window has one. `windowNumber` is negative until a
@@ -130,6 +131,30 @@ private extension CGRect {
     var area: CGFloat { isNull ? 0 : width * height }
 }
 
+/// Where a dragged file lands: the shelf (left half) or AirDrop (right half).
+enum DropZone: Equatable {
+    case shelf, airDrop
+    static func at(x: CGFloat, width: CGFloat, airDropAvailable: Bool) -> Self {
+        airDropAvailable && x > width / 2 ? .airDrop : .shelf
+    }
+}
+
+/// Trackpad gestures on the compact island, in the direction the fingers move whatever the scrolling setting.
+enum IslandGesture {
+    /// Natural scrolling flips the deltas; this undoes that so "up" and "left" mean the fingers.
+    static func fingers(dx: CGFloat, dy: CGFloat, inverted: Bool) -> (right: CGFloat, up: CGFloat) {
+        inverted ? (dx, -dy) : (-dx, dy)
+    }
+    static let skipTravel: CGFloat = 50
+    /// Swiping left goes to the next track, as you'd swipe a card away; right goes back.
+    static func skip(rightTravel: CGFloat) -> String? {
+        rightTravel <= -skipTravel ? "next track" : rightTravel >= skipTravel ? "previous track" : nil
+    }
+    static func volume(_ current: Double, up: CGFloat, precise: Bool) -> Double {
+        min(1, max(0, current + Double(up) * (precise ? 0.004 : 0.03)))
+    }
+}
+
 @MainActor @Observable
 final class NotchController {
     /// Every path that collapses the island ends a keyboard session, so no key stays captured.
@@ -163,12 +188,18 @@ final class NotchController {
     let clock = ClockTools()
     let calendar = CalendarPeek()
     let transfers = TransferTracker()
+    let activities = ScriptActivities()
+    private let moments = SystemMoments()
     let sensors = SensorActivity()
     let bluetooth = BluetoothBatteries()
     private let brightness = BrightnessMonitor()
     let brightnessControl = BrightnessControl()
     private var powerFeedback = PowerFeedbackTracker()
     private(set) var dropTargeted = false
+    /// Whether the drag over the island carries files (which can go to the shelf or AirDrop) or clipboard content.
+    private(set) var dropIsFiles = false
+    private(set) var dropZone = DropZone.shelf
+    var airDropAvailable: Bool { NSSharingService(named: .sendViaAirDrop) != nil }
     private(set) var fileDragActive = false
     private var dragPollTimer: Timer?
     private var dragStartChangeCount = 0
@@ -201,6 +232,7 @@ final class NotchController {
     private var keyMonitor: Any?
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
+    private var pressureMonitor: Any?
     private var observationGeneration = 0
     private var observingActivity = false
     private(set) var preferences: Preferences?
@@ -262,7 +294,7 @@ final class NotchController {
     }
     /// A small swell under the pointer says the compact island can be clicked.
     var hoverSwell: Bool { pointerInside && !expanded && presentation == .compact }
-    var showsTransfersTab: Bool { preferences?.liveTransfers == true || transfers.hasRunning || selectedTab == .transfers }
+    var showsTransfersTab: Bool { preferences?.liveTransfers == true || transfers.hasRunning || !activities.running.isEmpty || selectedTab == .transfers }
     var visibleTabs: [IslandTab] {
         [.music, .files, .clipboard, .timer, .battery] + (showsTransfersTab ? [.transfers] : [])
     }
@@ -280,7 +312,7 @@ final class NotchController {
     /// Shows the camera/microphone dot only when the user asked for it.
     var sensorIndicatorVisible: Bool { preferences?.sensorIndicator == true && sensors.active }
     func openCompactActivity(_ tab: IslandTab) {
-        guard !presentationMode else { return }
+        guard !presentationMode, !recentlyForceClicked else { return }
         feedbackTask?.cancel(); feedback = nil
         selectedTab = tab; openFromMenu()
     }
@@ -311,14 +343,14 @@ final class NotchController {
     var presentation: IslandPresentation {
         if transitioning || presentationMode { return .hidden }
         if expanded { return .expanded }
-        if fileDragActive || transfers.hasRunning || !shelf.files.isEmpty || !clipboard.pins.isEmpty || countdown.active
+        if fileDragActive || transfers.hasRunning || !activities.running.isEmpty || !shelf.files.isEmpty || !clipboard.pins.isEmpty || countdown.active
             || clock.active || media?.sleepTimer.schedule != nil || hud != nil { return .compact }
         return .resolve(expanded: expanded, mediaEnabled: preferences?.mediaEnabled == true,
                         playing: mediaVisible, hasSource: media?.source != nil, hasFeedback: feedback != nil)
     }
     var compactTab: IslandTab {
         if countdown.active || clock.active { return .timer }
-        if transfers.hasRunning { return .transfers }
+        if transfers.hasRunning || !activities.running.isEmpty { return .transfers }
         if selectedTab == .files && !shelf.files.isEmpty { return .files }
         if selectedTab == .clipboard && !clipboard.pins.isEmpty { return .clipboard }
         if preferences?.mediaEnabled == true && mediaVisible { return .music }
@@ -357,6 +389,7 @@ final class NotchController {
         if preferences.sensorIndicator { sensors.start() } else { sensors.stop() }
         if preferences.systemHUD { brightness.start() } else { brightness.stop() }
         if preferences.bluetoothBatteries { bluetooth.start() } else { bluetooth.stop() }
+        if preferences.systemChanges { moments.start { [weak self] moment in self?.receive(moment) } } else { moments.stop() }
         configureShelfPersistence(preferences.keepShelf)
         syncMediaVisibility()
         if !observingActivity { observingActivity = true; observeActivity() }
@@ -394,6 +427,11 @@ final class NotchController {
             self?.showHUD(.init(symbol: NotchController.brightnessSymbol(level), level: level, label: "Brightness"))
         }
         bluetooth.onConnected = { [weak self] device in self?.deviceConnected(device) }
+        status?.onOutputChange = { [weak self] output in self?.outputChanged(output) }
+        activities.onFinish = { [weak self] activity in
+            self?.haptic(.finish)
+            self?.showFeedback(activity.title, symbol: "checkmark.circle.fill", tint: .green, seconds: 2.5)
+        }
     }
     private func installObservers() {
         for (name, delta) in [(NSMenu.didBeginTrackingNotification, 1), (NSMenu.didEndTrackingNotification, -1)] {
@@ -452,12 +490,18 @@ final class NotchController {
             }
         }
         localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mouseEvents) { [weak self] event in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.trackMouseEvent(event)
+            let used = MainActor.assumeIsolated { () -> Bool in
+                guard let self else { return false }
                 let location = event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
+                if event.type == .scrollWheel, self.handleScroll(event, at: location) { return true }
+                self.trackMouseEvent(event)
                 if event.type == .leftMouseDown || event.type == .rightMouseDown, self.clickDismisses(at: location) { self.setExpanded(false) }
+                return false
             }
+            return used ? nil : event
+        }
+        pressureMonitor = NSEvent.addLocalMonitorForEvents(matching: .pressure) { [weak self] event in
+            MainActor.assumeIsolated { self?.receivePressure(event) }
             return event
         }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -484,6 +528,7 @@ final class NotchController {
             _ = shelf.systemUIActive
             _ = clipboard.pins
             _ = transfers.running
+            _ = activities.running
             _ = countdown.state
             _ = clock.stopwatch.running
             _ = clock.ringing
@@ -553,7 +598,7 @@ final class NotchController {
     }
     func stop() {
         screenshots.stop(); clipboard.stopHistory(); calendar.stop(); transfers.stop()
-        sensors.stop(); brightness.stop(); bluetooth.stop()
+        sensors.stop(); brightness.stop(); bluetooth.stop(); moments.stop(); activities.clear()
         toolOpenTask?.cancel(); toolOpenTask = nil; keys.stop()
         idleHideTask?.cancel(); idleHideTask = nil
         shelf.actions.closePreview()
@@ -577,7 +622,8 @@ final class NotchController {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         if let globalMouseMonitor { NSEvent.removeMonitor(globalMouseMonitor) }
         if let localMouseMonitor { NSEvent.removeMonitor(localMouseMonitor) }
-        keyMonitor = nil; globalMouseMonitor = nil; localMouseMonitor = nil
+        if let pressureMonitor { NSEvent.removeMonitor(pressureMonitor) }
+        keyMonitor = nil; globalMouseMonitor = nil; localMouseMonitor = nil; pressureMonitor = nil
     }
 
     // MARK: Panel
@@ -759,7 +805,8 @@ final class NotchController {
         if expanded && !pointerInside { collapseAfterDelay() }
     }
     func setDropTargeted(_ targeted: Bool, clipboard: Bool = false) {
-        if targeted && !dropTargeted { haptic(.open) }
+        if targeted && !dropTargeted { haptic(.open); dropZone = .shelf }
+        if targeted { dropIsFiles = !clipboard }
         dropTargeted = targeted
         if targeted { selectedTab = clipboard ? .clipboard : .files; setExpanded(true) }
         else if !pointerInside { collapseAfterDelay() }
@@ -770,6 +817,63 @@ final class NotchController {
         // The shelf stays open only while hovered; retained references survive collapse and Space changes.
         updateInteraction(scheduleHover: false)
         if !pointerInside { collapseAfterDelay() }
+    }
+
+    /// Follows a file drag across the expanded island, so the half under the pointer lights up.
+    func updateDropZone(x: CGFloat, width: CGFloat) {
+        let zone = DropZone.at(x: x, width: width, airDropAvailable: dropIsFiles && airDropAvailable)
+        if zone != dropZone { dropZone = zone; haptic(.open) }
+    }
+    /// Files dropped on the AirDrop half wait on the shelf too, then go straight to the AirDrop picker.
+    func airDrop(_ providers: [NSItemProvider]) -> Bool {
+        shelf.accept(providers) { [weak self] urls in
+            guard let self else { return }
+            self.shelf.select(Set(urls.map(\.standardizedFileURL)))
+            self.shelf.actions.airDrop()
+        }
+    }
+
+    // MARK: Gestures
+
+    private var swipeTravel: CGFloat = 0
+    private var swipeFired = false
+    private var pressureStage = 0
+    private var forceClickedAt: TimeInterval = -.infinity
+    /// The click that ends a Force Click mustn't then also count as an ordinary click on the island.
+    var recentlyForceClicked: Bool { ProcessInfo.processInfo.systemUptime - forceClickedAt < 0.8 }
+    private var gesturesEnabled: Bool { preferences?.islandGestures == true && !expanded && presentation == .compact }
+    /// Over the compact island, scrolling changes the volume and a sideways swipe skips tracks. Returns true when used.
+    private func handleScroll(_ event: NSEvent, at location: CGPoint) -> Bool {
+        guard gesturesEnabled, containsPointer(location) else { return false }
+        if event.phase.contains(.began) || event.phase.contains(.mayBegin) { swipeTravel = 0; swipeFired = false }
+        // Momentum after the fingers lift would keep changing the volume; the gesture is what the fingers did.
+        guard event.momentumPhase.isEmpty else { return true }
+        let fingers = IslandGesture.fingers(dx: event.scrollingDeltaX, dy: event.scrollingDeltaY, inverted: event.isDirectionInvertedFromDevice)
+        if abs(fingers.right) > abs(fingers.up) {
+            guard event.hasPreciseScrollingDeltas, !swipeFired, let media, media.source != nil else { return true }
+            swipeTravel += fingers.right
+            if let command = IslandGesture.skip(rightTravel: swipeTravel) {
+                swipeFired = true
+                media.command(command)
+                haptic(.land)
+                showHUD(.init(symbol: command == "next track" ? "forward.fill" : "backward.fill", label: command == "next track" ? "Next Track" : "Previous Track"), seconds: 0.9)
+            }
+        } else if let status, status.volumeSettable, let volume = status.volume, fingers.up != 0 {
+            let next = IslandGesture.volume(status.muted ? 0 : volume, up: fingers.up, precise: event.hasPreciseScrollingDeltas)
+            status.setVolume(next)
+            showHUD(.init(symbol: next == 0 ? "speaker.slash.fill" : next < 0.34 ? "speaker.wave.1.fill" : next < 0.67 ? "speaker.wave.2.fill" : "speaker.wave.3.fill",
+                          level: next, label: "Volume"))
+        }
+        return true
+    }
+    /// A Force Click on the compact island opens the quick controls, like a long press on iPhone.
+    private func receivePressure(_ event: NSEvent) {
+        defer { pressureStage = event.stage }
+        guard event.stage == 2, pressureStage < 2, gesturesEnabled, containsPointer(NSEvent.mouseLocation) else { return }
+        forceClickedAt = ProcessInfo.processInfo.systemUptime
+        feedbackTask?.cancel(); clearFeedback()
+        selectedTab = .battery
+        setExpanded(true)
     }
 
     // MARK: Opening tools
@@ -907,6 +1011,22 @@ final class NotchController {
         showHUD(.init(symbol: symbol, level: volume == nil ? nil : level, label: muted ? "Muted" : "Volume"))
     }
     static func brightnessSymbol(_ level: Double) -> String { level < 0.5 ? "sun.min.fill" : "sun.max.fill" }
+    /// Where sound is going now, as iPhone shows when you pick an AirPlay speaker. Bluetooth headphones get
+    /// the accessory card instead, which says more.
+    private func outputChanged(_ output: AudioOutput) {
+        guard preferences?.systemChanges == true, !expanded, feedback == nil else { return }
+        let bluetooth = [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE].contains(output.transport)
+        guard !(bluetooth && preferences?.bluetoothBatteries == true) else { return }
+        showFeedback("Playing on \(output.name)", symbol: output.symbol, tint: .white, seconds: 2.5)
+    }
+    private func receive(_ moment: SystemMoments.Moment) {
+        guard preferences?.systemChanges == true else { return }
+        switch moment {
+        case .lowPower(let on): showHUD(.init(symbol: on ? "leaf.fill" : "leaf", tint: .yellow, label: on ? "Low Power Mode On" : "Low Power Mode Off"), seconds: 2)
+        case .offline: showHUD(.init(symbol: "wifi.slash", tint: .orange, label: "Offline"), seconds: 3)
+        case .online: showHUD(.init(symbol: "wifi", tint: .green, label: "Back Online"), seconds: 2)
+        }
+    }
     private func sensorsChanged(camera: Bool, microphone: Bool) {
         guard preferences?.sensorIndicator == true, camera || microphone else { return }
         let label = camera && microphone ? "Camera and microphone in use" : camera ? "Camera in use" : "Microphone in use"

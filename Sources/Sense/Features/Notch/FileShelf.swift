@@ -72,7 +72,7 @@ final class FileShelf {
         var remaining: Int
         init(count: Int) { remaining = count }
     }
-    func accept(_ providers: [NSItemProvider]) -> Bool {
+    func accept(_ providers: [NSItemProvider], then completion: @escaping @MainActor ([URL]) -> Void = { _ in }) -> Bool {
         let compatible = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
         let batch = DropBatch(count: compatible.count)
         for provider in compatible {
@@ -85,7 +85,7 @@ final class FileShelf {
                 Task { @MainActor in
                     if let url, url.isFileURL { batch.urls.append(url) }
                     batch.remaining -= 1
-                    if batch.remaining == 0, !batch.urls.isEmpty { _ = self?.add(batch.urls) }
+                    if batch.remaining == 0, !batch.urls.isEmpty { _ = self?.add(batch.urls); completion(batch.urls) }
                 }
             }
         }
@@ -95,12 +95,25 @@ final class FileShelf {
 
 struct ShelfDropDelegate: DropDelegate {
     let controller: NotchController
+    /// The island's width, to tell the shelf half from the AirDrop half.
+    let width: CGFloat
     func validateDrop(info: DropInfo) -> Bool { info.hasItemsConforming(to: [.fileURL, .url, .plainText, .image]) }
-    func dropEntered(info: DropInfo) { controller.setDropTargeted(true, clipboard: !info.hasItemsConforming(to: [.fileURL])) }
+    func dropEntered(info: DropInfo) {
+        controller.setDropTargeted(true, clipboard: !info.hasItemsConforming(to: [.fileURL]))
+        controller.updateDropZone(x: info.location.x, width: width)
+    }
     func dropExited(info: DropInfo) { controller.setDropTargeted(false) }
-    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .copy) }
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        controller.updateDropZone(x: info.location.x, width: width)
+        return DropProposal(operation: .copy)
+    }
     func performDrop(info: DropInfo) -> Bool {
         let files = info.hasItemsConforming(to: [.fileURL])
+        if files, controller.dropZone == .airDrop {
+            let accepted = controller.airDrop(info.itemProviders(for: [.fileURL]))
+            controller.finishFileDrop()
+            return accepted
+        }
         let accepted = files ? controller.shelf.accept(info.itemProviders(for: [.fileURL])) : controller.clipboard.accept(info.itemProviders(for: [.url, .plainText, .image]))
         controller.finishFileDrop(clipboard: !files)
         return accepted
@@ -117,7 +130,7 @@ struct FileShelfView: View {
                     Text("\(shelf.selectedURLs.count)").monospacedDigit().foregroundStyle(.tertiary)
                 }
                 Menu {
-                    Button("AirDrop…", systemImage: "airdrop") { shelf.actions.airDrop() }
+                    Button("AirDrop…", systemImage: "dot.radiowaves.up.forward") { shelf.actions.airDrop() }
                         .disabled(!shelf.actions.canAirDrop)
                     Button("Compress…", systemImage: "doc.zipper") { shelf.actions.chooseArchiveDestination() }
                     Button("Copy Files", systemImage: "doc.on.doc") { shelf.actions.copy() }

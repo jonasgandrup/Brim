@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try? await Task.sleep(for: .seconds(2))
                 model.permissions.refresh()
                 let values: [String: Any] = ["screenRecording": model.permissions.screenRecording,
+                    "screenRecordingPreflight": CGPreflightScreenCaptureAccess(), "accessibility": AXIsProcessTrusted(),
                     "reduceMotion": NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
                     "foldEnabled": model.preferences.lidEffectEnabled,
                     "hingeStatus": model.lid.status, "angle": model.lid.angle as Any? ?? NSNull(),
@@ -100,6 +101,7 @@ final class SenseAppModel {
     private init() {
         lid.hasScreenAccess = { [permissions] in permissions.screenRecording }
         switcher.hasScreenAccess = { [permissions] in permissions.screenRecording }
+        permissions.onAccessibilityGranted = { [weak self] in self?.apply() }
         activationObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
@@ -145,6 +147,9 @@ final class SenseAppModel {
         case .addToShelf(let url):
             guard islandReady, notch.shelf.add([url]) > 0 else { return }
             notch.openShelfFromMenu()
+        case .activity(let id, let title, let symbol, let progress):
+            if islandReady { notch.activities.update(id: id, title: title, symbol: symbol, progress: progress) }
+        case .endActivity(let id, let title, let finished): notch.activities.end(id: id, title: title, finished: finished)
         case .settings: openSettings()
         }
     }

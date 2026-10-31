@@ -68,7 +68,7 @@ struct IslandView: View {
         .transaction { transaction in
             if controller.surfaceAnimationsSuppressed { transaction.disablesAnimations = true; transaction.animation = nil }
         }
-        .onDrop(of: [.fileURL, .url, .plainText, .image], delegate: ShelfDropDelegate(controller: controller))
+        .onDrop(of: [.fileURL, .url, .plainText, .image], delegate: ShelfDropDelegate(controller: controller, width: size.width))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .accessibilityHidden(controller.presentation == .hidden)
         .accessibilityElement(children: .contain)
@@ -136,7 +136,8 @@ struct IslandView: View {
             Image(systemName: controller.countdown.focus != nil ? "brain.head.profile" : "timer")
                 .font(.system(size: 14, weight: .semibold)).foregroundStyle(controller.countdown.focus?.phase == .focus ? Color.red : .orange)
         } else if headerTab == .transfers && !dualActivities {
-            Image(systemName: "arrow.down.circle.fill").font(.system(size: 15)).foregroundStyle(.blue)
+            Image(systemName: controller.transfers.hasRunning ? "arrow.down.circle.fill" : controller.activities.running.last?.symbol ?? "bolt.fill")
+                .font(.system(size: 14, weight: .semibold)).foregroundStyle(.blue).contentTransition(.symbolEffect(.replace))
         } else if headerTab == .clipboard && !dualActivities {
             Image(systemName: "pin.fill").font(.system(size: 13)).foregroundStyle(.yellow)
         } else if headerTab == .files && !dualActivities {
@@ -166,6 +167,8 @@ struct IslandView: View {
                 .foregroundStyle(.orange).minimumScaleFactor(0.6)
         } else if controller.transfers.hasRunning {
             TransferRing(fraction: TransferScan.combinedFraction(controller.transfers.running))
+        } else if !controller.activities.running.isEmpty {
+            TransferRing(fraction: controller.activities.combinedProgress)
         } else if !controller.clipboard.pins.isEmpty && headerTab == .clipboard {
             CountBadge(count: controller.clipboard.pins.count)
         } else if !controller.shelf.files.isEmpty {
@@ -236,7 +239,9 @@ struct IslandView: View {
                              tabs: IslandTabBar.visible(showsTransfers: controller.showsTransfersTab, hasBattery: status.battery != nil))
             }
             if controller.feedback != nil { feedbackContent }
-            else {
+            else if controller.dropTargeted && controller.dropIsFiles && controller.airDropAvailable {
+                DropZonesView(zone: controller.dropZone).frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
                 selectedPane
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .opacity(controller.paneOpacity)
@@ -251,7 +256,7 @@ struct IslandView: View {
         case .timer: IslandClockView(clock: controller.clock, timer: controller.countdown, calendar: controller.calendar)
         case .battery: BatteryPaneView(status: status, bluetooth: preferences.bluetoothBatteries ? controller.bluetooth : nil, brightness: controller.brightnessControl)
         case .transfers:
-            TransfersPaneView(transfers: controller.transfers, enabled: preferences.liveTransfers, enable: { controller.connectTransfers() },
+            TransfersPaneView(transfers: controller.transfers, activities: controller.activities, enabled: preferences.liveTransfers, enable: { controller.connectTransfers() },
                               addToShelf: { url in controller.shelf.add([url]); controller.selectedTab = .files })
         case .music:
             if media.source == nil || !preferences.mediaEnabled {
@@ -331,6 +336,9 @@ struct IslandView: View {
                     playControl
                     playbackButton("forward.fill", label: "Next", command: "next track")
                 }.frame(maxWidth: .infinity)
+                .overlay(alignment: .trailing) {
+                    AirPlayButton().frame(width: 26, height: 26).help("Choose where audio plays")
+                }
             }
             .help(media.message ?? "Now Playing from \(media.sourceName)")
         }
@@ -374,7 +382,7 @@ struct IslandTabBar: View {
         var items: [Item] = [(.music, "play.fill", "Now Playing"), (.files, "tray.fill", "Files"), (.clipboard, "pin.fill", "Clipboard"),
                              (.timer, "clock.fill", "Clock"),
                              (.battery, hasBattery ? "battery.100percent" : "slider.horizontal.3", hasBattery ? "Battery & Controls" : "Controls")]
-        if showsTransfers { items.append((.transfers, "arrow.down.circle.fill", "Transfers")) }
+        if showsTransfers { items.append((.transfers, "gauge.with.dots.needle.33percent", "Activity")) }
         return items
     }
     var body: some View {
@@ -520,5 +528,30 @@ private struct MediaProgress: View {
                 Color.clear.accessibilityHidden(true)
             }
         }.frame(height: 22)
+    }
+}
+
+/// While files are dragged over the island: drop on the left to keep them on the shelf, on the right to AirDrop them.
+struct DropZonesView: View {
+    let zone: DropZone
+    var body: some View {
+        HStack(spacing: 10) {
+            tile(.shelf, symbol: "tray.and.arrow.down.fill", title: "Shelf", tint: .white)
+            tile(.airDrop, symbol: "dot.radiowaves.up.forward", title: "AirDrop", tint: .blue)
+        }
+        .animation(.snappy(duration: 0.18), value: zone)
+    }
+    private func tile(_ kind: DropZone, symbol: String, title: String, tint: Color) -> some View {
+        let active = zone == kind
+        return VStack(spacing: 8) {
+            Image(systemName: symbol).font(.system(size: 28, weight: .medium)).foregroundStyle(active ? tint : .white.opacity(0.4))
+            Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(active ? .primary : .secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.white.opacity(active ? 0.12 : 0.04), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .strokeBorder(active ? tint.opacity(0.7) : .white.opacity(0.1), style: StrokeStyle(lineWidth: 1.5, dash: active ? [] : [4, 3])))
+        .scaleEffect(active ? 1 : 0.97)
+        .accessibilityElement(children: .combine).accessibilityAddTraits(active ? .isSelected : [])
     }
 }

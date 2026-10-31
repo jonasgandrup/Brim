@@ -30,7 +30,7 @@ final class Preferences {
         "liveTransfers": false, "autoHideFocus": false, "autoHideSharing": false, "calendarPreview": false,
         "clipboardHistory": false, "toolShortcutModifiers": "ctrlOptCmd", "menuBarStatus": "off",
         "screenshotShelf": false, "appearance": "system", "sensorIndicator": false, "systemHUD": false,
-        "bluetoothBatteries": true, "keepShelf": true, "haptics": true, "focusFeedback": false,
+        "bluetoothBatteries": true, "keepShelf": true, "haptics": true, "focusFeedback": false, "islandGestures": true, "systemChanges": false,
     ]
     var toolShortcutsEnabled: Bool { didSet { save(toolShortcutsEnabled, "toolShortcutsEnabled") } }
     var toolShortcutModifiers: ShortcutModifiers { didSet { save(toolShortcutModifiers.rawValue, "toolShortcutModifiers") } }
@@ -80,6 +80,10 @@ final class Preferences {
     var haptics: Bool { didSet { save(haptics, "haptics") } }
     /// A brief compact notice when a Focus turns on or off.
     var focusFeedback: Bool { didSet { save(focusFeedback, "focusFeedback") } }
+    /// Scroll for volume, swipe to skip tracks and Force Click for controls, on the compact island.
+    var islandGestures: Bool { didSet { save(islandGestures, "islandGestures") } }
+    /// Brief notices for sound output, Low Power Mode and connectivity changes.
+    var systemChanges: Bool { didSet { save(systemChanges, "systemChanges") } }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -119,6 +123,8 @@ final class Preferences {
         keepShelf = flag("keepShelf")
         haptics = flag("haptics")
         focusFeedback = flag("focusFeedback")
+        islandGestures = flag("islandGestures")
+        systemChanges = flag("systemChanges")
     }
     static func clampTarget(_ value: Int) -> Int { min(100, max(50, value)) }
     static func clampLow(_ value: Int) -> Int { value <= 0 ? 0 : min(50, max(5, value)) }

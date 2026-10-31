@@ -722,3 +722,67 @@ import Testing
     #expect(controller.visibleTabs == [.music, .files, .clipboard, .timer, .battery])
     #expect(!controller.showsActivityBubble && controller.bubbleFrame == nil)
 }
+
+@Test func activityLinksCarryOnlyWhatTheCallerReports() {
+    #expect(SenseCommand(url: URL(string: "sense://activity?id=export&title=Exporting&progress=0.4&symbol=film")!)
+            == .activity(id: "export", title: "Exporting", symbol: "film", progress: 0.4))
+    #expect(SenseCommand(url: URL(string: "sense://activity?title=Backup&percent=25%25")!) == .activity(id: "Backup", title: "Backup", symbol: nil, progress: 0.25))
+    #expect(SenseCommand(url: URL(string: "sense://activity?title=Build")!) == .activity(id: "Build", title: "Build", symbol: nil, progress: nil))
+    #expect(SenseCommand(url: URL(string: "sense://activity?id=x&progress=1.5")!) == nil)
+    #expect(SenseCommand(url: URL(string: "sense://activity?id=x&symbol=Bad%20Symbol")!) == .activity(id: "x", title: nil, symbol: nil, progress: nil))
+    #expect(SenseCommand(url: URL(string: "sense://activity/end?id=export&title=Done")!) == .endActivity(id: "export", title: "Done", finished: true))
+    #expect(SenseCommand(url: URL(string: "sense://activity/cancel?id=export")!) == .endActivity(id: "export", title: nil, finished: false))
+    #expect(SenseCommand(url: URL(string: "sense://activity")!) == nil)
+}
+
+@Test @MainActor func scriptActivitiesFinishOnceAndExpireWhenSilent() {
+    let activities = ScriptActivities()
+    var finished: [String] = []
+    activities.onFinish = { finished.append($0.title) }
+    let start = Date(timeIntervalSinceReferenceDate: 0)
+    activities.update(id: "a", title: "Export", symbol: nil, progress: 0.5, now: start)
+    activities.update(id: "b", title: "Build", symbol: "hammer", progress: nil, now: start)
+    #expect(activities.combinedProgress == nil)
+    activities.update(id: "b", title: nil, symbol: nil, progress: 0.25, now: start)
+    #expect(activities.combinedProgress == 0.375)
+    activities.update(id: "a", title: nil, symbol: nil, progress: 1, now: start)
+    #expect(finished == ["Export"] && activities.running.map(\.id) == ["b"])
+    activities.end(id: "b", finished: false)
+    #expect(finished == ["Export"] && activities.running.isEmpty)
+    activities.update(id: "c", title: "Sync", symbol: nil, progress: nil, now: start)
+    activities.sweep(now: start.addingTimeInterval(ScriptActivities.staleAfter + 1))
+    #expect(activities.running.isEmpty && finished == ["Export"])
+    for index in 0..<6 { activities.update(id: "\(index)", title: nil, symbol: nil, progress: nil, now: start) }
+    #expect(activities.running.count == ScriptActivities.limit)
+}
+
+@Test func gesturesFollowTheFingersWhateverTheScrollingSetting() {
+    // Natural scrolling (inverted) and classic scrolling report opposite deltas for the same finger movement.
+    #expect(IslandGesture.fingers(dx: -10, dy: -5, inverted: true) == (right: -10, up: 5))
+    #expect(IslandGesture.fingers(dx: 10, dy: 5, inverted: false) == (right: -10, up: 5))
+    #expect(IslandGesture.skip(rightTravel: -60) == "next track")
+    #expect(IslandGesture.skip(rightTravel: 60) == "previous track")
+    #expect(IslandGesture.skip(rightTravel: 20) == nil)
+    #expect(IslandGesture.volume(0.99, up: 100, precise: true) == 1)
+    #expect(IslandGesture.volume(0.5, up: -1, precise: false) == 0.47)
+    #expect(DropZone.at(x: 300, width: 408, airDropAvailable: true) == .airDrop)
+    #expect(DropZone.at(x: 100, width: 408, airDropAvailable: true) == .shelf)
+    #expect(DropZone.at(x: 300, width: 408, airDropAvailable: false) == .shelf)
+}
+
+@Test @MainActor func goingOfflineIsAnnouncedOnlyAfterItSettles() async {
+    let moments = SystemMoments(watchesSystem: false)
+    var heard: [SystemMoments.Moment] = []
+    moments.start { heard.append($0) }
+    moments.receive(connected: true)
+    moments.receive(connected: false, settle: .milliseconds(20))
+    moments.receive(connected: true)
+    try? await Task.sleep(for: .milliseconds(60))
+    #expect(heard.isEmpty)
+    moments.receive(connected: false, settle: .milliseconds(20))
+    // Wait for the delayed notice itself; a fixed sleep is flaky while other tests share the main actor.
+    for _ in 0..<100 where heard.isEmpty { try? await Task.sleep(for: .milliseconds(20)) }
+    moments.receive(connected: true)
+    #expect(heard == [.offline, .online])
+    moments.stop()
+}

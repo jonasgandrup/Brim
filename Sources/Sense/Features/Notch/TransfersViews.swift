@@ -21,15 +21,24 @@ struct TransferRing: View {
 
 struct TransfersPaneView: View {
     let transfers: TransferTracker
+    let activities: ScriptActivities
     let enabled: Bool
     let enable: () -> Void
     let addToShelf: (URL) -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            IslandPaneHeader(title: "Transfers", symbol: "arrow.down.circle") {
+            IslandPaneHeader(title: "Activity", symbol: "gauge.with.dots.needle.33percent") {
                 if !transfers.recent.isEmpty { Button("Clear") { transfers.clearRecent() } }
             }
-            if !enabled {
+            if !activities.running.isEmpty {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 6) {
+                        ForEach(activities.running) { activityRow($0) }
+                        ForEach(transfers.running) { row($0) }
+                        ForEach(transfers.recent) { row($0) }
+                    }
+                }.frame(maxHeight: 138)
+            } else if !enabled {
                 IslandEmptyState(symbol: "arrow.down.circle", title: "Watch Downloads and AirDrops",
                                  detail: "Files still arriving in Downloads, and AirDrops you send from the shelf.") {
                     Button("Turn On Live Transfers", action: enable)
@@ -47,6 +56,21 @@ struct TransfersPaneView: View {
                 }.frame(maxHeight: 138)
             }
         }.foregroundStyle(.white)
+    }
+    /// An activity a Shortcut or script reports with a sense://activity link.
+    private func activityRow(_ activity: ScriptActivity) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: activity.symbol).font(.system(size: 17)).foregroundStyle(Color.blue).frame(width: 24)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(activity.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                if let progress = activity.progress { ProgressView(value: progress).controlSize(.mini).tint(Color.blue) }
+                else { ProgressView().progressViewStyle(.linear).controlSize(.mini) }
+                Text(activity.progress.map { "\(Int(($0 * 100).rounded()))%" } ?? "In progress").font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+            Button { activities.end(id: activity.id, finished: false) } label: {
+                Image(systemName: "xmark.circle.fill").font(.system(size: 14)).foregroundStyle(.tertiary)
+            }.buttonStyle(.plain).help("Dismiss").accessibilityLabel("Dismiss \(activity.title)")
+        }.padding(8).background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
     private func row(_ activity: TransferActivity) -> some View {
         HStack(spacing: 10) {

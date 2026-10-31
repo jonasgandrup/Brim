@@ -53,6 +53,7 @@ struct SettingsView: View {
         .onChange(of: preferences.menuBarStatus) { model.apply() }
         .onChange(of: preferences.lidFoldStyle) { model.apply() }
         .onChange(of: preferences.focusFeedback) { model.apply() }
+        .onChange(of: preferences.systemChanges) { model.apply() }
         .onChange(of: preferences.shortcut) { model.switcher.stop(); model.apply() }
     }
 
@@ -195,6 +196,10 @@ struct SettingsView: View {
             Toggle(isOn: binding(\.hoverToExpand)) {
                 SettingsLabel(title: "Expand on Hover", detail: "Point at the camera to open it.")
             }.disabled(!preferences.notchEnabled)
+            Toggle(isOn: binding(\.islandGestures)) {
+                SettingsLabel(title: "Gestures", detail: "Scroll on the island for volume, swipe to skip tracks.",
+                              info: "Over the compact island: scroll up or down to change the volume, swipe two fingers left for the next track or right for the previous one, and Force Click to open the controls.")
+            }.disabled(!preferences.notchEnabled)
             Toggle(isOn: binding(\.haptics)) {
                 SettingsLabel(title: "Haptic Feedback", detail: "A soft tap at moments worth feeling.",
                               info: "When the island opens, a file lands or a timer ends. Felt only while a finger rests on a Force Touch trackpad.")
@@ -228,7 +233,7 @@ struct SettingsView: View {
         return switch section {
         case .nowPlaying: preferences.mediaEnabled ? "On" : "Off"
         case .shelf: count([preferences.keepShelf, preferences.screenshotShelf, preferences.clipboardHistory])
-        case .activities: count([preferences.liveTransfers, preferences.calendarPreview, preferences.sensorIndicator, preferences.systemHUD, preferences.focusFeedback])
+        case .activities: count([preferences.liveTransfers, preferences.calendarPreview, preferences.sensorIndicator, preferences.systemHUD, preferences.focusFeedback, preferences.systemChanges])
         case .battery: count([preferences.chargingFeedback, preferences.lowBatteryAlert > 0, preferences.bluetoothBatteries])
         case .hiding: count([preferences.autoHideFocus, preferences.autoHideSharing])
         case .keyboard: preferences.toolShortcutsEnabled ? "\(preferences.toolShortcutModifiers.label)0" : "Off"
@@ -282,6 +287,10 @@ struct SettingsView: View {
             }
             Toggle(isOn: binding(\.systemHUD)) {
                 SettingsLabel(title: "Volume & Brightness", detail: "Changes appear as a small level.")
+            }
+            Toggle(isOn: binding(\.systemChanges)) {
+                SettingsLabel(title: "System Changes", detail: "Where sound is playing, Low Power Mode, and going offline.",
+                              info: "Sense notices only that the connection dropped or returned, never which network you’re on.")
             }
         }
     }
@@ -337,8 +346,8 @@ struct SettingsView: View {
                     NSPasteboard.general.setString("sense://message?text=Coffee%20is%20ready&symbol=cup.and.saucer.fill", forType: .string)
                 }
             } label: {
-                SettingsLabel(title: "Shortcuts", detail: "Show your own messages, start timers and more.",
-                              info: "Use a sense:// link with the Open URLs action: message, open, timer/start, focus/start, clipboard/pin, presentation and shelf/add.")
+                SettingsLabel(title: "Shortcuts", detail: "Show your own messages and live activities, start timers and more.",
+                              info: "Use a sense:// link with the Open URLs action: message, activity (with progress=0 to 1), activity/end, open, timer/start, focus/start, clipboard/pin, presentation and shelf/add.")
             }
         } footer: {
             if !model.toolShortcuts.unavailable.isEmpty {

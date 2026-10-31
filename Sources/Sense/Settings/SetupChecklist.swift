@@ -17,10 +17,14 @@ extension SenseAppModel {
     var setupItems: [SetupItem] {
         var items: [SetupItem] = []
         let needsAccessibility = preferences.switcherEnabled || preferences.lockEnabled
+        let staleApproval = permissions.accessibilityRequested && !permissions.accessibility
         items.append(SetupItem(id: "accessibility", title: "Accessibility",
             state: permissions.accessibility ? .ready : (needsAccessibility ? .attention : .notNeeded),
-            detail: permissions.accessibility ? "Window Switcher and Lock Now can work." : (needsAccessibility ? "Needed to switch windows and send Lock Screen." : "Only needed for the Window Switcher and Lock Now."),
-            actionTitle: permissions.accessibility ? nil : "Allow…", action: { [permissions] in permissions.requestAccessibility() }))
+            detail: permissions.accessibility ? "Window Switcher and Lock Now can work."
+                : staleApproval ? "Already on in System Settings? That approval belongs to an earlier build of Sense. Reset clears it so you can approve this one."
+                : (needsAccessibility ? "Needed to switch windows and send Lock Screen." : "Only needed for the Window Switcher and Lock Now."),
+            actionTitle: permissions.accessibility ? nil : (staleApproval ? "Reset & Ask Again" : "Allow…"),
+            action: { [permissions] in if staleApproval { permissions.resetAccessibility() } else { permissions.requestAccessibility() } }))
 
         let needsCapture = preferences.lidEffectEnabled || preferences.switcherEnabled
         let waitingForRestart = permissions.screenRecordingRequested && !permissions.screenRecording

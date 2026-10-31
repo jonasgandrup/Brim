@@ -18,7 +18,7 @@ enum LidFoldReadiness: Equatable {
         case .reduceMotion: "Paused while macOS Reduce Motion is enabled."
         case .sensorUnavailable: "Waiting for a compatible hinge sensor. Check the sensor status above."
         case .openLid: "Open the lid to your normal working angle. Sense calibrates automatically."
-        case .ready: "Close the lid more than 6° to see the vertical fold. Reopening reverses it."
+        case .ready: "Close the lid slowly to see the fold. Reopening reverses it."
         }
     }
 }

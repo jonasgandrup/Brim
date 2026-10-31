@@ -39,6 +39,8 @@ final class SystemStatus {
     @ObservationIgnored var onPowerSample: (PowerSample) -> Void = { _ in }
     /// Volume or mute changed on the current output device (not on a routine refresh or device switch).
     @ObservationIgnored var onVolumeChange: (_ volume: Double?, _ muted: Bool) -> Void = { _, _ in }
+    /// The system's sound output moved to another device (AirPlay, headphones, a display), not at startup.
+    @ObservationIgnored var onOutputChange: (AudioOutput) -> Void = { _ in }
     private var powerSource: CFRunLoopSource?
     var powerNotificationsActive: Bool { powerSource != nil }
     private var timer: Timer?
@@ -61,7 +63,7 @@ final class SystemStatus {
         timer?.invalidate(); timer = nil
         unwatchVolume(); unwatchDefaultDevice()
         if let powerSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), powerSource, .commonModes) }
-        powerSource = nil; onPowerSample = { _ in }; onVolumeChange = { _, _ in }
+        powerSource = nil; onPowerSample = { _ in }; onVolumeChange = { _, _ in }; onOutputChange = { _ in }
     }
     func refresh() {
         var level: Int?, onPower = false, isCharging = false, toEmpty: Int?, toFull: Int?
@@ -105,7 +107,11 @@ final class SystemStatus {
             volume = nil; muted = false; outputID = 0; volumeSettable = false; return
         }
         if device != volumeDevice { watchVolume(of: device) }
-        if outputID != device { outputID = device }
+        if outputID != device {
+            let previous = outputID
+            outputID = device
+            if previous != 0, let output = outputs.first(where: { $0.id == device }) { onOutputChange(output) }
+        }
         let settable = volumeElements(device).contains { element in
             var a = address(kAudioDevicePropertyVolumeScalar, scope: kAudioDevicePropertyScopeOutput, element: element)
             var flag: DarwinBoolean = false

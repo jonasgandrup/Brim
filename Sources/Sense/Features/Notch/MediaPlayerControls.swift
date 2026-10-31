@@ -1,4 +1,5 @@
 import SwiftUI
+import AVKit
 
 struct MediaPlayerControls: View {
     @Bindable var media: MediaService
@@ -70,4 +71,19 @@ struct MediaCover: View {
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: image != nil)
             .accessibilityHidden(true)
     }
+}
+
+/// The system AirPlay picker, the same list as Control Center's: HomePods, Apple TVs and AirPlay speakers.
+struct AirPlayButton: NSViewRepresentable {
+    func makeNSView(context: Context) -> AVRoutePickerView {
+        let picker = AVRoutePickerView()
+        picker.isRoutePickerButtonBordered = false
+        picker.setRoutePickerButtonColor(NSColor.white.withAlphaComponent(0.75), for: .normal)
+        picker.setRoutePickerButtonColor(.white, for: .normalHighlighted)
+        picker.setRoutePickerButtonColor(.systemBlue, for: .active)
+        picker.setRoutePickerButtonColor(.systemBlue, for: .activeHighlighted)
+        picker.setAccessibilityLabel("AirPlay")
+        return picker
+    }
+    func updateNSView(_ picker: AVRoutePickerView, context: Context) {}
 }
