@@ -62,8 +62,8 @@ struct IslandView: View {
         .contentShape(surface)
         .opacity(!layout.hasHardwareNotch && controller.presentation == .hidden ? 0 : 1)
         .animation(reduceMotion || controller.surfaceAnimationsSuppressed ? nil : .smooth(duration: controller.expanded ? 0.32 : 0.22, extraBounce: controller.expanded ? 0.06 : 0), value: controller.presentation)
-        .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: controller.hud)
-        .animation(reduceMotion ? nil : .snappy(duration: 0.18), value: controller.hoverSwell)
+        .animation(reduceMotion ? nil : IslandStyle.quick, value: controller.hud)
+        .animation(reduceMotion ? nil : IslandStyle.quick, value: controller.hoverSwell)
         .animation(reduceMotion ? nil : .smooth(duration: 0.32, extraBounce: 0.1), value: controller.showsActivityBubble)
         .transaction { transaction in
             if controller.surfaceAnimationsSuppressed { transaction.disablesAnimations = true; transaction.animation = nil }
@@ -102,7 +102,8 @@ struct IslandView: View {
             }
             Spacer(minLength: 0)
             if controller.expanded {
-                collapseControl.frame(width: 38, height: layout.headerHeight)
+                // No close button: moving away, clicking outside or Escape closes it, as on iPhone.
+                Color.clear.frame(width: 38, height: layout.headerHeight)
             } else {
                 Button { controller.openCompactActivity(dualActivities ? .music : controller.compactTrailingTab) } label: {
                     trailingActivity.frame(width: 38, height: layout.headerHeight).contentShape(Rectangle())
@@ -145,10 +146,11 @@ struct IslandView: View {
         } else if media.source != nil && preferences.mediaEnabled {
             // The artwork itself is drawn once, above both places it can be, so it can travel between them.
             Color.clear.frame(width: 22, height: 22).matchedGeometryEffect(id: ArtworkSlot.compact, in: artworkSpace)
+        } else if controller.feedback != nil {
+            Image(systemName: controller.feedbackSymbol).font(.system(size: 14, weight: .medium)).foregroundStyle(controller.feedbackTint)
         } else {
-            Image(systemName: controller.feedback != nil ? controller.feedbackSymbol : "waveform.path")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(controller.feedback != nil ? controller.feedbackTint : .white.opacity(0.85))
+            // Only seen for a moment while the island closes: nothing, rather than the app's logo.
+            Color.clear
         }
     }
     @ViewBuilder private var trailingActivity: some View {
@@ -206,7 +208,7 @@ struct IslandView: View {
                 Circle().stroke(tint.opacity(0.25), lineWidth: 2.5)
                 Circle().trim(from: 0, to: 1 - controller.countdown.progress)
                     .stroke(tint, style: StrokeStyle(lineWidth: 2.5, lineCap: .round)).rotationEffect(.degrees(-90))
-                    .animation(.linear(duration: 0.25), value: controller.countdown.progress)
+                    .animation(IslandStyle.progress, value: controller.countdown.progress)
                 Image(systemName: focus ? "brain.head.profile" : "timer").font(.system(size: 11, weight: .semibold)).foregroundStyle(tint)
             }
             .padding(7)
@@ -216,20 +218,6 @@ struct IslandView: View {
         }.buttonStyle(IslandPressStyle())
             .accessibilityLabel("Timer, \(controller.countdown.label) left").help("Open timer")
     }
-    @ViewBuilder private var collapseControl: some View {
-        let button = Button { controller.setExpanded(false) } label: {
-            Image(systemName: "chevron.up").font(.system(size: 10, weight: .bold))
-                .foregroundStyle(.primary).frame(width: 24, height: 18)
-        }.help("Collapse island").accessibilityLabel("Collapse island")
-        if #available(macOS 26.0, *) {
-            button.buttonStyle(.glass).buttonBorderShape(.capsule).controlSize(.mini)
-        } else {
-            button.buttonStyle(.plain).padding(4)
-                .background(.white.opacity(0.08), in: Capsule())
-                .overlay(Capsule().strokeBorder(.white.opacity(0.14)))
-        }
-    }
-
     // MARK: Expanded
 
     private var expandedPane: some View {
@@ -265,7 +253,7 @@ struct IslandView: View {
                                connectMedia: { controller.connectMedia() })
             } else {
                 VStack(spacing: 6) {
-                    IslandPaneHeader(title: "Now Playing", symbol: "waveform") {
+                    IslandPaneHeader {
                         MediaPlayerControls(media: media)
                         Button { controller.openSettings() } label: { Image(systemName: "gearshape").frame(width: 20, height: 20) }
                             .help("Dynamic Island settings").accessibilityLabel("Open island settings")
@@ -283,8 +271,8 @@ struct IslandView: View {
         } else if let feedback = controller.feedback, let image = controller.feedbackImage {
             VStack(spacing: 8) {
                 Image(nsImage: image).resizable().scaledToFit().frame(maxHeight: 104)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.white.opacity(0.18), lineWidth: 0.5))
+                    .clipShape(RoundedRectangle(cornerRadius: IslandStyle.smallRadius, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: IslandStyle.smallRadius, style: .continuous).strokeBorder(.white.opacity(0.18), lineWidth: 0.5))
                     .shadow(color: .black.opacity(0.5), radius: 10, y: 4)
                     .onDrag { controller.feedbackURL.flatMap { NSItemProvider(contentsOf: $0) } ?? NSItemProvider() }
                     .help("Drag the screenshot anywhere")
@@ -324,7 +312,7 @@ struct IslandView: View {
                             if let icon = media.sourceIcon { Image(nsImage: icon).resizable().frame(width: 11, height: 11) }
                             Text("\(media.playing ? "Playing" : "Paused") in \(media.sourceName)")
                         }.font(.system(size: 10)).foregroundStyle(.tertiary).lineLimit(1)
-                    }.animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: media.title)
+                    }.animation(reduceMotion ? nil : IslandStyle.quick, value: media.title)
                     Spacer(minLength: 0)
                 }
                 if let message = media.message {
@@ -352,7 +340,7 @@ struct IslandView: View {
         Button { media.command("playpause") } label: {
             Image(systemName: media.playing ? "pause.fill" : "play.fill")
                 .contentTransition(.symbolEffect(.replace))
-                .animation(reduceMotion ? nil : .smooth(duration: 0.24), value: media.playing)
+                .animation(reduceMotion ? nil : IslandStyle.standard, value: media.playing)
                 .font(.system(size: 19, weight: .semibold)).foregroundStyle(.white).frame(width: 38, height: 32)
         }.disabled(media.source == nil || media.commandPending || media.selectionLoading)
             .foregroundStyle(.white.opacity(media.source == nil ? 0.22 : 1))
@@ -390,7 +378,7 @@ struct IslandTabBar: View {
             ForEach(tabs, id: \.tab) { item in
                 let selected = selection == item.tab
                 Button {
-                    withAnimation(reduceMotion ? nil : .snappy(duration: 0.22)) { selection = item.tab }
+                    withAnimation(reduceMotion ? nil : IslandStyle.quick) { selection = item.tab }
                 } label: {
                     Image(systemName: item.symbol).font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(selected ? AnyShapeStyle(.primary) : AnyShapeStyle(contrast == .increased ? .secondary : .tertiary))
@@ -441,7 +429,7 @@ struct IslandPressStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.88 : 1)
             .opacity(configuration.isPressed ? 0.7 : 1)
-            .animation(.snappy(duration: 0.15), value: configuration.isPressed)
+            .animation(IslandStyle.quick, value: configuration.isPressed)
     }
 }
 
@@ -450,7 +438,7 @@ private struct CountBadge: View {
     var body: some View {
         Text("\(count)").font(.system(size: 10, weight: .bold)).monospacedDigit()
             .padding(.horizontal, 5).frame(minWidth: 17, minHeight: 17)
-            .background(.white.opacity(0.18), in: Capsule())
+            .background(IslandStyle.raisedFill, in: Capsule())
     }
 }
 
@@ -463,7 +451,7 @@ private struct HUDLevel: View {
             .overlay(alignment: .leading) {
                 Capsule().fill(tint).frame(width: max(5, 30 * min(1, max(0, level))), height: 5)
             }
-            .animation(.snappy(duration: 0.15), value: level)
+            .animation(IslandStyle.quick, value: level)
             .accessibilityElement().accessibilityLabel("\(Int((level * 100).rounded())) percent")
     }
 }
@@ -475,7 +463,7 @@ private struct PlaybackActivity: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 20, paused: reduceMotion || !playing)) { timeline in
             PlaybackBars(activity: playing ? 1 : 0, time: reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate)
-                .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: playing)
+                .animation(reduceMotion ? nil : IslandStyle.standard, value: playing)
         }.frame(width: 21, height: 16).accessibilityLabel(playing ? "Media playing" : "Media paused")
     }
 }
@@ -539,7 +527,7 @@ struct DropZonesView: View {
             tile(.shelf, symbol: "tray.and.arrow.down.fill", title: "Shelf", tint: .white)
             tile(.airDrop, symbol: "dot.radiowaves.up.forward", title: "AirDrop", tint: .blue)
         }
-        .animation(.snappy(duration: 0.18), value: zone)
+        .animation(IslandStyle.quick, value: zone)
     }
     private func tile(_ kind: DropZone, symbol: String, title: String, tint: Color) -> some View {
         let active = zone == kind
@@ -548,8 +536,8 @@ struct DropZonesView: View {
             Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(active ? .primary : .secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.white.opacity(active ? 0.12 : 0.04), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+        .background(.white.opacity(active ? 0.12 : 0.04), in: RoundedRectangle(cornerRadius: IslandStyle.largeRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: IslandStyle.largeRadius, style: .continuous)
             .strokeBorder(active ? tint.opacity(0.7) : .white.opacity(0.1), style: StrokeStyle(lineWidth: 1.5, dash: active ? [] : [4, 3])))
         .scaleEffect(active ? 1 : 0.97)
         .accessibilityElement(children: .combine).accessibilityAddTraits(active ? .isSelected : [])

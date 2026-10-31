@@ -116,6 +116,15 @@ struct FocusCycle: Codable, Equatable {
             return "\(Self.durationText(state.duration)) timer"
         }
     }
+    /// Six one-tap lengths: the last one used first (if it isn't a standard length), then the common ones.
+    static func presets(last: Int) -> [Int] {
+        let standard = [1, 5, 10, 15, 25, 45, 60]
+        let first = (1...180).contains(last) ? [last] : []
+        return Array((first + standard.filter { $0 != last }).prefix(6))
+    }
+    static func presetLabel(minutes: Int) -> String {
+        minutes >= 60 && minutes % 60 == 0 ? "\(minutes / 60) h" : "\(minutes) min"
+    }
     static func durationText(_ seconds: TimeInterval) -> String {
         let whole = Int(seconds.rounded())
         if whole % 3600 == 0 && whole >= 3600 { return "\(whole / 3600)-hour" }
@@ -186,7 +195,7 @@ struct IslandTimerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if showsHeader {
-                IslandPaneHeader(title: "Timer", symbol: "timer") {
+                IslandPaneHeader {
                     if timer.state.phase != .idle {
                         Text(timer.state.phase == .paused ? "Paused" : timer.state.phase == .finished ? "Finished" : "Running")
                             .foregroundStyle(.tertiary)
@@ -194,23 +203,19 @@ struct IslandTimerView: View {
                 }
             }
             if timer.state.phase == .idle {
-                HStack(spacing: 6) {
-                    ForEach([1, 5, 15, 25], id: \.self) { minutes in
-                        Button { timer.minutes = minutes } label: {
-                            Text("\(minutes) min").font(.system(size: 11, weight: .medium)).monospacedDigit()
-                                .frame(maxWidth: .infinity).padding(.vertical, 7)
-                                .background(timer.minutes == minutes ? Color.orange.opacity(0.28) : .white.opacity(0.07), in: Capsule())
-                                .foregroundStyle(timer.minutes == minutes ? Color.orange : .white.opacity(0.85))
-                        }.buttonStyle(.plain)
+                // One tap starts, like the Clock app's recent timers. The last length used is offered first.
+                let presets = IslandTimer.presets(last: timer.minutes)
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                    ForEach(presets, id: \.self) { minutes in
+                        Button { timer.minutes = minutes; timer.start() } label: {
+                            Text(IslandTimer.presetLabel(minutes: minutes)).font(.system(size: 13, weight: .semibold)).monospacedDigit()
+                                .frame(maxWidth: .infinity).padding(.vertical, 9)
+                                .background(minutes == presets.first ? Color.orange.opacity(0.24) : IslandStyle.tileFill, in: Capsule())
+                                .foregroundStyle(minutes == presets.first ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.primary))
+                                .contentShape(Capsule())
+                        }.buttonStyle(IslandPressStyle()).accessibilityLabel("Start \(IslandTimer.durationText(Double(minutes) * 60)) timer")
                     }
                 }
-                HStack {
-                    Stepper(value: $timer.minutes, in: 1...180) {
-                        Text("\(timer.minutes) min").font(.system(size: 11)).monospacedDigit().foregroundStyle(.secondary)
-                    }.controlSize(.mini).fixedSize()
-                    Spacer()
-                    TimerActionButton(title: "Start", symbol: "play.fill", prominent: true) { timer.start() }
-                }.padding(.top, 2)
             } else {
                 CountdownReadout(timer: timer)
                 HStack(spacing: 10) {
@@ -240,7 +245,7 @@ struct CountdownReadout: View {
                 Circle().stroke(tint.opacity(0.2), lineWidth: 4)
                 Circle().trim(from: 0, to: timer.progress)
                     .stroke(tint, style: StrokeStyle(lineWidth: 4, lineCap: .round)).rotationEffect(.degrees(-90))
-                    .animation(.linear(duration: 0.25), value: timer.progress)
+                    .animation(IslandStyle.progress, value: timer.progress)
                 Image(systemName: timer.state.phase == .finished ? "checkmark" : timer.state.phase == .paused ? "pause.fill" : "timer")
                     .font(.system(size: 13, weight: .semibold)).foregroundStyle(tint)
                     .contentTransition(.symbolEffect(.replace))

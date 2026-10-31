@@ -125,7 +125,7 @@ struct FileShelfView: View {
     let dropTargeted: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            IslandPaneHeader(title: "Files", symbol: "tray") {
+            IslandPaneHeader {
                 if shelf.selectedURLs.count > 1 {
                     Text("\(shelf.selectedURLs.count)").monospacedDigit().foregroundStyle(.tertiary)
                 }
@@ -166,10 +166,10 @@ struct FileShelfView: View {
                 IslandEmptyState(symbol: dropTargeted ? "tray.and.arrow.down.fill" : "tray.and.arrow.down",
                                  title: dropTargeted ? "Release to Keep Files Here" : "Drop Files Here",
                                  detail: "Drag them out anywhere. They wait while you switch windows or Spaces.", minHeight: 95)
-                    .background(.white.opacity(dropTargeted ? 0.12 : 0.04), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .background(.white.opacity(dropTargeted ? 0.12 : 0.04), in: RoundedRectangle(cornerRadius: IslandStyle.largeRadius, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: IslandStyle.largeRadius, style: .continuous)
                         .strokeBorder(dropTargeted ? Color.accentColor : .white.opacity(0.1), style: StrokeStyle(lineWidth: 1, dash: dropTargeted ? [] : [4, 3])))
-                    .animation(.snappy(duration: 0.2), value: dropTargeted)
+                    .animation(IslandStyle.quick, value: dropTargeted)
             } else {
                 FileCollection(shelf: shelf).frame(height: 103)
                 Text("⌘-click to select · Space to preview · drag selected files together")

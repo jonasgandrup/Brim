@@ -21,7 +21,7 @@ struct BatteryGlyph: View {
         let inset = height * 0.1
         HStack(spacing: height * 0.05) {
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: height * 0.3, style: .continuous).fill(.white.opacity(0.14))
+                RoundedRectangle(cornerRadius: height * 0.3, style: .continuous).fill(IslandStyle.raisedFill)
                 RoundedRectangle(cornerRadius: height * 0.3, style: .continuous).strokeBorder(.white.opacity(0.35), lineWidth: max(1, height * 0.05))
                 RoundedRectangle(cornerRadius: height * 0.2, style: .continuous).fill(tint)
                     .frame(width: max(height * 0.2, (width - inset * 2) * CGFloat(min(100, max(0, level))) / 100))
@@ -112,8 +112,6 @@ struct BatteryPaneView: View {
                     Spacer(minLength: 0)
                     if details.lowPowerMode { Image(systemName: "leaf.fill").font(.system(size: 11)).foregroundStyle(.yellow).help("Low Power Mode") }
                 }.frame(height: 26)
-            } else {
-                IslandPaneHeader(title: "Sound & Display", symbol: "slider.horizontal.3") { EmptyView() }
             }
             QuickControls(status: status, brightness: brightness)
             let devices = bluetooth?.devices ?? []
@@ -137,7 +135,7 @@ struct BatteryPaneView: View {
             Text(value).font(.system(size: 13, weight: .semibold)).monospacedDigit()
             Text(title).font(.system(size: 10)).foregroundStyle(.secondary)
         }.frame(minWidth: 72).padding(.vertical, 7).padding(.horizontal, 6)
-            .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(IslandStyle.tileFill, in: RoundedRectangle(cornerRadius: IslandStyle.smallRadius, style: .continuous))
     }
     private func device(_ device: BluetoothDevice) -> some View {
         let level = device.level ?? 0
@@ -149,7 +147,7 @@ struct BatteryPaneView: View {
             }
             Text(device.name).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
         }.frame(minWidth: 72, maxWidth: 110).padding(.vertical, 7).padding(.horizontal, 6)
-            .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(IslandStyle.tileFill, in: RoundedRectangle(cornerRadius: IslandStyle.smallRadius, style: .continuous))
             .help(deviceDetail(device))
             .accessibilityElement(children: .combine)
     }
@@ -222,7 +220,7 @@ struct IslandSlider: View {
     var body: some View {
         GeometryReader { geometry in
             let width = max(1, geometry.size.width)
-            Capsule().fill(.white.opacity(0.16))
+            Capsule().fill(IslandStyle.raisedFill)
                 .overlay(alignment: .leading) {
                     Capsule().fill(.white).frame(width: max(8, width * min(1, max(0, value))))
                 }
@@ -232,7 +230,7 @@ struct IslandSlider: View {
                 })
         }
         .frame(height: 8).padding(.vertical, 6)
-        .animation(.snappy(duration: 0.12), value: value)
+        .animation(IslandStyle.quick, value: value)
         .accessibilityElement().accessibilityLabel(label)
         .accessibilityValue("\(Int((value * 100).rounded())) percent")
         .accessibilityAdjustableAction { direction in

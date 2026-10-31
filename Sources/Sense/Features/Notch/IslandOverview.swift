@@ -66,7 +66,7 @@ struct IslandOverview: View {
                     Spacer(minLength: 4)
                     if !mediaEnabled {
                         Button("Turn On", action: connectMedia).buttonStyle(.plain).font(.system(size: 11, weight: .semibold))
-                            .padding(.horizontal, 9).padding(.vertical, 2).background(.white.opacity(0.14), in: Capsule())
+                            .padding(.horizontal, 9).padding(.vertical, 2).background(IslandStyle.raisedFill, in: Capsule())
                     } else if media.pinnedPlayer != nil {
                         // A pinned player that stopped publishing can be unpinned right here.
                         MediaPlayerControls(media: media)

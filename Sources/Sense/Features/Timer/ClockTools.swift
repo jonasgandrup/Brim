@@ -159,19 +159,18 @@ struct IslandClockView: View {
     var calendar: CalendarPeek?
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            IslandPaneHeader(title: clock.mode.rawValue, symbol: clock.mode.symbol) {
-                HStack(spacing: 2) {
-                    ForEach(ClockMode.allCases, id: \.self) { mode in
-                        Button { clock.mode = mode } label: {
-                            Text(mode.rawValue).font(.system(size: 10, weight: clock.mode == mode ? .semibold : .medium))
-                                .padding(.horizontal, 8).padding(.vertical, 3)
-                                .background(clock.mode == mode ? .white.opacity(0.16) : .clear, in: Capsule())
-                                .foregroundStyle(.white.opacity(clock.mode == mode ? 1 : 0.6))
-                                .contentShape(Capsule())
-                        }.buttonStyle(.plain).accessibilityAddTraits(clock.mode == mode ? .isSelected : [])
-                    }
-                }.padding(2).background(.white.opacity(0.06), in: Capsule())
-            }
+            // The modes are the header: one segmented control, as in the Clock app, instead of a title beside it.
+            HStack(spacing: 2) {
+                ForEach(ClockMode.allCases, id: \.self) { mode in
+                    Button { clock.mode = mode } label: {
+                        Text(mode.rawValue).font(.system(size: 11, weight: clock.mode == mode ? .semibold : .medium))
+                            .frame(maxWidth: .infinity).padding(.vertical, 3)
+                            .background(clock.mode == mode ? IslandStyle.raisedFill : .clear, in: Capsule())
+                            .foregroundStyle(clock.mode == mode ? .primary : .secondary)
+                            .contentShape(Capsule())
+                    }.buttonStyle(.plain).accessibilityAddTraits(clock.mode == mode ? .isSelected : [])
+                }
+            }.padding(2).background(IslandStyle.tileFill, in: Capsule()).frame(height: 24)
             if let event = calendar?.next {
                 TimelineView(.periodic(from: .now, by: 30)) { context in
                     HStack(spacing: 6) {
@@ -199,28 +198,30 @@ struct IslandClockView: View {
                         Text("Lap \(clock.stopwatch.laps.count) · \(ClockTools.label(lap, fractions: true))")
                             .font(.system(size: 10)).foregroundStyle(.secondary).frame(maxWidth: .infinity)
                     }
-                    HStack {
-                        Button(clock.stopwatch.running ? "Pause" : "Start") { clock.toggleStopwatch() }.tint(.orange)
-                        if clock.stopwatch.running { Button("Lap") { clock.lap() } }
-                        else { Button("Reset") { clock.resetStopwatch() } }
-                    }.buttonStyle(.bordered).controlSize(.small).frame(maxWidth: .infinity)
+                    HStack(spacing: 10) {
+                        TimerActionButton(title: clock.stopwatch.running ? "Pause" : "Start", symbol: clock.stopwatch.running ? "pause.fill" : "play.fill", prominent: true) { clock.toggleStopwatch() }
+                        if clock.stopwatch.running { TimerActionButton(title: "Lap", symbol: "flag.fill") { clock.lap() } }
+                        else { TimerActionButton(title: "Reset", symbol: "arrow.counterclockwise") { clock.resetStopwatch() } }
+                    }.frame(maxWidth: .infinity)
                 }
             case .alarm:
                 VStack(alignment: .leading, spacing: 8) {
                     if clock.ringing {
                         Text("Time to wake up").font(.system(size: 24, weight: .light)).frame(maxWidth: .infinity)
-                        HStack { Button("Stop") { clock.stopAlarm() }; Button("Snooze 5 min") { clock.snooze() } }
-                            .buttonStyle(.bordered).controlSize(.small).frame(maxWidth: .infinity)
+                        HStack(spacing: 10) {
+                            TimerActionButton(title: "Stop", symbol: "stop.fill", prominent: true) { clock.stopAlarm() }
+                            TimerActionButton(title: "Snooze 5 min", symbol: "zzz") { clock.snooze() }
+                        }.frame(maxWidth: .infinity)
                     } else if let date = clock.alarmDate {
                         Text(date, format: .dateTime.weekday(.abbreviated).hour().minute()).font(.system(size: 22, weight: .light)).frame(maxWidth: .infinity)
                         if clock.alarmRepeat != .once { Text("Repeats \(clock.alarmRepeat.rawValue.lowercased())").font(.system(size: 10)).foregroundStyle(.secondary).frame(maxWidth: .infinity) }
-                        Button("Cancel alarm") { clock.cancelAlarm() }.buttonStyle(.bordered).controlSize(.small).frame(maxWidth: .infinity)
+                        TimerActionButton(title: "Cancel Alarm", symbol: "xmark") { clock.cancelAlarm() }.frame(maxWidth: .infinity)
                     } else {
                         HStack {
                             DatePicker("Time", selection: $clock.alarmTime, displayedComponents: .hourAndMinute).labelsHidden().datePickerStyle(.field)
                             Picker("Repeat", selection: $clock.alarmRepeat) { ForEach(AlarmRepeat.allCases) { Text($0.rawValue).tag($0) } }
                                 .labelsHidden().pickerStyle(.menu).controlSize(.small).fixedSize()
-                            Spacer(); Button("Set alarm") { clock.arm() }.buttonStyle(.borderedProminent).tint(.orange).controlSize(.small)
+                            Spacer(); TimerActionButton(title: "Set Alarm", symbol: "alarm.fill", prominent: true) { clock.arm() }
                         }
                         Text("\(clock.alarmRepeat == .once ? "One-time alarm" : "Repeating alarm") · sleeping Mac rings on wake").font(.system(size: 10)).foregroundStyle(.secondary)
                     }

@@ -228,7 +228,7 @@ struct ClipboardShelfView: View {
     private var items: [ClipboardPin] { shelf.showingHistory ? shelf.filteredHistory : shelf.pins }
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            IslandPaneHeader(title: shelf.showingHistory ? "Recent" : "Clipboard", symbol: shelf.showingHistory ? "clock.arrow.circlepath" : "pin") {
+            IslandPaneHeader(title: shelf.showingHistory ? "Recent" : nil, symbol: shelf.showingHistory ? "clock.arrow.circlepath" : nil) {
                 if shelf.historyActive {
                     Picker("Clipboard view", selection: $shelf.showingHistory) {
                         Text("Pinned").tag(false); Text("Recent").tag(true)
@@ -246,7 +246,7 @@ struct ClipboardShelfView: View {
                                  title: shelf.showingHistory ? "Nothing Copied Yet" : "Pin Text, Links and Images",
                                  detail: shelf.showingHistory ? "Recent text and links stay in memory only. Password managers are skipped." : "Sense reads the clipboard only when you ask.",
                                  minHeight: shelf.showingHistory ? 74 : 95)
-                    .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .background(IslandStyle.tileFill, in: RoundedRectangle(cornerRadius: IslandStyle.largeRadius, style: .continuous))
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
@@ -270,7 +270,7 @@ struct ClipboardShelfView: View {
                 if shelf.showingHistory { Button("Pin", systemImage: "pin") { shelf.pinFromHistory(pin) } }
             }.font(.system(size: 10)).buttonStyle(.plain)
         }.padding(9).frame(width: 112, height: 96, alignment: .topLeading)
-            .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(IslandStyle.tileFill, in: RoundedRectangle(cornerRadius: IslandStyle.smallRadius, style: .continuous))
             .onDrag { pin.provider() }
             .contextMenu {
                 Button("Copy") { shelf.copy(pin) }

@@ -27,7 +27,7 @@ struct TransfersPaneView: View {
     let addToShelf: (URL) -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            IslandPaneHeader(title: "Activity", symbol: "gauge.with.dots.needle.33percent") {
+            IslandPaneHeader {
                 if !transfers.recent.isEmpty { Button("Clear") { transfers.clearRecent() } }
             }
             if !activities.running.isEmpty {
@@ -70,7 +70,7 @@ struct TransfersPaneView: View {
             Button { activities.end(id: activity.id, finished: false) } label: {
                 Image(systemName: "xmark.circle.fill").font(.system(size: 14)).foregroundStyle(.tertiary)
             }.buttonStyle(.plain).help("Dismiss").accessibilityLabel("Dismiss \(activity.title)")
-        }.padding(8).background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }.padding(8).background(IslandStyle.tileFill, in: RoundedRectangle(cornerRadius: IslandStyle.smallRadius, style: .continuous))
     }
     private func row(_ activity: TransferActivity) -> some View {
         HStack(spacing: 10) {
@@ -94,7 +94,7 @@ struct TransfersPaneView: View {
                     .buttonStyle(IslandPressStyle()).help("Reveal in Finder").accessibilityLabel("Reveal in Finder")
             }
         }.padding(.horizontal, 10).padding(.vertical, 7)
-            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(IslandStyle.tileFill, in: RoundedRectangle(cornerRadius: IslandStyle.smallRadius, style: .continuous))
     }
     private func detail(_ activity: TransferActivity) -> String {
         var parts: [String] = []

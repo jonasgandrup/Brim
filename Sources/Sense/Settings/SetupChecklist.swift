@@ -40,7 +40,7 @@ extension SenseAppModel {
 
         if preferences.lidEffectEnabled {
             let ready = lid.angle != nil
-            items.append(SetupItem(id: "hinge", title: "Hinge sensor", state: ready ? .ready : .attention,
+            items.append(SetupItem(id: "hinge", title: "Hinge Sensor", state: ready ? .ready : .attention,
                 detail: ready ? "Reading the lid angle. Open position is learned automatically." : lid.status,
                 actionTitle: ready ? nil : "Retry", action: { [weak self] in self?.lid.stop(); self?.lid.start() }))
         }
@@ -51,19 +51,19 @@ extension SenseAppModel {
         }
         if preferences.notchEnabled && preferences.toolShortcutsEnabled {
             let blocked = toolShortcuts.unavailable
-            items.append(SetupItem(id: "shortcuts", title: "Tool shortcuts", state: blocked.isEmpty ? .ready : .attention,
+            items.append(SetupItem(id: "shortcuts", title: "Keyboard Shortcuts", state: blocked.isEmpty ? .ready : .attention,
                 detail: blocked.isEmpty ? "All island shortcuts are registered." : "Taken by another app: " + blocked.joined(separator: ", ") + ". Pick other modifiers in Dynamic Island settings.",
                 actionTitle: blocked.isEmpty ? nil : "Change…", action: { [weak self] in self?.openSettings(page: .notch) }))
         }
         if preferences.notchEnabled && preferences.autoHideFocus {
             let monitor = autoHide
-            items.append(SetupItem(id: "focus", title: "Focus status", state: monitor.focusAuthorized ? .ready : (monitor.focusDenied ? .attention : .ready),
+            items.append(SetupItem(id: "focus", title: "Focus Status", state: monitor.focusAuthorized ? .ready : (monitor.focusDenied ? .attention : .ready),
                 detail: monitor.focusAuthorized ? "The island hides while a Focus is on." : (monitor.focusDenied ? "Focus access is off, so Sense can’t tell when a Focus is on." : "Waiting for your answer."),
                 actionTitle: monitor.focusDenied ? "Open Settings…" : nil, action: { [permissions] in permissions.openPrivacy("Privacy_Focus") }))
         }
         if preferences.notchEnabled && preferences.liveTransfers {
             let problem = notch.transfers.accessProblem
-            items.append(SetupItem(id: "transfers", title: "Downloads folder", state: problem == nil ? .ready : .attention,
+            items.append(SetupItem(id: "transfers", title: "Downloads Folder", state: problem == nil ? .ready : .attention,
                 detail: problem ?? "Watching for downloads and received AirDrops.",
                 actionTitle: problem == nil ? nil : "Files & Folders…", action: { [permissions] in permissions.openPrivacy("Privacy_FilesAndFolders") }))
         }
