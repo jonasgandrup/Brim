@@ -86,7 +86,7 @@ enum SharingDetection {
         if watchFocus || watchFocusChanges, INFocusStatusCenter.default.authorizationStatus == .authorized {
             focusAuthorized = true
             focused = INFocusStatusCenter.default.focusStatus.isFocused
-            if watchFocus && focused == true { next = "Focus is on" }
+            if watchFocus && focused == true { next = String(localized: "Focus is on") }
         }
         defer {
             // The first reading is the starting point, not a change.
@@ -97,7 +97,7 @@ enum SharingDetection {
         }
         if next == nil, watchSharing,
            SharingDetection.isSharing(processNames: SharingDetection.runningProcessNames(), displaysMirrored: SharingDetection.displaysMirrored()) {
-            next = "Screen is shared"
+            next = String(localized: "Screen is shared")
         }
         guard next != reason else { return }
         reason = next; onChange(next)

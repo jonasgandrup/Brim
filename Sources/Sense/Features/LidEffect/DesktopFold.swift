@@ -29,14 +29,14 @@ enum LidFoldStyle: String, CaseIterable, Identifiable {
     case duo, fold, doors, shrink
     var id: String { rawValue }
     var title: String {
-        switch self { case .duo: "Duo"; case .fold: "Fold"; case .doors: "Doors"; case .shrink: "Shrink" }
+        switch self { case .duo: String(localized: "Duo"); case .fold: String(localized: "Fold"); case .doors: String(localized: "Doors"); case .shrink: String(localized: "Shrink") }
     }
     var detail: String {
         switch self {
-        case .duo: "The screen tips back as the lid closes, softening and darkening toward its edges."
-        case .fold: "Top and bottom meet at a recessed hinge."
-        case .doors: "Left and right panels swing shut."
-        case .shrink: "The desktop gently recedes and dims."
+        case .duo: String(localized: "The screen tips back as the lid closes, softening and darkening toward its edges.")
+        case .fold: String(localized: "Top and bottom meet at a recessed hinge.")
+        case .doors: String(localized: "Left and right panels swing shut.")
+        case .shrink: String(localized: "The desktop gently recedes and dims.")
         }
     }
 }

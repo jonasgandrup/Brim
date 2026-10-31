@@ -45,7 +45,7 @@ struct TransfersPaneView: View {
                         .buttonStyle(.borderedProminent).controlSize(.small).tint(.blue)
                 }
             } else if transfers.running.isEmpty && transfers.recent.isEmpty {
-                IslandEmptyState(symbol: "arrow.down.circle", title: transfers.accessProblem ?? "No Transfers",
+                IslandEmptyState(symbol: "arrow.down.circle", title: transfers.accessProblem.map { LocalizedStringKey($0) } ?? "No Transfers",
                                  detail: transfers.accessProblem == nil ? "Downloads from Safari, Chrome and Firefox appear here while they arrive." : nil)
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
@@ -98,8 +98,8 @@ struct TransfersPaneView: View {
     }
     private func detail(_ activity: TransferActivity) -> String {
         var parts: [String] = []
-        if let fraction = activity.fraction { parts.append("\(Int(fraction * 100))%") }
+        if let fraction = activity.fraction { parts.append(String(localized: "\(Int(fraction * 100))%")) }
         if let bytes = activity.bytes { parts.append(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)) }
-        return parts.isEmpty ? "In progress" : parts.joined(separator: " · ")
+        return parts.isEmpty ? String(localized: "In progress") : parts.joined(separator: " · ")
     }
 }

@@ -13,12 +13,12 @@ enum LidFoldReadiness: Equatable {
     }
     var message: String {
         switch self {
-        case .disabled: "Turn on Lid Fold and Duo lid closing above."
-        case .permissionNeeded: "Screen Recording permission is needed for Sense to fold your desktop."
-        case .reduceMotion: "Paused while macOS Reduce Motion is enabled."
-        case .sensorUnavailable: "Waiting for a compatible hinge sensor. Check the sensor status above."
-        case .openLid: "Open the lid to your normal working angle. Sense calibrates automatically."
-        case .ready: "Close the lid slowly to see the fold. Reopening reverses it."
+        case .disabled: String(localized: "Turn on Lid Fold and Duo lid closing above.")
+        case .permissionNeeded: String(localized: "Screen Recording permission is needed for Sense to fold your desktop.")
+        case .reduceMotion: String(localized: "Paused while macOS Reduce Motion is enabled.")
+        case .sensorUnavailable: String(localized: "Waiting for a compatible hinge sensor. Check the sensor status above.")
+        case .openLid: String(localized: "Open the lid to your normal working angle. Sense calibrates automatically.")
+        case .ready: String(localized: "Close the lid slowly to see the fold. Reopening reverses it.")
         }
     }
 }
@@ -27,9 +27,9 @@ enum LidCaptureCheck: Equatable {
     case unverified, checking, verified, failed(String)
     var title: String {
         switch self {
-        case .unverified, .checking: "Checking desktop access…"
-        case .verified: "Ready"
-        case .failed: "Desktop capture needs attention"
+        case .unverified, .checking: String(localized: "Checking desktop access…")
+        case .verified: String(localized: "Ready")
+        case .failed: String(localized: "Desktop capture needs attention")
         }
     }
 }
@@ -41,16 +41,16 @@ struct LidSetupStatus: Equatable {
     init(readiness: LidFoldReadiness, capture: LidCaptureCheck) {
         ready = readiness == .ready && capture == .verified
         switch readiness {
-        case .disabled: title = "Off"; detail = "Turn on Lid fold to get started."
-        case .permissionNeeded: title = "Allow desktop access"; detail = "Allow Screen Recording for Sense so it can fold your desktop."
-        case .reduceMotion: title = "Paused by Reduce Motion"; detail = "Turn off Reduce Motion in macOS Accessibility settings to use the fold."
-        case .sensorUnavailable: title = "Checking the hinge sensor"; detail = "A compatible MacBook hinge sensor is required."
-        case .openLid: title = "Open your MacBook"; detail = "Open the lid normally. Calibration is automatic."
+        case .disabled: title = String(localized: "Off"); detail = String(localized: "Turn on Lid fold to get started.")
+        case .permissionNeeded: title = String(localized: "Allow desktop access"); detail = String(localized: "Allow Screen Recording for Sense so it can fold your desktop.")
+        case .reduceMotion: title = String(localized: "Paused by Reduce Motion"); detail = String(localized: "Turn off Reduce Motion in macOS Accessibility settings to use the fold.")
+        case .sensorUnavailable: title = String(localized: "Checking the hinge sensor"); detail = String(localized: "A compatible MacBook hinge sensor is required.")
+        case .openLid: title = String(localized: "Open your MacBook"); detail = String(localized: "Open the lid normally. Calibration is automatic.")
         case .ready:
             title = capture.title
             switch capture {
-            case .unverified, .checking: detail = "Checking that Sense can capture the built-in display."
-            case .verified: detail = "Close the lid slowly to see the fold. Opening it reverses the effect."
+            case .unverified, .checking: detail = String(localized: "Checking that Sense can capture the built-in display.")
+            case .verified: detail = String(localized: "Close the lid slowly to see the fold. Opening it reverses the effect.")
             case .failed(let message): detail = message
             }
         }
@@ -67,7 +67,7 @@ final class LidEffectService {
     var progress: Double = 0
     private(set) var renderedProgress: Double = 0
     private var snapshotReadyAt: Date?
-    var status = "Off"
+    var status = String(localized: "Off")
     var snapshot: NSImage?
     var captureMessage: String?
     private(set) var captureCheck = LidCaptureCheck.unverified
@@ -89,7 +89,7 @@ final class LidEffectService {
         guard task == nil else { return }
         generation += 1
         let currentGeneration = generation
-        status = "Checking hinge sensor…"
+        status = String(localized: "Checking hinge sensor…")
         installObservers()
         let closing = readerCloseTask
         task = Task { [weak self, reader] in
@@ -117,7 +117,7 @@ final class LidEffectService {
                     failures += 1
                     if failures >= 8 {
                         self.progress = 0; self.panel?.orderOut(nil)
-                        self.angle = nil; self.status = "Hinge readings unavailable. Effect paused."
+                        self.angle = nil; self.status = String(localized: "Hinge readings unavailable. Effect paused.")
                         self.snapshot = nil; self.captureAttempted = false; self.captureTask?.cancel()
                     }
                 }
@@ -130,7 +130,7 @@ final class LidEffectService {
         generation += 1; task?.cancel(); task = nil
         captureTask?.cancel(); captureTask = nil
         panel?.orderOut(nil); panel = nil; progress = 0; snapshot = nil
-        angle = nil; referenceAngle = nil; status = "Off"; captureAttempted = false
+        angle = nil; referenceAngle = nil; status = String(localized: "Off"); captureAttempted = false
         for observer in observers {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
             DistributedNotificationCenter.default().removeObserver(observer)
@@ -171,7 +171,7 @@ final class LidEffectService {
             referenceAngle = HingeMotion.settledReference(angle: angle, reference: reference, stillFor: now.timeIntervalSince(lastMovedAt))
         }
         let next = HingeMotion.progress(angle: angle, reference: referenceAngle ?? angle)
-        status = "Live hinge · \(Int(angle))°"
+        status = String(localized: "Live hinge · \(Int(angle))°")
         verifyDesktopCapture()
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             progress = 0; panel?.orderOut(nil); snapshot = nil; captureAttempted = false
@@ -193,7 +193,7 @@ final class LidEffectService {
         // A real desktop transform requires a captured image. Never substitute a blur-only imitation.
         guard hasScreenAccess() else {
             panel?.orderOut(nil); snapshot = nil
-            captureMessage = "Enable Screen Recording for Sense in macOS System Settings → Privacy & Security → Screen & System Audio Recording."
+            captureMessage = String(localized: "Enable Screen Recording for Sense in macOS System Settings → Privacy & Security → Screen & System Audio Recording.")
             return
         }
         if panel == nil { makePanel() }
@@ -219,7 +219,7 @@ final class LidEffectService {
     }
     private enum CaptureFailure: LocalizedError {
         case noBuiltInDisplay
-        var errorDescription: String? { "The built-in display is unavailable. Open your MacBook and try again." }
+        var errorDescription: String? { String(localized: "The built-in display is unavailable. Open your MacBook and try again.") }
     }
     private func desktopImage() async throws -> NSImage {
         guard let screen = builtInScreen,
@@ -251,7 +251,7 @@ final class LidEffectService {
                 guard !Task.isCancelled, self.generation == currentGeneration else { return }
                 self.captureAttempted = false; self.captureRetryAfter = Date().addingTimeInterval(3)
                 self.captureCheck = .failed(error.localizedDescription)
-                self.captureMessage = "Desktop capture failed. Check the setup status above."
+                self.captureMessage = String(localized: "Desktop capture failed. Check the setup status above.")
                 self.panel?.orderOut(nil)
             }
         }

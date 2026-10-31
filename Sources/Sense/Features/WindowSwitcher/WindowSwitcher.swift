@@ -80,7 +80,7 @@ final class WindowSwitcher {
     var onVisibilityChanged: (Bool) -> Void = { _ in }
     var selected = 0
     var visible = false
-    var status = "Off"
+    var status = String(localized: "Off")
     private var panel: NSPanel?
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -99,8 +99,8 @@ final class WindowSwitcher {
 
     func configure(preferences: Preferences) {
         self.preferences = preferences
-        guard preferences.switcherEnabled else { stop(); status = "Off"; return }
-        guard AXIsProcessTrusted() else { stop(); status = "Accessibility permission required"; return }
+        guard preferences.switcherEnabled else { stop(); status = String(localized: "Off"); return }
+        guard AXIsProcessTrusted() else { stop(); status = String(localized: "Accessibility permission required"); return }
         guard tap == nil else { return }
         if let front = NSWorkspace.shared.frontmostApplication?.processIdentifier, recentApps.isEmpty { noteActivated(front) }
         if activationObserver == nil {
@@ -120,11 +120,11 @@ final class WindowSwitcher {
         }
         tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
             eventsOfInterest: CGEventMask(mask), callback: callback, userInfo: Unmanaged.passUnretained(self).toOpaque())
-        guard let tap else { status = "Could not intercept shortcut. Check Accessibility and Input Monitoring."; return }
+        guard let tap else { status = String(localized: "Could not intercept shortcut. Check Accessibility and Input Monitoring."); return }
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
-        status = "Ready"
+        status = String(localized: "Ready")
     }
     func stop() {
         awaitingPresentation = false; activateWhenReady = false; pendingSteps = 0
@@ -296,12 +296,12 @@ final class WindowSwitcher {
         let byPID = Dictionary(apps.map { ($0.processIdentifier, $0) }, uniquingKeysWith: { first, _ in first })
         return raw.compactMap { window in
             guard let app = byPID[window.pid] else { return nil }
-            let title = window.title.flatMap { $0.isEmpty ? nil : $0 } ?? app.localizedName ?? "Untitled"
+            let title = window.title.flatMap { $0.isEmpty ? nil : $0 } ?? app.localizedName ?? String(localized: "Untitled")
             return SwitcherWindow(element: window.element, app: app, title: title, frame: window.frame, minimized: window.minimized, windowID: window.windowID)
         }
     }
     func present(backwards: Bool = false) async {
-        guard AXIsProcessTrusted() else { status = "Accessibility permission required"; return }
+        guard AXIsProcessTrusted() else { status = String(localized: "Accessibility permission required"); return }
         let found = await enumerate()
         // Escape (or the tap being torn down) while windows were loading cancels the presentation.
         guard awaitingPresentation else { return }
@@ -328,7 +328,7 @@ final class WindowSwitcher {
         previewsNeedPermission = false
         let content: SCShareableContent
         do { content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false) }
-        catch { status = "Thumbnails unavailable. Window switching still works."; return }
+        catch { status = String(localized: "Thumbnails unavailable. Window switching still works."); return }
         let candidates = content.windows.map {
             ThumbnailMatch.Candidate(windowID: $0.windowID, pid: $0.owningApplication?.processID ?? 0, title: $0.title, frame: $0.frame)
         }
@@ -385,7 +385,7 @@ struct SwitcherView: View {
                 Text("\(controller.shown.count)").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 if controller.searching {
-                    Label(controller.query.isEmpty ? "Type to search" : controller.query, systemImage: "magnifyingglass")
+                    Label(controller.query.isEmpty ? String(localized: "Type to search") : controller.query, systemImage: "magnifyingglass")
                         .font(.callout).foregroundStyle(controller.query.isEmpty ? .secondary : .primary)
                         .padding(.horizontal, 10).padding(.vertical, 4).background(.quaternary.opacity(0.5), in: Capsule())
                     Text("↩ to switch · esc to clear").font(.caption).foregroundStyle(.secondary)
@@ -412,7 +412,7 @@ struct SwitcherView: View {
                                     }.frame(height: 145)
                                     HStack(spacing: 7) {
                                         if let icon = window.app.icon { Image(nsImage: icon).resizable().frame(width: 18, height: 18) }
-                                        Text(window.app.localizedName ?? "Application").font(.system(size: 12, weight: .medium)).lineLimit(1)
+                                        Text(window.app.localizedName ?? String(localized: "Application")).font(.system(size: 12, weight: .medium)).lineLimit(1)
                                     }
                                     Text(window.title).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                                 }.padding(12).frame(width: 234)

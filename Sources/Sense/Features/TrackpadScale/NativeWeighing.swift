@@ -49,21 +49,21 @@ import SwiftUI
         if let grams { heldGrams = grams }
     }
     func tare() {
-        guard let rawGrams else { notice = "Rest one fingertip lightly on the trackpad first."; return }
+        guard let rawGrams else { notice = String(localized: "Rest one fingertip lightly on the trackpad first."); return }
         baseline = rawGrams; heldGrams = 0
-        notice = "Zero set. Keep that fingertip still and add your object beside it."
+        notice = String(localized: "Zero set. Keep that fingertip still and add your object beside it.")
     }
     func calibrate() {
         guard let rawGrams, let baseline,
               let conversion = ScaleCalibration.factor(knownGrams: knownGrams, pressure: rawGrams, baseline: baseline) else {
-            notice = "Set zero first, then add a known mass while keeping the same fingertip contact."; return
+            notice = String(localized: "Set zero first, then add a known mass while keeping the same fingertip contact."); return
         }
         factor = conversion; defaults.set(conversion, forKey: "nativeGramsFactor")
-        heldGrams = grams; notice = "Calibration saved. Tare again for each new contact."
+        heldGrams = grams; notice = String(localized: "Calibration saved. Tare again for each new contact.")
     }
     func reset() {
         factor = 1; defaults.removeObject(forKey: "nativeGramsFactor")
-        baseline = nil; heldGrams = nil; notice = "Using the sensor’s native gram estimate. Set zero to begin."
+        baseline = nil; heldGrams = nil; notice = String(localized: "Using the sensor’s native gram estimate. Set zero to begin.")
     }
 }
 
@@ -80,11 +80,11 @@ final class ScaleWindow: NSWindow {
 struct NativeScaleView: View {
     @Bindable var model: NativeWeighing
     private var status: String {
-        if !model.available { return "A built-in Force Touch trackpad is required" }
-        if model.formatUnrecognized { return "This macOS version’s trackpad data isn’t recognized. Readings are paused." }
-        if model.grams != nil { return "Live estimate" }
-        if model.heldGrams != nil { return "Held reading · set zero for a new measurement" }
-        return model.rawGrams == nil ? "Rest one fingertip lightly on the trackpad" : "Set zero, then place your object beside your finger"
+        if !model.available { return String(localized: "A built-in Force Touch trackpad is required") }
+        if model.formatUnrecognized { return String(localized: "This macOS version’s trackpad data isn’t recognized. Readings are paused.") }
+        if model.grams != nil { return String(localized: "Live estimate") }
+        if model.heldGrams != nil { return String(localized: "Held reading · set zero for a new measurement") }
+        return model.rawGrams == nil ? String(localized: "Rest one fingertip lightly on the trackpad") : String(localized: "Set zero, then place your object beside your finger")
     }
     var body: some View {
         VStack(spacing: 20) {

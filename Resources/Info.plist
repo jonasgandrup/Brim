@@ -1,29 +1,60 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-    <key>CFBundleName</key><string>Sense</string>
-    <key>CFBundleDisplayName</key><string>Sense</string>
-    <key>CFBundleIdentifier</key><string>dk.jonasgandrup.Sense</string>
-    <key>CFBundleExecutable</key><string>Sense</string>
-    <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.2.0</string>
-    <key>CFBundleVersion</key><string>2</string>
-    <key>CFBundleIconFile</key><string>Sense</string>
-    <key>LSMinimumSystemVersion</key><string>14.0</string>
-    <key>LSUIElement</key><true/>
-    <key>NSHighResolutionCapable</key><true/>
-    <key>NSPrincipalClass</key><string>NSApplication</string>
-    <key>NSAppleEventsUsageDescription</key><string>Sense reads Music or Spotify artwork and controls their playback when you enable Now Playing.</string>
-    <key>NSScreenCaptureUsageDescription</key><string>Sense captures window thumbnails for the switcher and a temporary desktop image for the optional lid-closing fold effect.</string>
-    <key>NSCalendarsFullAccessUsageDescription</key><string>Sense reads your calendar on this Mac to show your next event in the island. Nothing is stored or sent anywhere.</string>
-    <key>NSCalendarsUsageDescription</key><string>Sense reads your calendar on this Mac to show your next event in the island. Nothing is stored or sent anywhere.</string>
-    <key>NSDownloadsFolderUsageDescription</key><string>Sense shows downloads that are still arriving in your Downloads folder as a progress ring in the island. It only looks at file names and sizes, and nothing leaves your Mac.</string>
-    <key>CFBundleURLTypes</key>
-    <array>
-        <dict>
-            <key>CFBundleURLName</key><string>dk.jonasgandrup.Sense</string>
-            <key>CFBundleURLSchemes</key><array><string>sense</string></array>
-        </dict>
-    </array>
-    <key>NSFocusStatusUsageDescription</key><string>Sense can hide the island while a Focus is on. It only learns whether a Focus is active, never which one or why.</string>
-</dict></plist>
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Sense</string>
+	<key>CFBundleExecutable</key>
+	<string>Sense</string>
+	<key>CFBundleIconFile</key>
+	<string>Sense</string>
+	<key>CFBundleIdentifier</key>
+	<string>dk.jonasgandrup.Sense</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>da</string>
+	</array>
+	<key>CFBundleName</key>
+	<string>Sense</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.2.0</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>dk.jonasgandrup.Sense</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>sense</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleVersion</key>
+	<string>2</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Sense reads Music or Spotify artwork and controls their playback when you enable Now Playing.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Sense reads your calendar on this Mac to show your next event in the island. Nothing is stored or sent anywhere.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Sense reads your calendar on this Mac to show your next event in the island. Nothing is stored or sent anywhere.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Sense shows downloads that are still arriving in your Downloads folder as a progress ring in the island. It only looks at file names and sizes, and nothing leaves your Mac.</string>
+	<key>NSFocusStatusUsageDescription</key>
+	<string>Sense can hide the island while a Focus is on. It only learns whether a Focus is active, never which one or why.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Sense captures window thumbnails for the switcher and a temporary desktop image for the optional lid-closing fold effect.</string>
+</dict>
+</plist>

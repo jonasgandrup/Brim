@@ -18,16 +18,16 @@ struct SettingsView: View {
                     if model.page == .notch, let section = model.islandSection {
                         Button("Dynamic Island", systemImage: "chevron.left") { model.islandSection = nil }
                             .buttonStyle(.borderless).keyboardShortcut("[", modifiers: .command)
-                        SettingsPageHeader(symbol: section.symbol, tint: section.tint, title: section.rawValue, detail: section.subtitle)
+                        SettingsPageHeader(symbol: section.symbol, tint: section.tint, title: .verbatim(section.title), detail: .verbatim(section.subtitle))
                     } else {
-                        SettingsPageHeader(symbol: model.page.symbol, tint: model.page.tint, title: model.page.title, detail: model.page.subtitle)
+                        SettingsPageHeader(symbol: model.page.symbol, tint: model.page.tint, title: .verbatim(model.page.title), detail: .verbatim(model.page.subtitle))
                     }
                 }
                 content
             }
             .formStyle(.grouped)
             .scrollDisabled(captureMode)
-            .id("\(model.page.id)/\(model.islandSection?.id ?? "")")
+            .id(model.page.id + "/" + (model.islandSection?.id ?? ""))
         }
         .frame(minWidth: 820, minHeight: 560)
         .onChange(of: preferences.notchEnabled) { model.apply() }
@@ -141,7 +141,7 @@ struct SettingsView: View {
             Footnote(text: "Continue shows a checklist of anything your choices still need, each with a one-click fix.")
         }
     }
-    private func welcomeToggle(_ symbol: String, _ tint: Color, _ title: String, _ detail: String, _ isOn: Binding<Bool>) -> some View {
+    private func welcomeToggle(_ symbol: String, _ tint: Color, _ title: LocalizedStringKey, _ detail: LocalizedStringKey, _ isOn: Binding<Bool>) -> some View {
         Toggle(isOn: isOn) {
             Label { SettingsLabel(title: title, detail: detail) } icon: { SettingsIcon(symbol: symbol, tint: tint, size: 26) }
         }
@@ -179,7 +179,7 @@ struct SettingsView: View {
             }
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
-                if let message = model.loginMessage { Footnote(text: message, symbol: "exclamationmark.circle") }
+                if let message = model.loginMessage { Footnote(text: .verbatim(message), symbol: "exclamationmark.circle") }
                 Footnote(text: "No accounts. No cloud. Your settings and calibration stay on this Mac.", symbol: "lock.shield")
             }
         }
@@ -215,7 +215,7 @@ struct SettingsView: View {
             ForEach(IslandSection.allCases) { section in
                 Button { model.islandSection = section } label: {
                     HStack {
-                        Label { Text(section.rawValue).foregroundStyle(.primary) } icon: { SettingsIcon(symbol: section.symbol, tint: section.tint) }
+                        Label { Text(section.title).foregroundStyle(.primary) } icon: { SettingsIcon(symbol: section.symbol, tint: section.tint) }
                         Spacer()
                         Text(summary(section)).foregroundStyle(.secondary)
                         Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
@@ -228,15 +228,15 @@ struct SettingsView: View {
     private func summary(_ section: IslandSection) -> String {
         func count(_ flags: [Bool]) -> String {
             let on = flags.filter { $0 }.count
-            return on == 0 ? "Off" : on == flags.count && flags.count == 1 ? "On" : "\(on) on"
+            return on == 0 ? String(localized: "Off") : on == flags.count && flags.count == 1 ? String(localized: "On") : String(localized: "\(on) on")
         }
         return switch section {
-        case .nowPlaying: preferences.mediaEnabled ? "On" : "Off"
+        case .nowPlaying: preferences.mediaEnabled ? String(localized: "On") : String(localized: "Off")
         case .shelf: count([preferences.keepShelf, preferences.screenshotShelf, preferences.clipboardHistory])
         case .activities: count([preferences.liveTransfers, preferences.calendarPreview, preferences.sensorIndicator, preferences.systemHUD, preferences.focusFeedback, preferences.systemChanges])
         case .battery: count([preferences.chargingFeedback, preferences.lowBatteryAlert > 0, preferences.bluetoothBatteries])
         case .hiding: count([preferences.autoHideFocus, preferences.autoHideSharing])
-        case .keyboard: preferences.toolShortcutsEnabled ? "\(preferences.toolShortcutModifiers.label)0" : "Off"
+        case .keyboard: preferences.toolShortcutsEnabled ? String(localized: "\(preferences.toolShortcutModifiers.label)0") : String(localized: "Off")
         }
     }
     @ViewBuilder private var nowPlayingSettings: some View {
@@ -246,7 +246,7 @@ struct SettingsView: View {
                               info: "Works with apps that publish a Now Playing session; some omit artwork or ignore playback commands. Uses an undocumented macOS interface that may change with updates. Music and Spotify remain available as fallbacks.")
             }
         } footer: {
-            if let message = model.media.message { Footnote(text: message, symbol: "exclamationmark.circle") }
+            if let message = model.media.message { Footnote(text: .verbatim(message), symbol: "exclamationmark.circle") }
         }
     }
     @ViewBuilder private var shelfSettings: some View {
@@ -272,7 +272,7 @@ struct SettingsView: View {
     @ViewBuilder private var activitySettings: some View {
         Section {
             Toggle(isOn: binding(\.liveTransfers)) {
-                SettingsLabel(title: "Downloads & AirDrop", detail: model.notch.transfers.accessProblem ?? "Files still arriving, as a progress ring.",
+                SettingsLabel(title: "Downloads & AirDrop", detail: model.notch.transfers.accessProblem.map(LocalizedStringKey.verbatim) ?? "Files still arriving, as a progress ring.",
                               info: "macOS asks once for access to your Downloads folder.")
             }
             Toggle(isOn: binding(\.calendarPreview)) {
@@ -294,7 +294,7 @@ struct SettingsView: View {
             }
         }
     }
-    private var focusDenied: String { "Focus access is off. Allow Sense in System Settings → Privacy & Security → Focus." }
+    private var focusDenied: LocalizedStringKey { "Focus access is off. Allow Sense in System Settings → Privacy & Security → Focus." }
     @ViewBuilder private var batterySettings: some View {
         Section {
             Toggle(isOn: binding(\.chargingFeedback)) {
@@ -351,11 +351,11 @@ struct SettingsView: View {
             }
         } footer: {
             if !model.toolShortcuts.unavailable.isEmpty {
-                Footnote(text: "Shortcut unavailable: " + model.toolShortcuts.unavailable.joined(separator: ", ") + ". Another app may be using it.", symbol: "exclamationmark.triangle")
+                Footnote(text: "Shortcut unavailable: \(model.toolShortcuts.unavailable.joined(separator: ", ")). Another app may be using it.", symbol: "exclamationmark.triangle")
             }
         }
     }
-    private var calendarDetail: String {
+    private var calendarDetail: LocalizedStringKey {
         switch model.notch.calendar.access {
         case .denied: "Calendar access is off. Allow it in System Settings → Privacy & Security → Calendars."
         default: "A heads-up five minutes before, with Join for calls."
@@ -395,7 +395,7 @@ struct SettingsView: View {
                 }
             }.padding(.vertical, 6).accessibilityLabel("Window switcher preview")
             Toggle(isOn: binding(\.switcherEnabled)) {
-                SettingsLabel(title: "Window Switcher", detail: model.switcher.status)
+                SettingsLabel(title: "Window Switcher", detail: .verbatim(model.switcher.status))
             }
         }
         Section {
@@ -429,7 +429,7 @@ struct SettingsView: View {
             }
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
-                if let error = model.lock.error { Footnote(text: error, symbol: "exclamationmark.circle") }
+                if let error = model.lock.error { Footnote(text: .verbatim(error), symbol: "exclamationmark.circle") }
                 Footnote(text: "macOS handles your password, Touch ID and Apple Watch. Sense never sees credentials.", symbol: "lock.shield")
             }
         }
@@ -445,17 +445,17 @@ struct SettingsView: View {
             LabeledContent {
                 lidSetupControl
             } label: {
-                SettingsLabel(title: model.lidSetupStatus.title, detail: model.lidSetupStatus.detail)
+                SettingsLabel(title: .verbatim(model.lidSetupStatus.title), detail: .verbatim(model.lidSetupStatus.detail))
             }
             Picker(selection: binding(\.lidFoldStyle)) {
                 ForEach(LidFoldStyle.allCases) { Text($0.title).tag($0) }
             } label: {
-                SettingsLabel(title: "Closing Style", detail: preferences.lidFoldStyle.detail)
+                SettingsLabel(title: "Closing Style", detail: .verbatim(preferences.lidFoldStyle.detail))
             }
             LabeledContent {
                 Text("Automatic").foregroundStyle(.secondary)
             } label: {
-                SettingsLabel(title: "Hinge Sensor", detail: model.lid.status)
+                SettingsLabel(title: "Hinge Sensor", detail: .verbatim(model.lid.status))
             }
         } header: { Text("Lid Fold") } footer: {
             VStack(alignment: .leading, spacing: 6) {
@@ -539,17 +539,17 @@ struct SettingsView: View {
     private func binding<T>(_ keyPath: ReferenceWritableKeyPath<Preferences, T>) -> Binding<T> {
         Binding(get: { preferences[keyPath: keyPath] }, set: { preferences[keyPath: keyPath] = $0 })
     }
-    private func featureToggle(_ page: SettingsPage, detail: String, isOn: Binding<Bool>) -> some View {
+    private func featureToggle(_ page: SettingsPage, detail: LocalizedStringKey, isOn: Binding<Bool>) -> some View {
         Toggle(isOn: isOn) {
             Label {
-                SettingsLabel(title: page.title, detail: detail)
+                SettingsLabel(title: .verbatim(page.title), detail: detail)
             } icon: {
                 SettingsIcon(symbol: page.symbol, tint: page.tint, size: 26)
             }
         }
         .contextMenu { Button("Show \(page.title) Settings") { model.page = page } }
     }
-    private func step(_ number: Int, _ title: String, _ detail: String) -> some View {
+    private func step(_ number: Int, _ title: LocalizedStringKey, _ detail: LocalizedStringKey) -> some View {
         Label {
             SettingsLabel(title: title, detail: detail)
         } icon: {

@@ -163,7 +163,7 @@ final class SenseAppModel {
         if let page { self.page = page }
         if settingsWindow == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 690), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
-            window.title = "Sense Settings"; window.titleVisibility = .hidden; window.titlebarAppearsTransparent = true
+            window.title = String(localized: "Sense Settings"); window.titleVisibility = .hidden; window.titlebarAppearsTransparent = true
             window.minSize = NSSize(width: 820, height: 600); window.isReleasedWhenClosed = false
             window.contentView = NSHostingView(rootView: SettingsView(model: self))
             window.setFrameAutosaveName(AppEnvironment.isSmokeTest ? "SenseSmokeSettings" : "SenseSettings"); window.center()
@@ -176,7 +176,7 @@ final class SenseAppModel {
         if scaleWindow == nil {
             let window = ScaleWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 680), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
             window.weighing = scale
-            window.title = "Trackpad Scale"; window.isReleasedWhenClosed = false
+            window.title = String(localized: "Trackpad Scale"); window.isReleasedWhenClosed = false
             window.contentView = NSHostingView(rootView: ScaleView(model: scale))
             window.center(); scaleWindow = window
         }
@@ -189,13 +189,13 @@ final class SenseAppModel {
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", "for attempt in 1 2 3 4 5 6 7 8 9 10; do /bin/kill -0 \"$1\" 2>/dev/null || exec /usr/bin/open -n \"$2\" --args --lid-setup; /bin/sleep 0.2; done", "sense-relaunch", String(ProcessInfo.processInfo.processIdentifier), Bundle.main.bundleURL.path]
         do { try process.run(); NSApp.terminate(nil) }
-        catch { lid.captureMessage = "Couldn’t restart Sense. Quit from the menu bar and reopen it." }
+        catch { lid.captureMessage = String(localized: "Couldn’t restart Sense. Quit from the menu bar and reopen it.") }
     }
     func setLogin(_ enabled: Bool) {
         do {
             if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
             loginEnabled = SMAppService.mainApp.status == .enabled
-            loginMessage = SMAppService.mainApp.status == .requiresApproval ? "Approve Sense in System Settings → General → Login Items." : nil
+            loginMessage = SMAppService.mainApp.status == .requiresApproval ? String(localized: "Approve Sense in System Settings → General → Login Items.") : nil
             if SMAppService.mainApp.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
         } catch { loginEnabled = SMAppService.mainApp.status == .enabled; loginMessage = error.localizedDescription }
     }

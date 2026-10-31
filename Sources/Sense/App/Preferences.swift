@@ -3,13 +3,13 @@ import SwiftUI
 enum Appearance: String, CaseIterable, Identifiable {
     case system, light, dark
     var id: String { rawValue }
-    var title: String { rawValue.capitalized }
+    var title: String { switch self { case .system: String(localized: "System"); case .light: String(localized: "Light"); case .dark: String(localized: "Dark") } }
 }
 
 enum MenuBarStatus: String, CaseIterable, Identifiable {
     case off, battery, activity
     var id: String { rawValue }
-    var title: String { switch self { case .off: "Off"; case .battery: "Battery"; case .activity: "Timer" } }
+    var title: String { switch self { case .off: String(localized: "Off"); case .battery: String(localized: "Battery"); case .activity: String(localized: "Timer") } }
 }
 
 enum SwitcherShortcut: String, CaseIterable, Identifiable {
@@ -143,7 +143,17 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     case general = "General", notch = "Dynamic Island", switcher = "Window Switcher"
     case lock = "Lock Screen", labs = "Labs", permissions = "Permissions"
     var id: String { rawValue }
-    var title: String { self == .welcome ? "Welcome to Sense" : rawValue }
+    var title: String {
+        switch self {
+        case .welcome: String(localized: "Welcome to Sense")
+        case .general: String(localized: "General")
+        case .notch: String(localized: "Dynamic Island")
+        case .switcher: String(localized: "Window Switcher")
+        case .lock: String(localized: "Lock Screen")
+        case .labs: String(localized: "Labs")
+        case .permissions: String(localized: "Permissions")
+        }
+    }
     /// The welcome page is reached on first launch or from General, not from the sidebar.
     static var sidebar: [SettingsPage] { allCases.filter { $0 != .welcome } }
     var symbol: String {
@@ -171,13 +181,13 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     }
     var subtitle: String {
         switch self {
-        case .welcome: "Turn on what you want. Everything else stays off, and you can change it anytime."
-        case .general: "A little more Mac."
-        case .notch: "A quiet home for what’s happening."
-        case .switcher: "Every window. One shortcut."
-        case .lock: "A softer landing. The same security."
-        case .labs: "Experiments that lean on your Mac’s sensors. Fun, and a little unpredictable."
-        case .permissions: "You’re in control."
+        case .welcome: String(localized: "Turn on what you want. Everything else stays off, and you can change it anytime.")
+        case .general: String(localized: "A little more Mac.")
+        case .notch: String(localized: "A quiet home for what’s happening.")
+        case .switcher: String(localized: "Every window. One shortcut.")
+        case .lock: String(localized: "A softer landing. The same security.")
+        case .labs: String(localized: "Experiments that lean on your Mac’s sensors. Fun, and a little unpredictable.")
+        case .permissions: String(localized: "You’re in control.")
         }
     }
 }
@@ -187,6 +197,16 @@ enum IslandSection: String, CaseIterable, Identifiable {
     case nowPlaying = "Now Playing", shelf = "Shelf & Clipboard", activities = "Live Activities"
     case battery = "Battery", hiding = "Hide Automatically", keyboard = "Keyboard & Shortcuts"
     var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .nowPlaying: String(localized: "Now Playing")
+        case .shelf: String(localized: "Shelf & Clipboard")
+        case .activities: String(localized: "Live Activities")
+        case .battery: String(localized: "Battery")
+        case .hiding: String(localized: "Hide Automatically")
+        case .keyboard: String(localized: "Keyboard & Shortcuts")
+        }
+    }
     var symbol: String {
         switch self {
         case .nowPlaying: "play.fill"
@@ -209,12 +229,12 @@ enum IslandSection: String, CaseIterable, Identifiable {
     }
     var subtitle: String {
         switch self {
-        case .nowPlaying: "What’s playing in any app, with artwork and controls."
-        case .shelf: "A place for files and snippets while you work."
-        case .activities: "Brief updates from your Mac, right where you’re looking."
-        case .battery: "Power at a glance, and a word when it matters."
-        case .hiding: "The island steps aside when it should."
-        case .keyboard: "Open the island without reaching for the pointer."
+        case .nowPlaying: String(localized: "What’s playing in any app, with artwork and controls.")
+        case .shelf: String(localized: "A place for files and snippets while you work.")
+        case .activities: String(localized: "Brief updates from your Mac, right where you’re looking.")
+        case .battery: String(localized: "Power at a glance, and a word when it matters.")
+        case .hiding: String(localized: "The island steps aside when it should.")
+        case .keyboard: String(localized: "Open the island without reaching for the pointer.")
         }
     }
 }

@@ -39,6 +39,12 @@ extras. The goal is an Apple-like feel: quiet by default, opaque black island, s
 - Settings: every preference is a stored property on `Preferences` saved under its own name; a change in
   `SettingsView` calls `model.apply()`.
 - Match the surrounding code: dense, few comments that explain why, Apple-style user-facing copy.
+- Every user-facing string is translatable: SwiftUI literals, `LocalizedStringKey` parameters on our own
+  components (`SettingsLabel`, `Footnote`, `IslandEmptyState`, `TimerActionButton`…), or `String(localized:)` in
+  model code. Write whole sentences per count ("Copied 1 file" / "Copied \(n) files"), never glue English pieces.
+  Text made elsewhere is shown with `.verbatim(_:)`. Diagnostics, identifiers and saved raw values stay English.
+- Danish lives in `Resources/da.lproj/Localizable.strings` (keys are the English text). After changing UI text,
+  run `scripts/check-localization.sh`; it lists missing translations and placeholder mismatches.
 
 ## Layout
 

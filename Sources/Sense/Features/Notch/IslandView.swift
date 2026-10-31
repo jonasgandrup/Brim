@@ -160,7 +160,7 @@ struct IslandView: View {
         } else if dualActivities {
             PlaybackActivity(playing: media.playing)
         } else if controller.countdown.active {
-            Text(controller.countdown.state.phase == .finished ? "Done" : controller.countdown.label)
+            Text(controller.countdown.state.phase == .finished ? String(localized: "Done") : controller.countdown.label)
                 .font(.system(size: 10, weight: .semibold)).monospacedDigit()
                 .foregroundStyle(controller.countdown.focus?.phase == .focus ? Color.red : .orange).minimumScaleFactor(0.6)
                 .contentTransition(.numericText(countsDown: true))
@@ -310,7 +310,7 @@ struct IslandView: View {
                             .contentTransition(.opacity)
                         HStack(spacing: 4) {
                             if let icon = media.sourceIcon { Image(nsImage: icon).resizable().frame(width: 11, height: 11) }
-                            Text("\(media.playing ? "Playing" : "Paused") in \(media.sourceName)")
+                            Text(media.playing ? "Playing in \(media.sourceName)" : "Paused in \(media.sourceName)")
                         }.font(.system(size: 10)).foregroundStyle(.tertiary).lineLimit(1)
                     }.animation(reduceMotion ? nil : IslandStyle.quick, value: media.title)
                     Spacer(minLength: 0)
@@ -320,15 +320,15 @@ struct IslandView: View {
                         .frame(height: 17).help(message)
                 } else { MediaProgress(media: media) }
                 HStack(spacing: 28) {
-                    playbackButton("backward.fill", label: "Previous", command: "previous track")
+                    playbackButton("backward.fill", label: "Previous track in \(media.sourceName)", help: "Previous track in \(media.sourceName) only", command: "previous track")
                     playControl
-                    playbackButton("forward.fill", label: "Next", command: "next track")
+                    playbackButton("forward.fill", label: "Next track in \(media.sourceName)", help: "Next track in \(media.sourceName) only", command: "next track")
                 }.frame(maxWidth: .infinity)
                 .overlay(alignment: .trailing) {
                     AirPlayButton().frame(width: 26, height: 26).help("Choose where audio plays")
                 }
             }
-            .help(media.message ?? "Now Playing from \(media.sourceName)")
+            .help(media.message ?? String(localized: "Now Playing from \(media.sourceName)"))
         }
     }
     @ViewBuilder private var playControl: some View {
@@ -344,14 +344,14 @@ struct IslandView: View {
                 .font(.system(size: 19, weight: .semibold)).foregroundStyle(.white).frame(width: 38, height: 32)
         }.disabled(media.source == nil || media.commandPending || media.selectionLoading)
             .foregroundStyle(.white.opacity(media.source == nil ? 0.22 : 1))
-            .accessibilityLabel("\(media.playing ? "Pause" : "Play") in \(media.sourceName)")
-            .help("\(media.playing ? "Pause" : "Play") \(media.sourceName) only")
+            .accessibilityLabel(media.playing ? "Pause \(media.sourceName)" : "Play \(media.sourceName)")
+            .help(media.playing ? "Pause \(media.sourceName) only" : "Play \(media.sourceName) only")
     }
-    private func playbackButton(_ symbol: String, label: String, command: String) -> some View {
+    private func playbackButton(_ symbol: String, label: LocalizedStringKey, help: LocalizedStringKey, command: String) -> some View {
         Button { media.command(command) } label: {
             Image(systemName: symbol).font(.system(size: 16, weight: .semibold)).frame(width: 34, height: 30).contentShape(Rectangle())
         }.buttonStyle(IslandPressStyle()).disabled(media.source == nil || media.commandPending || media.selectionLoading)
-            .foregroundStyle(.white.opacity(media.source == nil ? 0.22 : 0.85)).accessibilityLabel("\(label) in \(media.sourceName)").help("\(label) in \(media.sourceName) only")
+            .foregroundStyle(.white.opacity(media.source == nil ? 0.22 : 0.85)).accessibilityLabel(label).help(help)
     }
 }
 
@@ -367,10 +367,10 @@ struct IslandTabBar: View {
     /// Only the sections that have something to offer: Transfers appears once it's turned on or busy,
     /// and the controls tab is named for what this Mac has.
     static func visible(showsTransfers: Bool, hasBattery: Bool) -> [Item] {
-        var items: [Item] = [(.music, "play.fill", "Now Playing"), (.files, "tray.fill", "Files"), (.clipboard, "pin.fill", "Clipboard"),
-                             (.timer, "clock.fill", "Clock"),
-                             (.battery, hasBattery ? "battery.100percent" : "slider.horizontal.3", hasBattery ? "Battery & Controls" : "Controls")]
-        if showsTransfers { items.append((.transfers, "gauge.with.dots.needle.33percent", "Activity")) }
+        var items: [Item] = [(.music, "play.fill", String(localized: "Now Playing")), (.files, "tray.fill", String(localized: "Files")), (.clipboard, "pin.fill", String(localized: "Clipboard")),
+                             (.timer, "clock.fill", String(localized: "Clock")),
+                             (.battery, hasBattery ? "battery.100percent" : "slider.horizontal.3", hasBattery ? String(localized: "Battery & Controls") : String(localized: "Controls"))]
+        if showsTransfers { items.append((.transfers, "gauge.with.dots.needle.33percent", String(localized: "Activity"))) }
         return items
     }
     var body: some View {
@@ -401,8 +401,8 @@ struct IslandTabBar: View {
 /// A shared empty state: one symbol, a title, a line of detail and an optional action.
 struct IslandEmptyState<Actions: View>: View {
     let symbol: String
-    let title: String
-    var detail: String?
+    let title: LocalizedStringKey
+    var detail: LocalizedStringKey?
     var minHeight: CGFloat = 100
     @ViewBuilder var actions: () -> Actions
     var body: some View {
@@ -418,7 +418,7 @@ struct IslandEmptyState<Actions: View>: View {
     }
 }
 extension IslandEmptyState where Actions == EmptyView {
-    init(symbol: String, title: String, detail: String? = nil, minHeight: CGFloat = 100) {
+    init(symbol: String, title: LocalizedStringKey, detail: LocalizedStringKey? = nil, minHeight: CGFloat = 100) {
         self.init(symbol: symbol, title: title, detail: detail, minHeight: minHeight) { EmptyView() }
     }
 }
@@ -524,7 +524,7 @@ struct DropZonesView: View {
     let zone: DropZone
     var body: some View {
         HStack(spacing: 10) {
-            tile(.shelf, symbol: "tray.and.arrow.down.fill", title: "Shelf", tint: .white)
+            tile(.shelf, symbol: "tray.and.arrow.down.fill", title: String(localized: "Shelf"), tint: .white)
             tile(.airDrop, symbol: "dot.radiowaves.up.forward", title: "AirDrop", tint: .blue)
         }
         .animation(IslandStyle.quick, value: zone)

@@ -36,7 +36,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             image.isTemplate = true
             button.image = image
             button.imagePosition = .imageOnly
-            button.toolTip = "Sense — Dynamic Island and Mac utilities"
+            button.toolTip = String(localized: "Sense — Dynamic Island and Mac utilities")
             button.setAccessibilityLabel("Sense")
         }
         menu.autoenablesItems = false
@@ -65,7 +65,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             return ("\(level)%", model.status.charging)
         case .activity:
             let countdown = model.notch.countdown
-            if countdown.active { return (countdown.state.phase == .finished ? "Done" : countdown.label, false) }
+            if countdown.active { return (countdown.state.phase == .finished ? String(localized: "Done") : countdown.label, false) }
             let clock = model.notch.clock
             if clock.active { return (clock.label, false) }
             return nil
@@ -80,7 +80,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
         let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         let title = NSMutableAttributedString()
-        if status.bolt, let bolt = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: "Charging") {
+        if status.bolt, let bolt = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: String(localized: "Charging")) {
             let attachment = NSTextAttachment(); attachment.image = bolt.withSymbolConfiguration(.init(pointSize: 10, weight: .semibold))
             title.append(NSAttributedString(attachment: attachment))
         }
@@ -94,15 +94,15 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let application = NSMenu()
         let root = NSMenuItem(title: "Sense", action: nil, keyEquivalent: "")
         root.submenu = application; main.addItem(root)
-        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        let settings = NSMenuItem(title: String(localized: "Settings…"), action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self; application.addItem(settings)
         application.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit Sense", action: #selector(quit), keyEquivalent: "q")
+        let quit = NSMenuItem(title: String(localized: "Quit Sense"), action: #selector(quit), keyEquivalent: "q")
         quit.target = self; application.addItem(quit)
-        let edit = NSMenu(title: "Edit")
-        let editRoot = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+        let edit = NSMenu(title: String(localized: "Edit"))
+        let editRoot = NSMenuItem(title: String(localized: "Edit"), action: nil, keyEquivalent: "")
         editRoot.submenu = edit; main.addItem(editRoot)
-        for (title, selector, key) in [("Undo", "undo:", "z"), ("Cut", "cut:", "x"), ("Copy", "copy:", "c"), ("Paste", "paste:", "v"), ("Select All", "selectAll:", "a")] {
+        for (title, selector, key) in [(String(localized: "Undo"), "undo:", "z"), (String(localized: "Cut"), "cut:", "x"), (String(localized: "Copy"), "copy:", "c"), (String(localized: "Paste"), "paste:", "v"), (String(localized: "Select All"), "selectAll:", "a")] {
             edit.addItem(NSMenuItem(title: title, action: NSSelectorFromString(selector), keyEquivalent: key))
         }
         NSApp.mainMenu = main
@@ -119,48 +119,48 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private func rebuildMenu() {
         menu.removeAllItems()
         let heading = add("Sense"); heading.isEnabled = false
-        let presentation = add(model.notch.manualPresentation ? "End Presentation Mode" : "Presentation Mode", action: #selector(togglePresentation), symbol: "display")
+        let presentation = add(model.notch.manualPresentation ? String(localized: "End Presentation Mode") : String(localized: "Presentation Mode"), action: #selector(togglePresentation), symbol: "display")
         presentation.state = model.notch.manualPresentation ? .on : .off
-        if let reason = model.notch.autoHideReason { add("Island hidden automatically · \(reason)").isEnabled = false }
+        if let reason = model.notch.autoHideReason { add(String(localized: "Island hidden automatically · \(reason)")).isEnabled = false }
         menu.addItem(.separator())
-        add("Open Dynamic Island", action: #selector(openIsland), symbol: "capsule").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
-        add("Now Playing", action: #selector(openNowPlaying), symbol: "play.rectangle").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
-        add("Open File Shelf", action: #selector(openFileShelf), symbol: "tray").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
-        add("Clock…", action: #selector(openTimer), symbol: "timer").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
-        add("Start Focus Session", action: #selector(startFocus), symbol: "brain.head.profile").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode && !model.notch.countdown.active
-        add("Clipboard Shelf", action: #selector(openClipboard), symbol: "pin").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
-        add("Battery", action: #selector(openBattery), symbol: "battery.100").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
-        add("Transfers", action: #selector(openTransfers), symbol: "arrow.down.circle").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
+        add(String(localized: "Open Dynamic Island"), action: #selector(openIsland), symbol: "capsule").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
+        add(String(localized: "Now Playing"), action: #selector(openNowPlaying), symbol: "play.rectangle").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
+        add(String(localized: "Open File Shelf"), action: #selector(openFileShelf), symbol: "tray").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
+        add(String(localized: "Clock…"), action: #selector(openTimer), symbol: "timer").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
+        add(String(localized: "Start Focus Session"), action: #selector(startFocus), symbol: "brain.head.profile").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode && !model.notch.countdown.active
+        add(String(localized: "Clipboard Shelf"), action: #selector(openClipboard), symbol: "pin").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
+        add(String(localized: "Battery"), action: #selector(openBattery), symbol: "battery.100").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
+        add(String(localized: "Transfers"), action: #selector(openTransfers), symbol: "arrow.down.circle").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
         if model.preferences.toolShortcutsEnabled {
-            for (title, key) in [("Now Playing", "1"), ("Open File Shelf", "2"), ("Clipboard Shelf", "3"), ("Clock…", "4"), ("Battery", "5"), ("Transfers", "6")] {
+            for (title, key) in [(String(localized: "Now Playing"), "1"), (String(localized: "Open File Shelf"), "2"), (String(localized: "Clipboard Shelf"), "3"), (String(localized: "Clock…"), "4"), (String(localized: "Battery"), "5"), (String(localized: "Transfers"), "6")] {
                 if let entry = menu.items.first(where: { $0.title == title }) {
                     entry.keyEquivalent = key; entry.keyEquivalentModifierMask = model.preferences.toolShortcutModifiers.menuMask
                 }
             }
         }
-        add("Pin Clipboard", action: #selector(pinClipboard), symbol: "doc.on.clipboard").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
-        add("Set Up Lid Fold…", action: #selector(openLidSetup), symbol: "macbook")
-        add("Settings…", action: #selector(openSettings), key: ",", symbol: "gearshape")
+        add(String(localized: "Pin Clipboard"), action: #selector(pinClipboard), symbol: "doc.on.clipboard").isEnabled = model.preferences.notchEnabled && !model.notch.presentationMode
+        add(String(localized: "Set Up Lid Fold…"), action: #selector(openLidSetup), symbol: "macbook")
+        add(String(localized: "Settings…"), action: #selector(openSettings), key: ",", symbol: "gearshape")
         menu.addItem(.separator())
         for (title, key, enabled) in [
-            ("Dynamic Island", "notch", model.preferences.notchEnabled),
-            ("Window Switcher", "switcher", model.preferences.switcherEnabled),
-            ("Trackpad Scale", "scale", model.preferences.scaleEnabled),
-            ("Lid Fold", "lid", model.preferences.lidEffectEnabled),
-            ("Lock Actions", "lock", model.preferences.lockEnabled)
+            (String(localized: "Dynamic Island"), "notch", model.preferences.notchEnabled),
+            (String(localized: "Window Switcher"), "switcher", model.preferences.switcherEnabled),
+            (String(localized: "Trackpad Scale"), "scale", model.preferences.scaleEnabled),
+            (String(localized: "Lid Fold"), "lid", model.preferences.lidEffectEnabled),
+            (String(localized: "Lock Actions"), "lock", model.preferences.lockEnabled)
         ] {
             let entry = add(title, action: #selector(toggleFeature(_:)))
             entry.representedObject = key; entry.state = enabled ? .on : .off
         }
         menu.addItem(.separator())
-        add("Open Trackpad Scale", action: #selector(openScale), symbol: "scalemass").isEnabled = model.preferences.scaleEnabled
-        add("Lock Mac", action: #selector(lockMac), symbol: "lock").isEnabled = model.preferences.lockEnabled
+        add(String(localized: "Open Trackpad Scale"), action: #selector(openScale), symbol: "scalemass").isEnabled = model.preferences.scaleEnabled
+        add(String(localized: "Lock Mac"), action: #selector(lockMac), symbol: "lock").isEnabled = model.preferences.lockEnabled
         menu.addItem(.separator())
-        add("Quit Sense", action: #selector(quit), key: "q")
+        add(String(localized: "Quit Sense"), action: #selector(quit), key: "q")
     }
     @objc private func togglePresentation() {
         model.notch.setPresentationMode(!model.notch.manualPresentation)
-        item.button?.toolTip = model.notch.manualPresentation ? "Sense — Presentation Mode · island hidden" : "Sense — Dynamic Island and Mac utilities"
+        item.button?.toolTip = model.notch.manualPresentation ? String(localized: "Sense — Presentation Mode · island hidden") : String(localized: "Sense — Dynamic Island and Mac utilities")
         rebuildMenu()
     }
     @objc private func openNowPlaying() { model.notch.openTool(.nowPlaying) }

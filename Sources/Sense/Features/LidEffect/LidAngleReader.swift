@@ -8,9 +8,9 @@ actor LidAngleReader {
     private var device: IOHIDDevice?
     func open() -> String? {
         if device != nil { return nil }
-        guard let matching = IOServiceMatching("IOHIDDevice") else { return "Hinge sensor unavailable." }
+        guard let matching = IOServiceMatching("IOHIDDevice") else { return String(localized: "Hinge sensor unavailable.") }
         var iterator: io_iterator_t = 0
-        guard IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator) == KERN_SUCCESS else { return "Could not inspect hinge hardware." }
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator) == KERN_SUCCESS else { return String(localized: "Could not inspect hinge hardware.") }
         defer { IOObjectRelease(iterator) }
         while case let service = IOIteratorNext(iterator), service != 0 {
             defer { IOObjectRelease(service) }
@@ -21,11 +21,11 @@ actor LidAngleReader {
                   number("PrimaryUsagePage") == 0x20, number("PrimaryUsage") == 0x8a,
                   let candidate = IOHIDDeviceCreate(kCFAllocatorDefault, service) else { continue }
             let result = IOHIDDeviceOpen(candidate, IOOptionBits(kIOHIDOptionsTypeNone))
-            guard result == kIOReturnSuccess else { return "Hinge sensor access unavailable (\(result))." }
+            guard result == kIOReturnSuccess else { return String(localized: "Hinge sensor access unavailable (\(result)).") }
             device = candidate
             return nil
         }
-        return "This Mac does not expose a compatible continuous hinge-angle sensor."
+        return String(localized: "This Mac does not expose a compatible continuous hinge-angle sensor.")
     }
     func read() -> Double? {
         guard let device else { return nil }

@@ -417,14 +417,14 @@ final class NotchController {
         }
         screenshots.onScreenshot = { [weak self] url in self?.receiveScreenshot(url) }
         calendar.onSoon = { [weak self] event in
-            let action = event.meetingURL.map { (title: "Join", url: $0) }
-            self?.showFeedback("\(event.title) · \(event.relative(at: Date()))", symbol: "calendar", tint: .red, action: action, seconds: action == nil ? 5 : 8)
+            let action = event.meetingURL.map { (title: String(localized: "Join"), url: $0) }
+            self?.showFeedback(String(localized: "\(event.title) · \(event.relative(at: Date()))"), symbol: "calendar", tint: .red, action: action, seconds: action == nil ? 5 : 8)
         }
         transfers.onFinished = { [weak self] activity in self?.transferFinished(activity) }
         sensors.onChange = { [weak self] camera, microphone in self?.sensorsChanged(camera: camera, microphone: microphone) }
         brightness.onChange = { [weak self] level in
             self?.brightnessControl.receive(level)
-            self?.showHUD(.init(symbol: NotchController.brightnessSymbol(level), level: level, label: "Brightness"))
+            self?.showHUD(.init(symbol: NotchController.brightnessSymbol(level), level: level, label: String(localized: "Brightness")))
         }
         bluetooth.onConnected = { [weak self] device in self?.deviceConnected(device) }
         status?.onOutputChange = { [weak self] output in self?.outputChanged(output) }
@@ -856,13 +856,13 @@ final class NotchController {
                 swipeFired = true
                 media.command(command)
                 haptic(.land)
-                showHUD(.init(symbol: command == "next track" ? "forward.fill" : "backward.fill", label: command == "next track" ? "Next Track" : "Previous Track"), seconds: 0.9)
+                showHUD(.init(symbol: command == "next track" ? "forward.fill" : "backward.fill", label: command == "next track" ? String(localized: "Next Track") : String(localized: "Previous Track")), seconds: 0.9)
             }
         } else if let status, status.volumeSettable, let volume = status.volume, fingers.up != 0 {
             let next = IslandGesture.volume(status.muted ? 0 : volume, up: fingers.up, precise: event.hasPreciseScrollingDeltas)
             status.setVolume(next)
             showHUD(.init(symbol: next == 0 ? "speaker.slash.fill" : next < 0.34 ? "speaker.wave.1.fill" : next < 0.67 ? "speaker.wave.2.fill" : "speaker.wave.3.fill",
-                          level: next, label: "Volume"))
+                          level: next, label: String(localized: "Volume")))
         }
         return true
     }
@@ -942,12 +942,12 @@ final class NotchController {
     func startTimer(minutes: Double) {
         countdown.start(seconds: minutes * 60)
         clock.mode = .timer; selectedTab = .timer
-        showHUD(.init(symbol: "timer", tint: .orange, label: "Timer started"))
+        showHUD(.init(symbol: "timer", tint: .orange, label: String(localized: "Timer started")))
     }
     func startFocus() {
         countdown.startFocus()
         clock.mode = .focus; selectedTab = .timer
-        showHUD(.init(symbol: "brain.head.profile", tint: .red, label: "Focus started"))
+        showHUD(.init(symbol: "brain.head.profile", tint: .red, label: String(localized: "Focus started")))
     }
     func pinClipboard() {
         if let urls = NSPasteboard.general.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
@@ -979,14 +979,14 @@ final class NotchController {
         case .finished:
             let text = switch activity.kind {
             case .airDropSend: activity.name
-            case .airDropReceive: "Received \(activity.name)"
-            case .download: "Downloaded \(activity.name)"
+            case .airDropReceive: String(localized: "Received \(activity.name)")
+            case .download: String(localized: "Downloaded \(activity.name)")
             }
             haptic(.finish)
             showFeedback(text, symbol: activity.symbol, tint: .blue, seconds: 3)
         case .failed(let message):
             Log.island.notice("Transfer failed: \(message, privacy: .private)")
-            showFeedback("AirDrop didn’t finish", symbol: "exclamationmark.circle", tint: .orange)
+            showFeedback(String(localized: "AirDrop didn’t finish"), symbol: "exclamationmark.circle", tint: .orange)
         case .running: break
         }
     }
@@ -996,11 +996,11 @@ final class NotchController {
         guard !AppEnvironment.isSmokeTest, !expanded, !fileDragActive, let event else { return }
         switch event {
         case .connected(let percent) where preferences.chargingFeedback:
-            showFeedback("Charging · \(percent)%", symbol: "battery.100percent.bolt", battery: (percent, true))
+            showFeedback(String(localized: "Charging · \(percent)%"), symbol: "battery.100percent.bolt", battery: (percent, true))
         case .targetReached(let target) where preferences.chargingFeedback:
-            showFeedback("Battery reached \(target)%", symbol: "battery.100percent", battery: (target, false))
+            showFeedback(String(localized: "Battery reached \(target)%"), symbol: "battery.100percent", battery: (target, false))
         case .low(let percent):
-            showFeedback("Battery low · \(percent)%", symbol: "battery.25percent", tint: .red, battery: (percent, false), seconds: 5)
+            showFeedback(String(localized: "Battery low · \(percent)%"), symbol: "battery.25percent", tint: .red, battery: (percent, false), seconds: 5)
         default: break
         }
     }
@@ -1008,7 +1008,7 @@ final class NotchController {
         guard preferences?.systemHUD == true else { return }
         let level = muted ? 0 : (volume ?? 0)
         let symbol = muted || level == 0 ? "speaker.slash.fill" : level < 0.34 ? "speaker.wave.1.fill" : level < 0.67 ? "speaker.wave.2.fill" : "speaker.wave.3.fill"
-        showHUD(.init(symbol: symbol, level: volume == nil ? nil : level, label: muted ? "Muted" : "Volume"))
+        showHUD(.init(symbol: symbol, level: volume == nil ? nil : level, label: muted ? String(localized: "Muted") : String(localized: "Volume")))
     }
     static func brightnessSymbol(_ level: Double) -> String { level < 0.5 ? "sun.min.fill" : "sun.max.fill" }
     /// Where sound is going now, as iPhone shows when you pick an AirPlay speaker. Bluetooth headphones get
@@ -1017,19 +1017,19 @@ final class NotchController {
         guard preferences?.systemChanges == true, !expanded, feedback == nil else { return }
         let bluetooth = [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE].contains(output.transport)
         guard !(bluetooth && preferences?.bluetoothBatteries == true) else { return }
-        showFeedback("Playing on \(output.name)", symbol: output.symbol, tint: .white, seconds: 2.5)
+        showFeedback(String(localized: "Playing on \(output.name)"), symbol: output.symbol, tint: .white, seconds: 2.5)
     }
     private func receive(_ moment: SystemMoments.Moment) {
         guard preferences?.systemChanges == true else { return }
         switch moment {
-        case .lowPower(let on): showHUD(.init(symbol: on ? "leaf.fill" : "leaf", tint: .yellow, label: on ? "Low Power Mode On" : "Low Power Mode Off"), seconds: 2)
-        case .offline: showHUD(.init(symbol: "wifi.slash", tint: .orange, label: "Offline"), seconds: 3)
-        case .online: showHUD(.init(symbol: "wifi", tint: .green, label: "Back Online"), seconds: 2)
+        case .lowPower(let on): showHUD(.init(symbol: on ? "leaf.fill" : "leaf", tint: .yellow, label: on ? String(localized: "Low Power Mode On") : String(localized: "Low Power Mode Off")), seconds: 2)
+        case .offline: showHUD(.init(symbol: "wifi.slash", tint: .orange, label: String(localized: "Offline")), seconds: 3)
+        case .online: showHUD(.init(symbol: "wifi", tint: .green, label: String(localized: "Back Online")), seconds: 2)
         }
     }
     private func sensorsChanged(camera: Bool, microphone: Bool) {
         guard preferences?.sensorIndicator == true, camera || microphone else { return }
-        let label = camera && microphone ? "Camera and microphone in use" : camera ? "Camera in use" : "Microphone in use"
+        let label = camera && microphone ? String(localized: "Camera and microphone in use") : camera ? String(localized: "Camera in use") : String(localized: "Microphone in use")
         showHUD(.init(symbol: camera ? "video.fill" : "mic.fill", tint: camera ? .green : .orange, label: label), seconds: 2.5)
     }
     private func deviceConnected(_ device: BluetoothDevice) {
@@ -1040,7 +1040,7 @@ final class NotchController {
     /// Shown compact and brief, as on iPhone. Sense learns only that a Focus is on, not which one.
     func focusChanged(on: Bool) {
         guard preferences?.focusFeedback == true else { return }
-        showHUD(.init(symbol: on ? "moon.fill" : "moon", tint: .indigo, label: on ? "Focus On" : "Focus Off"), seconds: 2)
+        showHUD(.init(symbol: on ? "moon.fill" : "moon", tint: .indigo, label: on ? String(localized: "Focus On") : String(localized: "Focus Off")), seconds: 2)
     }
     /// A new screenshot goes onto the file shelf and gets a brief preview, like the iPhone's corner thumbnail.
     func receiveScreenshot(_ url: URL) {
@@ -1048,7 +1048,7 @@ final class NotchController {
         shelf.add([url]); shelf.select([url.standardizedFileURL])
         selectedTab = .files
         haptic(.land)
-        showFeedback("Screenshot", symbol: "camera.viewfinder", image: ScreenshotWatcher.thumbnail(for: url), url: url, seconds: 4)
+        showFeedback(String(localized: "Screenshot"), symbol: "camera.viewfinder", image: ScreenshotWatcher.thumbnail(for: url), url: url, seconds: 4)
     }
 
     // MARK: Feedback presentation

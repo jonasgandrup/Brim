@@ -19,6 +19,13 @@ struct StopwatchState {
 
 enum AlarmRepeat: String, CaseIterable, Identifiable {
     case once = "Once", daily = "Daily", weekdays = "Weekdays"
+    /// The raw value is what's saved; this is what's shown.
+    var title: String {
+        switch self { case .once: String(localized: "Once"); case .daily: String(localized: "Daily"); case .weekdays: String(localized: "Weekdays") }
+    }
+    var repeatsText: String {
+        switch self { case .once: ""; case .daily: String(localized: "Repeats daily"); case .weekdays: String(localized: "Repeats on weekdays") }
+    }
     var id: String { rawValue }
 }
 
@@ -38,6 +45,12 @@ struct AlarmSchedule {
 
 enum ClockMode: String, CaseIterable {
     case timer = "Timer", focus = "Focus", stopwatch = "Stopwatch", alarm = "Alarm"
+    var title: String {
+        switch self {
+        case .timer: String(localized: "Timer"); case .focus: String(localized: "Focus")
+        case .stopwatch: String(localized: "Stopwatch"); case .alarm: String(localized: "Alarm")
+        }
+    }
     var symbol: String {
         switch self { case .timer: "timer"; case .focus: "brain.head.profile"; case .stopwatch: "stopwatch"; case .alarm: "alarm" }
     }
@@ -100,21 +113,21 @@ enum ClockMode: String, CaseIterable {
     func arm(at date: Date) {
         guard date > Date() else { return }
         cancelAlarm(); alarmDate = date; defaults.set(date, forKey: "clockAlarmDate"); runAlarmTicker()
-        notice = "Keep Sense running. A sleeping Mac rings on wake."
+        notice = String(localized: "Keep Sense running. A sleeping Mac rings on wake.")
         guard notificationsEnabled else { return }
         Task { [weak self] in
             let center = UNUserNotificationCenter.current()
             do {
                 let granted = try await center.requestAuthorization(options: [.alert, .sound])
                 guard let self, self.alarmDate == date else { return }
-                guard granted else { self.notice = "Notifications are off. Keep Sense running for the alarm."; return }
+                guard granted else { self.notice = String(localized: "Notifications are off. Keep Sense running for the alarm."); return }
                 let content = UNMutableNotificationContent()
-                content.title = "Sense Alarm"; content.body = "Your alarm is ready."; content.sound = .default
+                content.title = String(localized: "Sense Alarm"); content.body = String(localized: "Your alarm is ready."); content.sound = .default
                 let request = UNNotificationRequest(identifier: self.notificationID, content: content,
                     trigger: UNTimeIntervalNotificationTrigger(timeInterval: max(1, date.timeIntervalSinceNow), repeats: false))
                 try await center.add(request)
                 if self.alarmDate != date { center.removePendingNotificationRequests(withIdentifiers: [self.notificationID]) }
-            } catch { self?.notice = "Notifications unavailable. Keep Sense running for the alarm." }
+            } catch { self?.notice = String(localized: "Notifications unavailable. Keep Sense running for the alarm.") }
         }
     }
     func cancelAlarm() {
@@ -163,7 +176,7 @@ struct IslandClockView: View {
             HStack(spacing: 2) {
                 ForEach(ClockMode.allCases, id: \.self) { mode in
                     Button { clock.mode = mode } label: {
-                        Text(mode.rawValue).font(.system(size: 11, weight: clock.mode == mode ? .semibold : .medium))
+                        Text(mode.title).font(.system(size: 11, weight: clock.mode == mode ? .semibold : .medium))
                             .frame(maxWidth: .infinity).padding(.vertical, 3)
                             .background(clock.mode == mode ? IslandStyle.raisedFill : .clear, in: Capsule())
                             .foregroundStyle(clock.mode == mode ? .primary : .secondary)
@@ -214,16 +227,16 @@ struct IslandClockView: View {
                         }.frame(maxWidth: .infinity)
                     } else if let date = clock.alarmDate {
                         Text(date, format: .dateTime.weekday(.abbreviated).hour().minute()).font(.system(size: 22, weight: .light)).frame(maxWidth: .infinity)
-                        if clock.alarmRepeat != .once { Text("Repeats \(clock.alarmRepeat.rawValue.lowercased())").font(.system(size: 10)).foregroundStyle(.secondary).frame(maxWidth: .infinity) }
+                        if clock.alarmRepeat != .once { Text(clock.alarmRepeat.repeatsText).font(.system(size: 10)).foregroundStyle(.secondary).frame(maxWidth: .infinity) }
                         TimerActionButton(title: "Cancel Alarm", symbol: "xmark") { clock.cancelAlarm() }.frame(maxWidth: .infinity)
                     } else {
                         HStack {
                             DatePicker("Time", selection: $clock.alarmTime, displayedComponents: .hourAndMinute).labelsHidden().datePickerStyle(.field)
-                            Picker("Repeat", selection: $clock.alarmRepeat) { ForEach(AlarmRepeat.allCases) { Text($0.rawValue).tag($0) } }
+                            Picker("Repeat", selection: $clock.alarmRepeat) { ForEach(AlarmRepeat.allCases) { Text($0.title).tag($0) } }
                                 .labelsHidden().pickerStyle(.menu).controlSize(.small).fixedSize()
                             Spacer(); TimerActionButton(title: "Set Alarm", symbol: "alarm.fill", prominent: true) { clock.arm() }
                         }
-                        Text("\(clock.alarmRepeat == .once ? "One-time alarm" : "Repeating alarm") · sleeping Mac rings on wake").font(.system(size: 10)).foregroundStyle(.secondary)
+                        Text(clock.alarmRepeat == .once ? "One-time alarm · a sleeping Mac rings on wake" : "Repeating alarm · a sleeping Mac rings on wake").font(.system(size: 10)).foregroundStyle(.secondary)
                     }
                     if let notice = clock.notice { Text(notice).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2) }
                 }

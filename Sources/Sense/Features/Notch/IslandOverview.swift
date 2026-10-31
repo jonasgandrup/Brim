@@ -62,7 +62,7 @@ struct IslandOverview: View {
                 Spacer(minLength: 0)
                 HStack(spacing: 6) {
                     Image(systemName: "play.circle")
-                    Text(mediaEnabled ? (media.message ?? "Nothing playing") : "Now Playing is off").lineLimit(1)
+                    Text(mediaEnabled ? (media.message ?? String(localized: "Nothing playing")) : String(localized: "Now Playing is off")).lineLimit(1)
                     Spacer(minLength: 4)
                     if !mediaEnabled {
                         Button("Turn On", action: connectMedia).buttonStyle(.plain).font(.system(size: 11, weight: .semibold))

@@ -27,7 +27,7 @@ struct ScriptActivity: Identifiable, Equatable {
             if let progress { running[index].progress = progress }
             running[index].updated = now
         } else {
-            running.append(ScriptActivity(id: id, title: title ?? "Activity", symbol: symbol ?? "bolt.fill", progress: progress, updated: now))
+            running.append(ScriptActivity(id: id, title: title ?? String(localized: "Activity"), symbol: symbol ?? "bolt.fill", progress: progress, updated: now))
             if running.count > Self.limit { running.removeFirst(running.count - Self.limit) }
         }
         if let progress, progress >= 1 { end(id: id, finished: true) }

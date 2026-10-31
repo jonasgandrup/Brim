@@ -29,7 +29,7 @@ enum ShortcutModifiers: String, CaseIterable, Identifiable {
     enum Tool: UInt32, CaseIterable {
         case nowPlaying = 1, files, clipboard, clock, battery, transfers, island
         var title: String {
-            switch self { case .island: "Island"; case .nowPlaying: "Now Playing"; case .files: "Files"; case .clipboard: "Clipboard"; case .clock: "Clock"; case .battery: "Battery"; case .transfers: "Transfers" }
+            switch self { case .island: String(localized: "Island"); case .nowPlaying: String(localized: "Now Playing"); case .files: String(localized: "Files"); case .clipboard: String(localized: "Clipboard"); case .clock: String(localized: "Clock"); case .battery: String(localized: "Battery"); case .transfers: String(localized: "Transfers") }
         }
         var keyCode: UInt32 {
             switch self { case .island: UInt32(kVK_ANSI_0); case .nowPlaying: UInt32(kVK_ANSI_1); case .files: UInt32(kVK_ANSI_2)

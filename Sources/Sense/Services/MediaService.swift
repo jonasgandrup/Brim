@@ -77,7 +77,7 @@ private enum PlayerAutomation {
         let (result, success) = await run(script)
         guard success, !Task.isCancelled else { return nil }
         let fields = result.components(separatedBy: "\u{1f}")
-        guard fields.count == 5 else { return PlayerSnapshot(source: "", title: "Nothing playing", artist: "Music & Spotify", playing: false, artwork: nil) }
+        guard fields.count == 5 else { return PlayerSnapshot(source: "", title: String(localized: "Nothing playing"), artist: "Music & Spotify", playing: false, artwork: nil) }
         var artwork: Data?
         if fields[4] == "local" { artwork = try? Data(contentsOf: artworkFile) }
         else if let url = URL(string: fields[4]), url.scheme == "https" {
@@ -93,12 +93,12 @@ private enum PlayerAutomation {
 /// System-wide compatibility feed with native Music/Spotify automation fallbacks.
 @MainActor @Observable
 final class MediaService {
-    var title = "Nothing playing"
+    var title = String(localized: "Nothing playing")
     var artist = ""
     var playing = false
     var artwork: NSImage?
     var source: String?
-    var sourceName = "Now Playing"
+    var sourceName = String(localized: "Now Playing")
     var sourceIcon: NSImage?
     var timeline: MediaTimeline?
     var message: String?
@@ -229,7 +229,7 @@ final class MediaService {
                 if let snapshot { self.apply(snapshot) }
             } else {
                 self.cancelScrub()
-                self.message = "Seeking isn’t available in this player."
+                self.message = String(localized: "Seeking isn’t available in this player.")
             }
         }
     }
@@ -284,7 +284,7 @@ final class MediaService {
             }
             if let chosen {
                 self.clearPlayback(); self.refreshing = false
-                self.message = "\(chosen.name) isn’t publishing a media session. Choose Automatic or another player."
+                self.message = String(localized: "\(chosen.name) isn’t publishing a media session. Choose Automatic or another player.")
                 return
             }
             let native = await PlayerAutomation.snapshot(runningPlayers: runningPlayers)
@@ -292,19 +292,19 @@ final class MediaService {
             self.refreshing = false
             guard let native else {
                 self.clearPlayback()
-                self.message = self.systemAvailable ? "No media session is available." : "Player access unavailable. Check Automation access in System Settings."
+                self.message = self.systemAvailable ? String(localized: "No media session is available.") : String(localized: "Player access unavailable. Check Automation access in System Settings.")
                 return
             }
             self.systemTransport = false; self.identifier = ""; self.playerPath = ""; self.timeline = nil; self.seekSupported = false; self.cancelScrub()
             self.title = native.title; self.artist = native.artist; self.playing = native.playing
-            self.setSource(native.source.isEmpty ? nil : native.source, name: native.source == "com.spotify.client" ? "Spotify" : native.source == "com.apple.Music" ? "Music" : "Now Playing")
+            self.setSource(native.source.isEmpty ? nil : native.source, name: native.source == "com.spotify.client" ? "Spotify" : native.source == "com.apple.Music" ? "Music" : String(localized: "Now Playing"))
             self.artwork = native.artwork.flatMap { NSImage(data: $0) }; self.message = nil
         }
     }
     func apply(_ snapshot: SystemMediaSnapshot) {
         guard snapshot.hasMedia else { clearPlayback(); return }
         let nextSource = snapshot.source ?? "system.nowplaying"
-        let nextTitle = snapshot.title ?? "Untitled media"
+        let nextTitle = snapshot.title ?? String(localized: "Untitled media")
         let nextIdentifier = snapshot.identifier ?? ""
         let nextPath = snapshot.playerPath ?? ""
         if nextSource != source || nextTitle != title || nextIdentifier != identifier || nextPath != playerPath {
@@ -317,7 +317,7 @@ final class MediaService {
         if coverChanged { artwork = artworkCache[coverKey(source: nextSource, title: nextTitle, identifier: nextIdentifier)]; artworkTask?.cancel(); artworkKey = "" }
         systemTransport = true; title = nextTitle; artist = snapshot.artist ?? ""
         playing = (snapshot.rate ?? 0) > 0
-        setSource(nextSource, name: [snapshot.sourceName, players.first(where: { $0.source == nextSource })?.name].compactMap { $0 }.first(where: { !$0.isEmpty }) ?? "Media")
+        setSource(nextSource, name: [snapshot.sourceName, players.first(where: { $0.source == nextSource })?.name].compactMap { $0 }.first(where: { !$0.isEmpty }) ?? String(localized: "Media"))
         timeline = nil
         if let duration = snapshot.duration, let position = snapshot.position, let rate = snapshot.rate {
             let value = MediaTimeline(duration: duration, position: position, rate: rate, measuredAt: Date())
@@ -347,7 +347,7 @@ final class MediaService {
         }
     }
     private func clearPlayback() {
-        title = "Nothing playing"; artist = ""; setSource(nil, name: "Now Playing")
+        title = String(localized: "Nothing playing"); artist = ""; setSource(nil, name: String(localized: "Now Playing"))
         seekTask?.cancel(); cancelScrub(); seekSupported = false; identifier = ""; playerPath = ""
         artwork = nil; timeline = nil; playing = false; systemTransport = false; artworkKey = ""
         artworkTask?.cancel()
@@ -393,7 +393,7 @@ final class MediaService {
                 try? await Task.sleep(for: .milliseconds(250))
                 if !Task.isCancelled { self.refresh() }
             } else {
-                self.message = result.stale ? "The player changed. Try again on the current track." : "This player didn’t accept the command. Open it to control playback."
+                self.message = result.stale ? String(localized: "The player changed. Try again on the current track.") : String(localized: "This player didn’t accept the command. Open it to control playback.")
                 if result.stale { self.refresh() }
             }
         }

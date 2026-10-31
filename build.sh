@@ -18,6 +18,8 @@ mv -f "$app/Contents/MacOS/.Sense.build" "$app/Contents/MacOS/Sense"
 cp Resources/Info.plist "$app/Contents/Info.plist"
 cp THIRD_PARTY_NOTICES.md "$app/Contents/Resources/THIRD_PARTY_NOTICES.md"
 if [[ -f Resources/Sense.icns ]]; then cp Resources/Sense.icns "$app/Contents/Resources/Sense.icns"; fi
+# Translations: one folder per language (English is the development language, Danish is translated).
+for lproj in Resources/*.lproj; do rm -rf "$app/Contents/Resources/$(basename "$lproj")"; cp -R "$lproj" "$app/Contents/Resources/"; done
 printf 'APPL????' > "$app/Contents/PkgInfo"
 # Developer ID / Apple Development can be supplied explicitly for distribution.
 # Default local builds reuse one project-only certificate so the designated

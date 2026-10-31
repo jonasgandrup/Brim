@@ -13,9 +13,9 @@ struct NextEvent: Equatable, Sendable {
     func isUnderway(at now: Date) -> Bool { start <= now && now < end }
     /// "in 12 min", "in 2 h", or "now".
     func relative(at now: Date) -> String {
-        if isUnderway(at: now) { return "now" }
+        if isUnderway(at: now) { return String(localized: "now") }
         let minutes = max(1, Int((start.timeIntervalSince(now) / 60).rounded(.up)))
-        return "in " + BatteryDetails.duration(minutes: minutes)
+        return String(localized: "in \(BatteryDetails.duration(minutes: minutes))")
     }
     typealias Candidate = (id: String, title: String, start: Date, end: Date, allDay: Bool, meetingURL: URL?)
     /// Picks the first timed event that hasn't ended. All-day events are never "next".
@@ -88,7 +88,7 @@ enum MeetingLink {
         let now = Date()
         let predicate = store.predicateForEvents(withStart: now, end: now.addingTimeInterval(86_400), calendars: nil)
         let events: [NextEvent.Candidate] = store.events(matching: predicate).map {
-            (id: $0.eventIdentifier ?? UUID().uuidString, title: $0.title ?? "Event", start: $0.startDate ?? now, end: $0.endDate ?? now,
+            (id: $0.eventIdentifier ?? UUID().uuidString, title: $0.title ?? String(localized: "Event"), start: $0.startDate ?? now, end: $0.endDate ?? now,
              allDay: $0.isAllDay, meetingURL: MeetingLink.find(url: $0.url, location: $0.location, notes: $0.notes))
         }
         let pick = NextEvent.pick(from: events, now: now)

@@ -11,7 +11,7 @@ extension FileShelfActions: NSSharingServiceDelegate {
         guard let shelf, !shelf.compressing, airDropService == nil else { return }
         let urls = shelf.availableSelection
         guard !urls.isEmpty, let service = NSSharingService(named: .sendViaAirDrop),
-              service.canPerform(withItems: urls) else { shelf.message = "AirDrop isn’t available for these files."; return }
+              service.canPerform(withItems: urls) else { shelf.message = String(localized: "AirDrop isn’t available for these files."); return }
         closePreview()
         airDropService = service; service.delegate = self; shelf.systemUIActive = true
         NSApp.activate(); service.perform(withItems: urls)
@@ -32,10 +32,10 @@ extension FileShelfActions: NSSharingServiceDelegate {
     @discardableResult func copy(to pasteboard: NSPasteboard = .general) -> Bool {
         guard let shelf else { return false }
         let urls = shelf.availableSelection
-        guard !urls.isEmpty else { shelf.message = "Select accessible files to copy."; return false }
+        guard !urls.isEmpty else { shelf.message = String(localized: "Select accessible files to copy."); return false }
         pasteboard.clearContents()
         let copied = pasteboard.writeObjects(urls.map { $0 as NSURL })
-        shelf.message = copied ? "Copied \(urls.count) \(urls.count == 1 ? "file" : "files")" : "Files couldn’t be copied."
+        shelf.message = copied ? (urls.count == 1 ? String(localized: "Copied 1 file") : String(localized: "Copied \(urls.count) files")) : String(localized: "Files couldn’t be copied.")
         return copied
     }
     func chooseArchiveDestination() {
@@ -43,7 +43,7 @@ extension FileShelfActions: NSSharingServiceDelegate {
         closePreview()
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.zip]; panel.canCreateDirectories = true
-        panel.nameFieldStringValue = "Archive.zip"; panel.title = "Compress Selected Files"
+        panel.nameFieldStringValue = "Archive.zip"; panel.title = String(localized: "Compress Selected Files")
         savePanel = panel; shelf.systemUIActive = true
         NSApp.activate()
         panel.begin { [weak self] response in
@@ -59,13 +59,13 @@ extension FileShelfActions: NSSharingServiceDelegate {
         guard let shelf, !shelf.compressing else { return }
         let urls = shelf.availableSelection
         guard !urls.isEmpty else { shelf.systemUIActive = false; return }
-        shelf.compressing = true; shelf.systemUIActive = true; shelf.message = "Compressing \(urls.count) \(urls.count == 1 ? "file" : "files")…"
+        shelf.compressing = true; shelf.systemUIActive = true; shelf.message = urls.count == 1 ? String(localized: "Compressing 1 file…") : String(localized: "Compressing \(urls.count) files…")
         defer { shelf.compressing = false; shelf.systemUIActive = false }
         do {
             try await ShelfArchive.create(urls: urls, destination: destination)
             shelf.add([destination]); shelf.select([destination.standardizedFileURL])
-            shelf.message = "Created \(destination.lastPathComponent)"
-        } catch { shelf.message = "Couldn’t compress files: \(error.localizedDescription)" }
+            shelf.message = String(localized: "Created \(destination.lastPathComponent)")
+        } catch { shelf.message = String(localized: "Couldn’t compress files: \(error.localizedDescription)") }
     }
 }
 
@@ -75,8 +75,8 @@ enum ShelfArchive {
         case invalidDestination, creationFailed
         var errorDescription: String? {
             switch self {
-            case .invalidDestination: "Choose a ZIP destination that doesn’t overwrite a selected file."
-            case .creationFailed: "The archive couldn’t be created. Check file access and available disk space."
+            case .invalidDestination: String(localized: "Choose a ZIP destination that doesn’t overwrite a selected file.")
+            case .creationFailed: String(localized: "The archive couldn’t be created. Check file access and available disk space.")
             }
         }
     }
@@ -122,10 +122,10 @@ enum ShelfImageTools {
         case unreadable, unsupported, writeFailed, alreadySmall
         var errorDescription: String? {
             switch self {
-            case .alreadySmall: "That image is already that size or smaller."
-            case .unreadable: "That file isn’t an image Sense can read."
-            case .unsupported: "This Mac can’t write that format."
-            case .writeFailed: "The new file couldn’t be saved. Check that the folder is writable."
+            case .alreadySmall: String(localized: "That image is already that size or smaller.")
+            case .unreadable: String(localized: "That file isn’t an image Sense can read.")
+            case .unsupported: String(localized: "This Mac can’t write that format.")
+            case .writeFailed: String(localized: "The new file couldn’t be saved. Check that the folder is writable.")
             }
         }
     }
@@ -202,19 +202,19 @@ enum ShelfImageTools {
 extension FileShelfActions {
     var selectionHasImages: Bool { shelf?.availableSelection.contains(where: ShelfImageTools.isImage) ?? false }
 
-    func convertImages(to type: UTType) { runImageJob("Converting") { try ShelfImageTools.convert($0, to: type) } }
-    func stripImageMetadata() { runImageJob("Removing metadata from") { try ShelfImageTools.stripMetadata($0) } }
+    func convertImages(to type: UTType) { runImageJob(.convert) { try ShelfImageTools.convert($0, to: type) } }
+    func stripImageMetadata() { runImageJob(.stripMetadata) { try ShelfImageTools.stripMetadata($0) } }
     func resizeImages(longestSide: Int? = nil, scale: Double? = nil) {
-        runImageJob("Resizing") { try ShelfImageTools.resize($0, longestSide: longestSide, scale: scale) }
+        runImageJob(.resize) { try ShelfImageTools.resize($0, longestSide: longestSide, scale: scale) }
     }
     /// POSIX paths, one per line, ready to paste into Terminal or a document.
     @discardableResult func copyPaths(to pasteboard: NSPasteboard = .general) -> Bool {
         guard let shelf else { return false }
         let urls = shelf.availableSelection
-        guard !urls.isEmpty else { shelf.message = "Select accessible files first."; return false }
+        guard !urls.isEmpty else { shelf.message = String(localized: "Select accessible files first."); return false }
         pasteboard.clearContents()
         let copied = pasteboard.setString(urls.map(\.path).joined(separator: "\n"), forType: .string)
-        shelf.message = copied ? (urls.count == 1 ? "Copied path" : "Copied \(urls.count) paths") : "Paths couldn’t be copied."
+        shelf.message = copied ? (urls.count == 1 ? String(localized: "Copied path") : String(localized: "Copied \(urls.count) paths")) : String(localized: "Paths couldn’t be copied.")
         return copied
     }
     func reveal() {
@@ -222,12 +222,12 @@ extension FileShelfActions {
         NSWorkspace.shared.activateFileViewerSelecting(urls)
     }
 
-    private func runImageJob(_ verb: String, _ work: @escaping @Sendable (URL) throws -> URL) {
+    private func runImageJob(_ job: ImageJob, _ work: @escaping @Sendable (URL) throws -> URL) {
         guard let shelf, !shelf.compressing else { return }
         let urls = shelf.availableSelection.filter(ShelfImageTools.isImage)
-        guard !urls.isEmpty else { shelf.message = "Select an image first."; return }
+        guard !urls.isEmpty else { shelf.message = String(localized: "Select an image first."); return }
         shelf.compressing = true
-        shelf.message = "\(verb) \(urls.count) \(urls.count == 1 ? "image" : "images")…"
+        shelf.message = job.progress(count: urls.count)
         Task {
             let results = await Task.detached(priority: .userInitiated) { urls.map { url in Result { try work(url) } } }.value
             shelf.compressing = false
@@ -235,7 +235,8 @@ extension FileShelfActions {
             let failure = results.compactMap { result -> String? in if case .failure(let error) = result { error.localizedDescription } else { nil } }.first
             shelf.add(created)
             if !created.isEmpty { shelf.select(Set(created.map(\.standardizedFileURL))) }
-            shelf.message = created.isEmpty ? (failure ?? "Nothing was created.") : "Created \(created.count) \(created.count == 1 ? "file" : "files")" + (failure.map { " · \($0)" } ?? "")
+            shelf.message = created.isEmpty ? (failure ?? String(localized: "Nothing was created."))
+                : (created.count == 1 ? String(localized: "Created 1 file") : String(localized: "Created \(created.count) files")) + (failure.map { " · \($0)" } ?? "")
         }
     }
 
@@ -244,7 +245,7 @@ extension FileShelfActions {
         closePreview()
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.canCreateDirectories = true
-        panel.prompt = "Copy Here"; panel.title = "Copy Selected Files"
+        panel.prompt = String(localized: "Copy Here"); panel.title = String(localized: "Copy Selected Files")
         shelf.systemUIActive = true; NSApp.activate()
         panel.begin { [weak self] response in
             MainActor.assumeIsolated {
@@ -256,7 +257,7 @@ extension FileShelfActions {
                     let target = ShelfImageTools.uniqueURL(for: folder.appendingPathComponent(source.lastPathComponent), suffix: "", ext: source.pathExtension)
                     if (try? FileManager.default.copyItem(at: source, to: target)) != nil { copied += 1 }
                 }
-                shelf.message = copied > 0 ? "Copied \(copied) \(copied == 1 ? "file" : "files") to \(folder.lastPathComponent)" : "Nothing could be copied there."
+                shelf.message = copied > 0 ? (copied == 1 ? String(localized: "Copied 1 file to \(folder.lastPathComponent)") : String(localized: "Copied \(copied) files to \(folder.lastPathComponent)")) : String(localized: "Nothing could be copied there.")
             }
         }
     }
@@ -265,15 +266,15 @@ extension FileShelfActions {
     func rename() {
         guard let shelf else { return }
         let urls = shelf.availableSelection
-        guard urls.count == 1, let source = urls.first else { shelf.message = "Select one file to rename."; return }
+        guard urls.count == 1, let source = urls.first else { shelf.message = String(localized: "Select one file to rename."); return }
         closePreview()
         let alert = NSAlert()
-        alert.messageText = "Rename “\(source.lastPathComponent)”"
-        alert.informativeText = "This renames the file on disk."
+        alert.messageText = String(localized: "Rename “\(source.lastPathComponent)”")
+        alert.informativeText = String(localized: "This renames the file on disk.")
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
         field.stringValue = source.lastPathComponent
         alert.accessoryView = field
-        alert.addButton(withTitle: "Rename"); alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: String(localized: "Rename")); alert.addButton(withTitle: String(localized: "Cancel"))
         shelf.systemUIActive = true; NSApp.activate()
         defer { shelf.systemUIActive = false }
         alert.window.initialFirstResponder = field
@@ -281,11 +282,23 @@ extension FileShelfActions {
         let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, !name.contains("/"), !name.contains(":"), name != source.lastPathComponent else { return }
         let target = source.deletingLastPathComponent().appendingPathComponent(name)
-        guard !FileManager.default.fileExists(atPath: target.path) else { shelf.message = "A file with that name already exists."; return }
+        guard !FileManager.default.fileExists(atPath: target.path) else { shelf.message = String(localized: "A file with that name already exists."); return }
         do {
             try FileManager.default.moveItem(at: source, to: target)
             shelf.replace(source, with: target)
-            shelf.message = "Renamed to \(name)"
-        } catch { shelf.message = "Couldn’t rename: \(error.localizedDescription)" }
+            shelf.message = String(localized: "Renamed to \(name)")
+        } catch { shelf.message = String(localized: "Couldn’t rename: \(error.localizedDescription)") }
+    }
+}
+
+/// What an image action is doing, as a complete sentence per count so each language can phrase it.
+enum ImageJob {
+    case convert, stripMetadata, resize
+    func progress(count: Int) -> String {
+        switch self {
+        case .convert: count == 1 ? String(localized: "Converting 1 image…") : String(localized: "Converting \(count) images…")
+        case .stripMetadata: count == 1 ? String(localized: "Removing metadata from 1 image…") : String(localized: "Removing metadata from \(count) images…")
+        case .resize: count == 1 ? String(localized: "Resizing 1 image…") : String(localized: "Resizing \(count) images…")
+        }
     }
 }

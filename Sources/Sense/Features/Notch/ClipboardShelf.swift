@@ -11,7 +11,7 @@ struct ClipboardPin: Identifiable, Equatable {
         switch payload {
         case .text(let text): String(text.prefix(120))
         case .link(let url): url.host ?? url.absoluteString
-        case .image: "Image"
+        case .image: String(localized: "Image")
         }
     }
     var searchText: String {
@@ -155,15 +155,15 @@ struct ClipboardPinStore: Sendable {
     func pinFromHistory(_ pin: ClipboardPin) { add(pin.payload) }
     var message: String?
     @discardableResult func add(_ payload: ClipboardPin.Payload) -> Bool {
-        guard pins.count < 20 else { message = "Remove a pin to make room. The shelf holds 20 items."; return false }
-        guard !pins.contains(where: { $0.payload == payload }) else { message = "Already pinned."; return false }
+        guard pins.count < 20 else { message = String(localized: "Remove a pin to make room. The shelf holds 20 items."); return false }
+        guard !pins.contains(where: { $0.payload == payload }) else { message = String(localized: "Already pinned."); return false }
         switch payload {
-        case .text(let text): guard !text.isEmpty, text.utf8.count <= 1_000_000 else { message = "Copy a smaller piece of text."; return false }
-        case .link(let url): guard Self.isSupportedLink(url) else { message = "This link type isn’t supported."; return false }
+        case .text(let text): guard !text.isEmpty, text.utf8.count <= 1_000_000 else { message = String(localized: "Copy a smaller piece of text."); return false }
+        case .link(let url): guard Self.isSupportedLink(url) else { message = String(localized: "This link type isn’t supported."); return false }
         case .image(let data):
-            guard data.count <= 20_000_000, NSImage(data: data) != nil else { message = "Choose an image smaller than 20 MB."; return false }
+            guard data.count <= 20_000_000, NSImage(data: data) != nil else { message = String(localized: "Choose an image smaller than 20 MB."); return false }
             let held = pins.reduce(0) { total, pin in if case .image(let other) = pin.payload { total + other.count } else { total } }
-            guard held + data.count <= Self.totalImageBytes else { message = "Remove an image pin to make room."; return false }
+            guard held + data.count <= Self.totalImageBytes else { message = String(localized: "Remove an image pin to make room."); return false }
         }
         pins.append(ClipboardPin(payload: payload)); message = nil; return true
     }
@@ -176,7 +176,7 @@ struct ClipboardPinStore: Sendable {
             if let url = URL(string: trimmed), Self.isSupportedLink(url) { return add(.link(url)) }
             return add(.text(text))
         }
-        message = "Copy text, a link or an image, then choose Pin Clipboard."; return false
+        message = String(localized: "Copy text, a link or an image, then choose Pin Clipboard."); return false
     }
     @discardableResult func copy(_ pin: ClipboardPin, to board: NSPasteboard = .general) -> Bool {
         board.clearContents()

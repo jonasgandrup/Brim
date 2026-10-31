@@ -79,7 +79,7 @@ enum TransferScan {
         guard let directory else { return }
         self.directory = directory
         let descriptor = open(directory.path, O_EVTONLY)
-        guard descriptor >= 0 else { accessProblem = "Sense can’t read the Downloads folder."; return }
+        guard descriptor >= 0 else { accessProblem = String(localized: "Sense can’t read the Downloads folder."); return }
         accessProblem = nil
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.write, .rename, .delete], queue: .main)
         source.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.scan() } }
@@ -97,7 +97,7 @@ enum TransferScan {
     // MARK: AirDrop sent from the shelf
 
     func beginAirDropSend(count: Int) {
-        airDropSend = TransferActivity(id: "airdrop-send", kind: .airDropSend, name: "Sending \(count) \(count == 1 ? "file" : "files")")
+        airDropSend = TransferActivity(id: "airdrop-send", kind: .airDropSend, name: count == 1 ? String(localized: "Sending 1 file") : String(localized: "Sending \(count) files"))
         publish()
         // macOS reports completion or failure; this only keeps a lost callback from leaving a spinner behind.
         let token = UUID(); airDropToken = token
@@ -111,7 +111,7 @@ enum TransferScan {
         guard var activity = airDropSend else { return }
         airDropSend = nil
         activity.state = error.map { .failed($0) } ?? .finished
-        if error == nil { activity.name = activity.name.replacingOccurrences(of: "Sending", with: "Sent") }
+        if error == nil { activity.name = activity.name.replacingOccurrences(of: String(localized: "Sending"), with: String(localized: "Sent")) }
         publish(); finish(activity)
     }
 

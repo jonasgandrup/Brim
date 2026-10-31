@@ -45,17 +45,17 @@ struct BatteryDetails: Equatable, Sendable {
     }
 
     static func duration(minutes: Int) -> String {
-        minutes >= 60 ? (minutes % 60 == 0 ? "\(minutes / 60) h" : "\(minutes / 60) h \(minutes % 60) min") : "\(minutes) min"
+        minutes >= 60 ? (minutes % 60 == 0 ? String(localized: "\(minutes / 60) h") : String(localized: "\(minutes / 60) h \(minutes % 60) min")) : String(localized: "\(minutes) min")
     }
 
     /// One plain sentence for the pane's subtitle.
     func summary(level: Int?, externalPower: Bool) -> String {
-        guard level != nil else { return "No battery" }
+        guard level != nil else { return String(localized: "No battery") }
         if externalPower {
-            if fullyCharged || level == 100 { return "Fully charged" }
-            if charging { return minutesToFull.map { "Charging · \(Self.duration(minutes: $0)) until full" } ?? "Charging" }
-            return "Plugged in · not charging"
+            if fullyCharged || level == 100 { return String(localized: "Fully charged") }
+            if charging { return minutesToFull.map { String(localized: "Charging · \(Self.duration(minutes: $0)) until full") } ?? String(localized: "Charging") }
+            return String(localized: "Plugged in · not charging")
         }
-        return minutesToEmpty.map { "On battery · \(Self.duration(minutes: $0)) remaining" } ?? "On battery"
+        return minutesToEmpty.map { String(localized: "On battery · \(Self.duration(minutes: $0)) remaining") } ?? String(localized: "On battery")
     }
 }

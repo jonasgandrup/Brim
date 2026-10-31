@@ -62,7 +62,7 @@ struct MediaSleepSchedule: Sendable {
         let result = await pause(schedule.player)
         guard ticket == revision else { return }
         firing = false
-        status = result == .submitted ? "Paused \(schedule.player.name)" : "\(schedule.player.name) couldn’t be paused"
+        status = result == .submitted ? String(localized: "Paused \(schedule.player.name)") : String(localized: "\(schedule.player.name) couldn’t be paused")
     }
     private func checkTrack(_ schedule: MediaSleepSchedule, at date: Date) async {
         guard let previous = track else { return }
@@ -77,7 +77,7 @@ struct MediaSleepSchedule: Sendable {
               let position = snapshot.position, position.isFinite, position >= 0, let rate = snapshot.rate, rate.isFinite, rate >= 0,
               let identifier = snapshot.identifier, !identifier.isEmpty else {
             missing += 1
-            if missing >= 3 { self.schedule = nil; status = "Track timer stopped · player unavailable" }
+            if missing >= 3 { self.schedule = nil; status = String(localized: "Track timer stopped · player unavailable") }
             return
         }
         missing = 0
@@ -87,7 +87,7 @@ struct MediaSleepSchedule: Sendable {
         let changed = identifier != previous.identifier
         let repeated = position < 2 && position + 1 < (previous.position ?? 0) && nearEnd
         if changed && !nearEnd {
-            self.schedule = nil; status = "Track timer cancelled · track changed"; return
+            self.schedule = nil; status = String(localized: "Track timer cancelled · track changed"); return
         }
         let reachedEnd = !changed && position >= duration
         if (changed && nearEnd) || repeated || reachedEnd {
@@ -95,7 +95,7 @@ struct MediaSleepSchedule: Sendable {
             let result = rate == 0 ? MediaCommandResult.submitted : await pauseTrack(snapshot)
             guard ticket == revision else { return }
             firing = false
-            status = result == .submitted ? "Paused \(schedule.player.name)" : "\(schedule.player.name) couldn’t be paused"
+            status = result == .submitted ? String(localized: "Paused \(schedule.player.name)") : String(localized: "\(schedule.player.name) couldn’t be paused")
             return
         }
         track = snapshot; trackMeasuredAt = date

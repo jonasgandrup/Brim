@@ -17,7 +17,7 @@ import QuickLookUI
     func preview() {
         guard let shelf else { return }
         let urls = shelf.availableSelection
-        guard !urls.isEmpty else { shelf.message = "Select an accessible file to preview."; return }
+        guard !urls.isEmpty else { shelf.message = String(localized: "Select an accessible file to preview."); return }
         previewURLs = urls; previewIndex = 0
         if previewWindow == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 520), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
@@ -25,9 +25,9 @@ import QuickLookUI
             let content = NSView(frame: NSRect(x: 0, y: 0, width: 720, height: 520))
             let preview = QLPreviewView(frame: NSRect(x: 0, y: 35, width: 720, height: 485), style: .normal)!
             preview.autoresizingMask = [.width, .height]; content.addSubview(preview)
-            let previous = NSButton(title: "Previous", target: self, action: #selector(previousItem))
+            let previous = NSButton(title: String(localized: "Previous"), target: self, action: #selector(previousItem))
             previous.frame = NSRect(x: 12, y: 5, width: 90, height: 25); content.addSubview(previous)
-            let next = NSButton(title: "Next", target: self, action: #selector(nextItem))
+            let next = NSButton(title: String(localized: "Next"), target: self, action: #selector(nextItem))
             next.frame = NSRect(x: 110, y: 5, width: 90, height: 25); content.addSubview(next)
             window.contentView = content; window.center()
             previewWindow = window; previewView = preview
@@ -53,7 +53,7 @@ import QuickLookUI
     private func updatePreview() {
         guard previewURLs.indices.contains(previewIndex) else { return }
         let url = previewURLs[previewIndex]
-        previewWindow?.title = "\(url.lastPathComponent) · \(previewIndex + 1) of \(previewURLs.count)"
+        previewWindow?.title = String(localized: "\(url.lastPathComponent) · \(previewIndex + 1) of \(previewURLs.count)")
         previewView?.previewItem = url as NSURL
     }
     @objc private func previousItem() { guard !previewURLs.isEmpty else { return }; previewIndex = (previewIndex + previewURLs.count - 1) % previewURLs.count; updatePreview() }
@@ -140,11 +140,11 @@ final class ShelfCollectionView: NSCollectionView {
             if let shelf, shelf.files.indices.contains(path.item) { shelf.select([shelf.files[path.item].url]) }
         }
         let menu = NSMenu()
-        for (title, action) in [("AirDrop…", #selector(airDropFiles)), ("Compress…", #selector(compressFiles)), ("Copy Files", #selector(copyFiles)), ("Copy Path", #selector(copyPathFiles)), ("Copy to Folder…", #selector(copyToFolderFiles)), ("Rename…", #selector(renameFile)), ("Convert to PNG", #selector(toPNG)), ("Convert to JPEG", #selector(toJPEG)), ("Remove Image Metadata", #selector(stripMetadata)), ("Quick Look", #selector(previewFiles)), ("Reveal in Finder", #selector(revealFiles)), ("Remove from Shelf", #selector(removeFiles))] {
+        for (title, action) in [(String(localized: "AirDrop…"), #selector(airDropFiles)), (String(localized: "Compress…"), #selector(compressFiles)), (String(localized: "Copy Files"), #selector(copyFiles)), (String(localized: "Copy Path"), #selector(copyPathFiles)), (String(localized: "Copy to Folder…"), #selector(copyToFolderFiles)), (String(localized: "Rename…"), #selector(renameFile)), (String(localized: "Convert to PNG"), #selector(toPNG)), (String(localized: "Convert to JPEG"), #selector(toJPEG)), (String(localized: "Remove Image Metadata"), #selector(stripMetadata)), (String(localized: "Quick Look"), #selector(previewFiles)), (String(localized: "Reveal in Finder"), #selector(revealFiles)), (String(localized: "Remove from Shelf"), #selector(removeFiles))] {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: ""); item.target = self
             item.isEnabled = !(shelf?.availableSelection.isEmpty ?? true) && shelf?.compressing != true
-            if title == "AirDrop…" { item.isEnabled = item.isEnabled && shelf?.actions.canAirDrop == true }
-            if ["Convert to PNG", "Convert to JPEG", "Remove Image Metadata"].contains(title) { item.isEnabled = item.isEnabled && shelf?.actions.selectionHasImages == true }
+            if title == String(localized: "AirDrop…") { item.isEnabled = item.isEnabled && shelf?.actions.canAirDrop == true }
+            if [String(localized: "Convert to PNG"), String(localized: "Convert to JPEG"), String(localized: "Remove Image Metadata")].contains(title) { item.isEnabled = item.isEnabled && shelf?.actions.selectionHasImages == true }
             menu.addItem(item)
         }
         return menu
@@ -188,12 +188,12 @@ struct FileShareButton: NSViewRepresentable {
     let shelf: FileShelf
     func makeCoordinator() -> Coordinator { Coordinator(shelf: shelf) }
     func makeNSView(context: Context) -> NSButton {
-        let button = NSButton(image: NSImage(systemSymbolName: "square.and.arrow.up", accessibilityDescription: "Share selected files")!, target: context.coordinator, action: #selector(Coordinator.share(_:)))
+        let button = NSButton(image: NSImage(systemSymbolName: "square.and.arrow.up", accessibilityDescription: String(localized: "Share selected files"))!, target: context.coordinator, action: #selector(Coordinator.share(_:)))
         button.sendAction(on: .leftMouseDown)
         button.identifier = NSUserInterfaceItemIdentifier("Sense.FileShare")
         button.appearance = NSAppearance(named: .darkAqua)
         button.contentTintColor = .white
-        button.bezelStyle = .inline; button.isBordered = false; button.toolTip = "Share selected files"
+        button.bezelStyle = .inline; button.isBordered = false; button.toolTip = String(localized: "Share selected files")
         return button
     }
     func updateNSView(_ button: NSButton, context: Context) { button.isEnabled = !shelf.files.isEmpty }
@@ -207,7 +207,7 @@ struct FileShareButton: NSViewRepresentable {
         init(shelf: FileShelf) { self.shelf = shelf }
         @objc func share(_ sender: NSButton) {
             let urls = shelf.availableSelection
-            guard !urls.isEmpty else { shelf.message = "Select accessible files to share."; return }
+            guard !urls.isEmpty else { shelf.message = String(localized: "Select accessible files to share."); return }
             shelf.actions.closePreview()
             close()
             servicesPrepared = false; shelf.systemUIActive = true

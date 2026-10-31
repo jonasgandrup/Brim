@@ -37,7 +37,7 @@ final class FileShelf {
             guard FileManager.default.fileExists(atPath: normalized.path), !files.contains(where: { $0.url == normalized }) else { continue }
             files.append(ShelfFile(url: normalized)); inserted += 1
         }
-        message = inserted > 0 ? nil : "No new accessible files were added."
+        message = inserted > 0 ? nil : String(localized: "No new accessible files were added.")
         return inserted
     }
     func remove(_ file: ShelfFile) { files.removeAll { $0.id == file.id }; selectedURLs.remove(file.url) }

@@ -1,5 +1,10 @@
 import SwiftUI
 
+extension LocalizedStringKey {
+    /// Text that was already translated where it was made (with `String(localized:)`), shown as is.
+    static func verbatim(_ text: String) -> LocalizedStringKey { "\(text)" }
+}
+
 struct SenseMark: View {
     var size: CGFloat = 62
     var body: some View {
@@ -47,8 +52,8 @@ struct SettingsIcon: View {
 struct SettingsPageHeader: View {
     let symbol: String
     let tint: Color
-    let title: String
-    let detail: String
+    let title: LocalizedStringKey
+    let detail: LocalizedStringKey
     var body: some View {
         VStack(spacing: 8) {
             SettingsIcon(symbol: symbol, tint: tint, size: 54)
@@ -66,9 +71,9 @@ struct SettingsPageHeader: View {
 /// A title with an optional explanatory line beneath it, for use as a Form row's label.
 /// Longer explanations sit behind an ⓘ beside the title, so each row reads in a glance.
 struct SettingsLabel: View {
-    let title: String
-    var detail: String?
-    var info: String?
+    let title: LocalizedStringKey
+    var detail: LocalizedStringKey?
+    var info: LocalizedStringKey?
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 4) {
@@ -86,7 +91,7 @@ struct SettingsLabel: View {
 }
 
 struct Footnote: View {
-    let text: String
+    let text: LocalizedStringKey
     var symbol = "info.circle"
     var body: some View {
         Label {

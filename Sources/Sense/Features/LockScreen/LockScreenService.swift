@@ -21,14 +21,14 @@ final class LockScreenService {
                     guard let self else { return }
                     self.locked = locked
                     if locked { self.panel?.orderOut(nil); self.panel = nil }
-                    else if self.preferences?.lockEnabled == true { self.notch?.showFeedback("Welcome back.", symbol: "lock.open") }
+                    else if self.preferences?.lockEnabled == true { self.notch?.showFeedback(String(localized: "Welcome back."), symbol: "lock.open") }
                 }
             })
         }
     }
     func lock() {
         guard preferences?.lockEnabled == true else { return }
-        guard AXIsProcessTrusted() else { error = "Allow Accessibility in Permissions so Sense can send macOS’s Lock Screen shortcut. You can always lock with Control–Command–Q."; return }
+        guard AXIsProcessTrusted() else { error = String(localized: "Allow Accessibility in Permissions so Sense can send macOS’s Lock Screen shortcut. You can always lock with Control–Command–Q."); return }
         guard lockTask == nil else { return }
         error = nil
         showTransition()

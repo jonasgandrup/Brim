@@ -56,7 +56,7 @@ struct FocusCycle: Codable, Equatable {
     /// 1-based session number within the current round of four.
     var session: Int { phase == .focus ? completed % Self.sessionsPerRound + 1 : (completed - 1) % Self.sessionsPerRound + 1 }
     var title: String {
-        switch phase { case .focus: "Focus"; case .shortBreak: "Short Break"; case .longBreak: "Long Break" }
+        switch phase { case .focus: "Focus"; case .shortBreak: String(localized: "Short Break"); case .longBreak: String(localized: "Long Break") }
     }
     mutating func advance() {
         if phase == .focus {
@@ -67,9 +67,9 @@ struct FocusCycle: Codable, Equatable {
     /// What the island says when a phase ends and the next one begins.
     var announcement: String {
         switch phase {
-        case .focus: "Break’s over · time to focus"
-        case .shortBreak: "Nice work · take \(shortBreakMinutes) minutes"
-        case .longBreak: "Round complete · take \(longBreakMinutes) minutes"
+        case .focus: String(localized: "Break’s over · time to focus")
+        case .shortBreak: String(localized: "Nice work · take \(shortBreakMinutes) minutes")
+        case .longBreak: String(localized: "Round complete · take \(longBreakMinutes) minutes")
         }
     }
 }
@@ -80,7 +80,7 @@ struct FocusCycle: Codable, Equatable {
     private(set) var focus: FocusCycle?
     private(set) var now = Date()
     /// The island's message for the most recent finish.
-    private(set) var finishedTitle = "Timer finished"
+    private(set) var finishedTitle = String(localized: "Timer finished")
     @ObservationIgnored var onFinish: () -> Void = {}
     private var ticker: Task<Void, Never>?
     private let defaults: UserDefaults?
@@ -108,12 +108,12 @@ struct FocusCycle: Codable, Equatable {
     /// Describes the timer that is actually running, not the stepper's current value.
     var subtitle: String {
         switch state.phase {
-        case .paused: return "Paused"
-        case .finished: return focus == nil ? "Your timer has finished" : "Session complete"
-        case .idle: return "\(minutes)-minute timer"
+        case .paused: return String(localized: "Paused")
+        case .finished: return focus == nil ? String(localized: "Your timer has finished") : String(localized: "Session complete")
+        case .idle: return Self.timerText(Double(minutes) * 60)
         case .running:
-            if let focus { return focus.phase == .focus ? "Focus · session \(focus.session) of \(FocusCycle.sessionsPerRound)" : focus.title }
-            return "\(Self.durationText(state.duration)) timer"
+            if let focus { return focus.phase == .focus ? String(localized: "Focus · session \(focus.session) of \(FocusCycle.sessionsPerRound)") : focus.title }
+            return Self.timerText(state.duration)
         }
     }
     /// Six one-tap lengths: the last one used first (if it isn't a standard length), then the common ones.
@@ -123,13 +123,14 @@ struct FocusCycle: Codable, Equatable {
         return Array((first + standard.filter { $0 != last }).prefix(6))
     }
     static func presetLabel(minutes: Int) -> String {
-        minutes >= 60 && minutes % 60 == 0 ? "\(minutes / 60) h" : "\(minutes) min"
+        minutes >= 60 && minutes % 60 == 0 ? String(localized: "\(minutes / 60) h") : String(localized: "\(minutes) min")
     }
-    static func durationText(_ seconds: TimeInterval) -> String {
+    /// "5-minute timer", "1-hour timer": the timer's name in a sentence.
+    static func timerText(_ seconds: TimeInterval) -> String {
         let whole = Int(seconds.rounded())
-        if whole % 3600 == 0 && whole >= 3600 { return "\(whole / 3600)-hour" }
-        if whole % 60 == 0 { return "\(whole / 60)-minute" }
-        return whole < 60 ? "\(whole)-second" : "\(whole / 60) min \(whole % 60) s"
+        if whole % 3600 == 0 && whole >= 3600 { return whole == 3600 ? String(localized: "1-hour timer") : String(localized: "\(whole / 3600)-hour timer") }
+        if whole % 60 == 0 { return whole == 60 ? String(localized: "1-minute timer") : String(localized: "\(whole / 60)-minute timer") }
+        return whole < 60 ? String(localized: "\(whole)-second timer") : String(localized: "\(whole / 60) min \(whole % 60) s timer")
     }
     var progress: Double { state.duration > 0 ? min(1, max(0, 1 - remaining / state.duration)) : 0 }
     func start() { focus = nil; start(seconds: Double(minutes) * 60) }
@@ -163,7 +164,7 @@ struct FocusCycle: Codable, Equatable {
             finishedTitle = cycle.announcement
             start(seconds: Double(cycle.minutes) * 60)
         } else {
-            finishedTitle = "Timer finished"
+            finishedTitle = String(localized: "Timer finished")
             save()
         }
         onFinish()
@@ -213,7 +214,7 @@ struct IslandTimerView: View {
                                 .background(minutes == presets.first ? Color.orange.opacity(0.24) : IslandStyle.tileFill, in: Capsule())
                                 .foregroundStyle(minutes == presets.first ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.primary))
                                 .contentShape(Capsule())
-                        }.buttonStyle(IslandPressStyle()).accessibilityLabel("Start \(IslandTimer.durationText(Double(minutes) * 60)) timer")
+                        }.buttonStyle(IslandPressStyle()).accessibilityLabel("Start \(IslandTimer.timerText(Double(minutes) * 60))")
                     }
                 }
             } else {
@@ -251,7 +252,7 @@ struct CountdownReadout: View {
                     .contentTransition(.symbolEffect(.replace))
             }.frame(width: 44, height: 44)
             VStack(alignment: .leading, spacing: 2) {
-                Text(timer.state.phase == .finished ? "Time’s up" : timer.label)
+                Text(timer.state.phase == .finished ? String(localized: "Time’s up") : timer.label)
                     .font(.system(size: 30, weight: .light, design: .rounded)).monospacedDigit()
                     .contentTransition(.numericText(countsDown: true))
                 Text(timer.subtitle).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
@@ -264,7 +265,7 @@ struct CountdownReadout: View {
 
 /// A capsule action in the island: tinted when it's the primary action, quiet otherwise.
 struct TimerActionButton: View {
-    let title: String
+    let title: LocalizedStringKey
     let symbol: String
     var prominent = false
     var tint: Color = .orange

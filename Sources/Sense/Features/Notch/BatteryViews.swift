@@ -33,7 +33,7 @@ struct BatteryGlyph: View {
             }.frame(width: width, height: height)
             RoundedRectangle(cornerRadius: height * 0.06).fill(.white.opacity(0.35)).frame(width: height * 0.09, height: height * 0.3)
         }
-        .accessibilityElement().accessibilityLabel("Battery \(level) percent\(charging ? ", charging" : "")")
+        .accessibilityElement().accessibilityLabel(charging ? "Battery \(level) percent, charging" : "Battery \(level) percent")
     }
 }
 
@@ -54,7 +54,7 @@ struct ChargeFeedbackView: View {
 struct AccessoryFeedbackView: View {
     let device: BluetoothDevice
     private var readings: [(label: String, level: Int)] {
-        let parts = [("Left", device.left), ("Right", device.right), ("Case", device.batteryCase)].compactMap { label, level in level.map { (label, $0) } }
+        let parts = [(String(localized: "Left"), device.left), (String(localized: "Right"), device.right), (String(localized: "Case"), device.batteryCase)].compactMap { label, level in level.map { (label, $0) } }
         if !parts.isEmpty { return parts }
         return device.main.map { [("", $0)] } ?? []
     }
@@ -123,9 +123,9 @@ struct BatteryPaneView: View {
     private func tiles(details: BatteryDetails) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                if let health = details.healthPercent { stat("Health", "\(health)%") }
-                if let cycles = details.cycleCount { stat("Cycles", "\(cycles)") }
-                if let watts = details.adapterWatts, status.charging { stat("Adapter", "\(watts) W") }
+                if let health = details.healthPercent { stat(String(localized: "Health"), "\(health)%") }
+                if let cycles = details.cycleCount { stat(String(localized: "Cycles"), "\(cycles)") }
+                if let watts = details.adapterWatts, status.charging { stat(String(localized: "Adapter"), "\(watts) W") }
                 ForEach(bluetooth?.devices ?? []) { device($0) }
             }
         }
@@ -153,9 +153,9 @@ struct BatteryPaneView: View {
     }
     private func deviceDetail(_ device: BluetoothDevice) -> String {
         var parts: [String] = []
-        if let left = device.left { parts.append("Left \(left)%") }
-        if let right = device.right { parts.append("Right \(right)%") }
-        if let batteryCase = device.batteryCase { parts.append("Case \(batteryCase)%") }
+        if let left = device.left { parts.append(String(localized: "Left \(left)%")) }
+        if let right = device.right { parts.append(String(localized: "Right \(right)%")) }
+        if let batteryCase = device.batteryCase { parts.append(String(localized: "Case \(batteryCase)%")) }
         if parts.isEmpty, let main = device.main { parts.append("\(main)%") }
         return device.name + " · " + parts.joined(separator: " · ")
     }
@@ -174,7 +174,7 @@ struct QuickControls: View {
                 }.buttonStyle(IslandPressStyle()).help(status.muted ? "Unmute" : "Mute").accessibilityLabel(status.muted ? "Unmute" : "Mute")
                     .disabled(status.outputID == 0)
                 if status.volumeSettable, let volume = status.volume {
-                    IslandSlider(value: status.muted ? 0 : volume, label: "Volume") { status.setVolume($0) }
+                    IslandSlider(value: status.muted ? 0 : volume, label: String(localized: "Volume")) { status.setVolume($0) }
                 } else {
                     Text(status.outputID == 0 ? "No sound output" : "Volume is set on the device")
                         .font(.system(size: 10)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
@@ -184,7 +184,7 @@ struct QuickControls: View {
             if let brightness, brightness.available, let level = brightness.level {
                 HStack(spacing: 8) {
                     Image(systemName: level < 0.5 ? "sun.min.fill" : "sun.max.fill").font(.system(size: 12, weight: .semibold)).frame(width: 20, height: 20)
-                    IslandSlider(value: level, label: "Brightness") { brightness.set($0) }
+                    IslandSlider(value: level, label: String(localized: "Brightness")) { brightness.set($0) }
                     Color.clear.frame(width: 26, height: 20)
                 }
             }

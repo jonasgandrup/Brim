@@ -18,21 +18,21 @@ extension SenseAppModel {
         var items: [SetupItem] = []
         let needsAccessibility = preferences.switcherEnabled || preferences.lockEnabled
         let staleApproval = permissions.accessibilityRequested && !permissions.accessibility
-        items.append(SetupItem(id: "accessibility", title: "Accessibility",
+        items.append(SetupItem(id: "accessibility", title: String(localized: "Accessibility"),
             state: permissions.accessibility ? .ready : (needsAccessibility ? .attention : .notNeeded),
-            detail: permissions.accessibility ? "Window Switcher and Lock Now can work."
-                : staleApproval ? "Already on in System Settings? That approval belongs to an earlier build of Sense. Reset clears it so you can approve this one."
-                : (needsAccessibility ? "Needed to switch windows and send Lock Screen." : "Only needed for the Window Switcher and Lock Now."),
-            actionTitle: permissions.accessibility ? nil : (staleApproval ? "Reset & Ask Again" : "Allow…"),
+            detail: permissions.accessibility ? String(localized: "Window Switcher and Lock Now can work.")
+                : staleApproval ? String(localized: "Already on in System Settings? That approval belongs to an earlier build of Sense. Reset clears it so you can approve this one.")
+                : (needsAccessibility ? String(localized: "Needed to switch windows and send Lock Screen.") : String(localized: "Only needed for the Window Switcher and Lock Now.")),
+            actionTitle: permissions.accessibility ? nil : (staleApproval ? String(localized: "Reset & Ask Again") : String(localized: "Allow…")),
             action: { [permissions] in if staleApproval { permissions.resetAccessibility() } else { permissions.requestAccessibility() } }))
 
         let needsCapture = preferences.lidEffectEnabled || preferences.switcherEnabled
         let waitingForRestart = permissions.screenRecordingRequested && !permissions.screenRecording
-        items.append(SetupItem(id: "screen", title: "Screen Recording",
+        items.append(SetupItem(id: "screen", title: String(localized: "Screen Recording"),
             state: permissions.screenRecording ? .ready : (needsCapture ? .attention : .notNeeded),
-            detail: permissions.screenRecording ? "Window previews and the lid fold can capture the desktop."
-                : (waitingForRestart ? "If you just turned it on, restart Sense to finish." : "Needed for the lid fold and window previews."),
-            actionTitle: permissions.screenRecording ? nil : (waitingForRestart ? "Restart Sense" : "Allow…"),
+            detail: permissions.screenRecording ? String(localized: "Window previews and the lid fold can capture the desktop.")
+                : (waitingForRestart ? String(localized: "If you just turned it on, restart Sense to finish.") : String(localized: "Needed for the lid fold and window previews.")),
+            actionTitle: permissions.screenRecording ? nil : (waitingForRestart ? String(localized: "Restart Sense") : String(localized: "Allow…")),
             action: { [weak self] in
                 guard let self else { return }
                 if waitingForRestart { self.restartForLidSetup() } else { self.permissions.requestScreenRecording() }
@@ -40,38 +40,38 @@ extension SenseAppModel {
 
         if preferences.lidEffectEnabled {
             let ready = lid.angle != nil
-            items.append(SetupItem(id: "hinge", title: "Hinge Sensor", state: ready ? .ready : .attention,
-                detail: ready ? "Reading the lid angle. Open position is learned automatically." : lid.status,
-                actionTitle: ready ? nil : "Retry", action: { [weak self] in self?.lid.stop(); self?.lid.start() }))
+            items.append(SetupItem(id: "hinge", title: String(localized: "Hinge Sensor"), state: ready ? .ready : .attention,
+                detail: ready ? String(localized: "Reading the lid angle. Open position is learned automatically.") : lid.status,
+                actionTitle: ready ? nil : String(localized: "Retry"), action: { [weak self] in self?.lid.stop(); self?.lid.start() }))
         }
         if preferences.notchEnabled && preferences.mediaEnabled {
-            items.append(SetupItem(id: "media", title: "Now Playing", state: media.systemAvailable ? .ready : .attention,
-                detail: media.systemAvailable ? "Reading the active media session." : (media.message ?? "No media session yet. Play something, or check Automation access for Music and Spotify."),
-                actionTitle: media.systemAvailable ? nil : "Automation…", action: { [permissions] in permissions.openPrivacy("Privacy_Automation") }))
+            items.append(SetupItem(id: "media", title: String(localized: "Now Playing"), state: media.systemAvailable ? .ready : .attention,
+                detail: media.systemAvailable ? String(localized: "Reading the active media session.") : (media.message ?? String(localized: "No media session yet. Play something, or check Automation access for Music and Spotify.")),
+                actionTitle: media.systemAvailable ? nil : String(localized: "Automation…"), action: { [permissions] in permissions.openPrivacy("Privacy_Automation") }))
         }
         if preferences.notchEnabled && preferences.toolShortcutsEnabled {
             let blocked = toolShortcuts.unavailable
-            items.append(SetupItem(id: "shortcuts", title: "Keyboard Shortcuts", state: blocked.isEmpty ? .ready : .attention,
-                detail: blocked.isEmpty ? "All island shortcuts are registered." : "Taken by another app: " + blocked.joined(separator: ", ") + ". Pick other modifiers in Dynamic Island settings.",
-                actionTitle: blocked.isEmpty ? nil : "Change…", action: { [weak self] in self?.openSettings(page: .notch) }))
+            items.append(SetupItem(id: "shortcuts", title: String(localized: "Keyboard Shortcuts"), state: blocked.isEmpty ? .ready : .attention,
+                detail: blocked.isEmpty ? String(localized: "All island shortcuts are registered.") : String(localized: "Taken by another app: \(blocked.joined(separator: ", ")). Pick other modifiers in Dynamic Island settings."),
+                actionTitle: blocked.isEmpty ? nil : String(localized: "Change…"), action: { [weak self] in self?.openSettings(page: .notch) }))
         }
         if preferences.notchEnabled && preferences.autoHideFocus {
             let monitor = autoHide
-            items.append(SetupItem(id: "focus", title: "Focus Status", state: monitor.focusAuthorized ? .ready : (monitor.focusDenied ? .attention : .ready),
-                detail: monitor.focusAuthorized ? "The island hides while a Focus is on." : (monitor.focusDenied ? "Focus access is off, so Sense can’t tell when a Focus is on." : "Waiting for your answer."),
-                actionTitle: monitor.focusDenied ? "Open Settings…" : nil, action: { [permissions] in permissions.openPrivacy("Privacy_Focus") }))
+            items.append(SetupItem(id: "focus", title: String(localized: "Focus Status"), state: monitor.focusAuthorized ? .ready : (monitor.focusDenied ? .attention : .ready),
+                detail: monitor.focusAuthorized ? String(localized: "The island hides while a Focus is on.") : (monitor.focusDenied ? String(localized: "Focus access is off, so Sense can’t tell when a Focus is on.") : String(localized: "Waiting for your answer.")),
+                actionTitle: monitor.focusDenied ? String(localized: "Open Settings…") : nil, action: { [permissions] in permissions.openPrivacy("Privacy_Focus") }))
         }
         if preferences.notchEnabled && preferences.liveTransfers {
             let problem = notch.transfers.accessProblem
-            items.append(SetupItem(id: "transfers", title: "Downloads Folder", state: problem == nil ? .ready : .attention,
-                detail: problem ?? "Watching for downloads and received AirDrops.",
-                actionTitle: problem == nil ? nil : "Files & Folders…", action: { [permissions] in permissions.openPrivacy("Privacy_FilesAndFolders") }))
+            items.append(SetupItem(id: "transfers", title: String(localized: "Downloads Folder"), state: problem == nil ? .ready : .attention,
+                detail: problem ?? String(localized: "Watching for downloads and received AirDrops."),
+                actionTitle: problem == nil ? nil : String(localized: "Files & Folders…"), action: { [permissions] in permissions.openPrivacy("Privacy_FilesAndFolders") }))
         }
         if preferences.notchEnabled && preferences.calendarPreview {
             let access = notch.calendar.access
-            items.append(SetupItem(id: "calendar", title: "Calendar", state: access == .granted ? .ready : (access == .denied ? .attention : .ready),
-                detail: access == .denied ? "Calendar access is off." : (access == .granted ? "Showing your next event." : "Waiting for your answer."),
-                actionTitle: access == .denied ? "Open Settings…" : nil, action: { [permissions] in permissions.openPrivacy("Privacy_Calendars") }))
+            items.append(SetupItem(id: "calendar", title: String(localized: "Calendar"), state: access == .granted ? .ready : (access == .denied ? .attention : .ready),
+                detail: access == .denied ? String(localized: "Calendar access is off.") : (access == .granted ? String(localized: "Showing your next event.") : String(localized: "Waiting for your answer.")),
+                actionTitle: access == .denied ? String(localized: "Open Settings…") : nil, action: { [permissions] in permissions.openPrivacy("Privacy_Calendars") }))
         }
         return items
     }
@@ -93,11 +93,11 @@ struct SetupChecklist: View {
                         else { Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange) }
                     }
                 } label: {
-                    SettingsLabel(title: item.title, detail: item.detail)
+                    SettingsLabel(title: .verbatim(item.title), detail: .verbatim(item.detail))
                 }
             }
         } header: {
-            Label(problems == 0 ? "Everything you’ve turned on is ready" : "\(problems) \(problems == 1 ? "thing needs" : "things need") attention",
+            Label(problems == 0 ? "Everything you’ve turned on is ready" : problems == 1 ? "1 thing needs attention" : "\(problems) things need attention",
                   systemImage: problems == 0 ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
                 .foregroundStyle(problems == 0 ? Color.green : .orange)
         }
