@@ -1,9 +1,9 @@
 ---
-name: verify-sense
-description: Check that Sense actually works on this Mac, beyond unit tests. Use after changing the island, lid fold, switcher, scale or permissions, before saying a feature works, or when the user reports something broken. Covers the lid/hinge diagnostics, the smoke test's screenshots (for design review), crash reports, and the trackpad force check.
+name: verify-brim
+description: Check that Brim actually works on this Mac, beyond unit tests. Use after changing the island, lid fold, switcher, scale or permissions, before saying a feature works, or when the user reports something broken. Covers the lid/hinge diagnostics, the smoke test's screenshots (for design review), crash reports, and the trackpad force check.
 ---
 
-# Verify Sense on real hardware
+# Verify Brim on real hardware
 
 Unit tests (`./test.sh`) cover logic only. These checks cover what they can't. Report what each check
 actually showed; if a check couldn't run, say so.
@@ -12,13 +12,13 @@ actually showed; if a check couldn't run, say so.
 
 ```sh
 ./test.sh                 # never plain `swift test`; it fails with this toolchain
-./build.sh debug          # signs dist/Sense.app with the stable local identity
+./build.sh debug          # signs dist/Brim.app with the stable local identity
 ```
 
 ## 2. Lid fold and Screen Recording
 
 ```sh
-perl -e 'alarm 25; exec @ARGV' dist/Sense.app/Contents/MacOS/Sense --lid-diagnostics
+perl -e 'alarm 25; exec @ARGV' dist/Brim.app/Contents/MacOS/Brim --lid-diagnostics
 ```
 
 Prints JSON and exits (`timeout` isn't installed; the `perl alarm` stands in). Read:
@@ -31,7 +31,7 @@ Exit code 133 is a Swift trap (a crash), not a diagnostic result. Go to step 4.
 ## 3. Screenshots for design review
 
 ```sh
-SENSE_SMOKE_OUTPUT="$PWD/dist/smoke" dist/Sense.app/Contents/MacOS/Sense --smoke-test --check-file-actions --check-media
+BRIM_SMOKE_OUTPUT="$PWD/dist/smoke" dist/Brim.app/Contents/MacOS/Brim --smoke-test --check-file-actions --check-media
 ```
 
 Renders every settings page (light and dark), the island in its states, file shelf, clipboard, timer,
@@ -42,12 +42,12 @@ and never touches the user's settings. Open the PNGs with the Read tool to see t
 ## 4. Crashes
 
 A run that dies prints `Fatal error: …` on stderr. The backtrace is in the newest
-`~/Library/Logs/DiagnosticReports/Sense-*.ips`. Extract the crashing thread:
+`~/Library/Logs/DiagnosticReports/Brim-*.ips`. Extract the crashing thread:
 
 ```sh
 python3 - <<'EOF'
 import json, glob, os
-path = max(glob.glob(os.path.expanduser('~/Library/Logs/DiagnosticReports/Sense-*.ips')), key=os.path.getmtime)
+path = max(glob.glob(os.path.expanduser('~/Library/Logs/DiagnosticReports/Brim-*.ips')), key=os.path.getmtime)
 raw = open(path).read(); body = json.loads(raw[raw.index('\n') + 1:])
 for thread in body['threads']:
     if thread.get('triggered'):

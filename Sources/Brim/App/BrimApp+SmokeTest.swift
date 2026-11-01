@@ -3,7 +3,7 @@ import SwiftUI
 import AppKit
 import ScreenCaptureKit
 
-/// Captures one of Sense's own windows as it appears on screen, including scrolling Forms that
+/// Captures one of Brim's own windows as it appears on screen, including scrolling Forms that
 /// `cacheDisplay` leaves blank. Only this process's windows are visible to the API, so no permission is needed.
 @MainActor enum SmokeCapture {
     static func png(of window: NSWindow) async -> Data? {
@@ -23,11 +23,13 @@ import ScreenCaptureKit
 }
 
 /// The `--smoke-test` run: renders every settings page and island state to PNGs and writes a JSON report.
-extension SenseAppModel {
+extension BrimAppModel {
     func exportSmokeTest() async {
-        let output = ProcessInfo.processInfo.environment["SENSE_SMOKE_OUTPUT"] ?? "/tmp/sense-smoke"
+        let output = ProcessInfo.processInfo.environment["BRIM_SMOKE_OUTPUT"] ?? "/tmp/brim-smoke"
         try? FileManager.default.createDirectory(atPath: output, withIntermediateDirectories: true)
         settingsWindow?.setContentSize(NSSize(width: 900, height: 840))
+        // Labs is off by default; the run still has to exercise the hinge and force sensors.
+        preferences.lidEffectEnabled = true; preferences.scaleEnabled = true; apply()
         var rendered: [String] = []
         for appearance in [Appearance.light, .dark] {
             preferences.appearance = appearance
@@ -82,7 +84,7 @@ extension SenseAppModel {
             }
             mediaCheck["discoveredPlayers"] = playerChecks
             let snapshot = await SystemMediaBridge.snapshot()
-            let layoutSnapshot = SystemMediaSnapshot(available: true, title: "Preview track", artist: "Layout preview · no audio", source: "sense.preview.player", sourceName: "Preview Player", rate: 0, duration: 240, position: 80, identifier: "layout-preview", canSeek: false, processID: 1)
+            let layoutSnapshot = SystemMediaSnapshot(available: true, title: "Preview track", artist: "Layout preview · no audio", source: "brim.preview.player", sourceName: "Preview Player", rate: 0, duration: 240, position: 80, identifier: "layout-preview", canSeek: false, processID: 1)
             if let name = await notch.exportMediaPreview(layoutSnapshot, to: URL(fileURLWithPath: output), layoutPreview: true) { rendered.append(name) }
             mediaCheck["systemBridgeAvailable"] = snapshot?.available == true
             mediaCheck["hasMediaSession"] = snapshot?.hasMedia == true
@@ -130,7 +132,7 @@ extension SenseAppModel {
             notch.openShelfFromMenu()
             let window = NSWindow(contentRect: NSRect(x: 120, y: 150, width: 720, height: 400), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
-            window.title = "Sense · Spaces check"
+            window.title = "Brim · Spaces check"
             window.collectionBehavior = [.fullScreenPrimary]
             window.contentView = NSHostingView(rootView: Text("Checking the island during a native desktop transition…").padding(40))
             NSApp.activate(); window.makeKeyAndOrderFront(nil)
@@ -165,7 +167,7 @@ extension SenseAppModel {
         let statusFrame = statusBar?.buttonFrame ?? .zero
         let islandFrame = notch.panelFrame ?? .zero
         let shortcutChecks = toolShortcuts.checkDelivery()
-        let report: [String: Any] = ["activitiesAndPresentation": notch.smoke.activityChecks, "toolShortcuts": shortcutChecks,"app": "Sense", "bundleID": Bundle.main.bundleIdentifier ?? "unbundled", "settingsWindow": settingsWindow != nil, "rendered": rendered, "previewMode": "own-window capture",
+        let report: [String: Any] = ["activitiesAndPresentation": notch.smoke.activityChecks, "toolShortcuts": shortcutChecks,"app": "Brim", "bundleID": Bundle.main.bundleIdentifier ?? "unbundled", "settingsWindow": settingsWindow != nil, "rendered": rendered, "previewMode": "own-window capture",
             "menuBarIconVisible": statusBar?.isVisible ?? false,
             "menuBarFrame": [statusFrame.minX, statusFrame.minY, statusFrame.width, statusFrame.height],
             "menuEntries": statusBar?.menuTitles ?? [],

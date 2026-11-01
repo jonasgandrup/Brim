@@ -11,28 +11,26 @@ struct SetupItem: Identifiable {
     var action: (@MainActor () -> Void)?
 }
 
-extension SenseAppModel {
+extension BrimAppModel {
     /// Everything that can stop an enabled feature from working, in one list. Features that are
     /// switched off never ask for anything.
     var setupItems: [SetupItem] {
         var items: [SetupItem] = []
-        let needsAccessibility = preferences.switcherEnabled || preferences.lockEnabled
-        let staleApproval = permissions.accessibilityRequested && !permissions.accessibility
+        let needsAccessibility = preferences.switcherEnabled
         items.append(SetupItem(id: "accessibility", title: String(localized: "Accessibility"),
             state: permissions.accessibility ? .ready : (needsAccessibility ? .attention : .notNeeded),
-            detail: permissions.accessibility ? String(localized: "Window Switcher and Lock Now can work.")
-                : staleApproval ? String(localized: "Already on in System Settings? That approval belongs to an earlier build of Sense. Reset clears it so you can approve this one.")
-                : (needsAccessibility ? String(localized: "Needed to switch windows and send Lock Screen.") : String(localized: "Only needed for the Window Switcher and Lock Now.")),
-            actionTitle: permissions.accessibility ? nil : (staleApproval ? String(localized: "Reset & Ask Again") : String(localized: "Allow…")),
-            action: { [permissions] in if staleApproval { permissions.resetAccessibility() } else { permissions.requestAccessibility() } }))
+            detail: permissions.accessibility ? String(localized: "The Window Switcher can work.")
+                : (needsAccessibility ? String(localized: "Needed to switch windows. Already on in System Settings? Allow clears the old approval so you can give it again.") : String(localized: "Only needed for the Window Switcher.")),
+            actionTitle: permissions.accessibility ? nil : String(localized: "Allow…"),
+            action: { [permissions] in permissions.requestAccessibility() }))
 
         let needsCapture = preferences.lidEffectEnabled || preferences.switcherEnabled
         let waitingForRestart = permissions.screenRecordingRequested && !permissions.screenRecording
         items.append(SetupItem(id: "screen", title: String(localized: "Screen Recording"),
             state: permissions.screenRecording ? .ready : (needsCapture ? .attention : .notNeeded),
             detail: permissions.screenRecording ? String(localized: "Window previews and the lid fold can capture the desktop.")
-                : (waitingForRestart ? String(localized: "If you just turned it on, restart Sense to finish.") : String(localized: "Needed for the lid fold and window previews.")),
-            actionTitle: permissions.screenRecording ? nil : (waitingForRestart ? String(localized: "Restart Sense") : String(localized: "Allow…")),
+                : (waitingForRestart ? String(localized: "If you just turned it on, restart Brim to finish.") : String(localized: "Needed for the lid fold and window previews. Already on in System Settings? Allow clears the old approval so you can give it again.")),
+            actionTitle: permissions.screenRecording ? nil : (waitingForRestart ? String(localized: "Restart Brim") : String(localized: "Allow…")),
             action: { [weak self] in
                 guard let self else { return }
                 if waitingForRestart { self.restartForLidSetup() } else { self.permissions.requestScreenRecording() }
@@ -58,7 +56,7 @@ extension SenseAppModel {
         if preferences.notchEnabled && preferences.autoHideFocus {
             let monitor = autoHide
             items.append(SetupItem(id: "focus", title: String(localized: "Focus Status"), state: monitor.focusAuthorized ? .ready : (monitor.focusDenied ? .attention : .ready),
-                detail: monitor.focusAuthorized ? String(localized: "The island hides while a Focus is on.") : (monitor.focusDenied ? String(localized: "Focus access is off, so Sense can’t tell when a Focus is on.") : String(localized: "Waiting for your answer.")),
+                detail: monitor.focusAuthorized ? String(localized: "The island hides while a Focus is on.") : (monitor.focusDenied ? String(localized: "Focus access is off, so Brim can’t tell when a Focus is on.") : String(localized: "Waiting for your answer.")),
                 actionTitle: monitor.focusDenied ? String(localized: "Open Settings…") : nil, action: { [permissions] in permissions.openPrivacy("Privacy_Focus") }))
         }
         if preferences.notchEnabled && preferences.liveTransfers {
@@ -78,9 +76,10 @@ extension SenseAppModel {
 }
 
 struct SetupChecklist: View {
-    let model: SenseAppModel
+    let model: BrimAppModel
     var body: some View {
-        let items = model.setupItems
+        // A feature that's off isn't worth a line.
+        let items = model.setupItems.filter { $0.state != .notNeeded }
         let problems = items.filter { $0.state == .attention }.count
         Section {
             ForEach(items) { item in
@@ -104,7 +103,7 @@ struct SetupChecklist: View {
     }
 }
 
-extension SenseAppModel {
+extension BrimAppModel {
     /// A plain-text snapshot for bug reports. Contains no file names, titles or personal content.
     var diagnosticsText: String {
         func sysctl(_ name: String) -> String {
@@ -117,7 +116,7 @@ extension SenseAppModel {
         let info = Bundle.main.infoDictionary
         let yes = { (value: Bool) in value ? "yes" : "no" }
         var lines = [
-            "Sense \(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))",
+            "Brim \(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))",
             "macOS \(ProcessInfo.processInfo.operatingSystemVersionString) · \(sysctl("hw.model"))",
             "Accessibility: \(yes(permissions.accessibility)) · Screen Recording: \(yes(permissions.screenRecording))",
             "Lid fold: \(yes(preferences.lidEffectEnabled)) (\(preferences.lidFoldStyle.rawValue)) · hinge: \(lid.status) · capture check: \(lid.captureCheck.title)",

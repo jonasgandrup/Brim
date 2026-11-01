@@ -3,7 +3,7 @@
 # importing keys into the login keychain or changing system trust settings.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-app="${1:?Usage: scripts/sign-local.sh /path/to/Sense.app}"
+app="${1:?Usage: scripts/sign-local.sh /path/to/Brim.app}"
 signing_directory="$PWD/.sense-signing"
 keychain="$signing_directory/Sense.keychain-db"
 if [[ ! -f "$keychain" ]]; then

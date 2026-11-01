@@ -47,7 +47,7 @@ struct MediaPlayerControls: View {
                     Button("Pause \(media.sourceName) after \(minutes) min") { media.startSleepTimer(minutes: minutes) }
                         .disabled(media.currentPlayer == nil || media.selectionLoading || media.sleepTimer.firing)
                 }
-                Text("Keep Sense running · pauses on wake if asleep")
+                Text("Keep Brim running · pauses on wake if asleep")
             }
         } label: {
             Image(systemName: media.sleepTimer.schedule == nil ? "moon" : "moon.zzz.fill").frame(width: 20, height: 20)

@@ -30,25 +30,29 @@ struct IslandLayout {
             ? CGSize(width: cutoutWidth + 104, height: menuBarHeight)
             : CGSize(width: 196, height: 38)
     }
-    func surfaceSize(for presentation: IslandPresentation, reveal: Double = 1) -> CGSize {
+    func surfaceSize(for presentation: IslandPresentation, reveal: Double = 1, notice: Bool = false) -> CGSize {
         let camera = CGSize(width: cutoutWidth, height: menuBarHeight)
-        let target = presentation == .expanded ? expandedSize : (presentation == .hidden && hasHardwareNotch ? camera : compactSize)
+        let target = presentation == .expanded ? (notice ? noticeSize : expandedSize) : (presentation == .hidden && hasHardwareNotch ? camera : compactSize)
         guard hasHardwareNotch else { return target }
         let progress = min(1, max(0, reveal.isFinite ? reveal : 1))
         return CGSize(width: camera.width + (target.width - camera.width) * progress,
                       height: camera.height + (target.height - camera.height) * progress)
     }
     var expandedSize: CGSize { CGSize(width: max(408, compactSize.width), height: headerHeight + 202) }
+    /// A line of news only needs a line's worth of island, as on iPhone.
+    var noticeSize: CGSize { CGSize(width: max(340, compactSize.width), height: headerHeight + Self.noticeContentHeight + 18) }
+    static let noticeContentHeight: CGFloat = 44
     static let bubbleGap: CGFloat = 6
     var headerHeight: CGFloat { hasHardwareNotch ? menuBarHeight : 38 }
     func idleHoverFrame(on screen: CGRect) -> CGRect {
-        let width = hasHardwareNotch ? cutoutWidth + 24 : compactSize.width
-        let height = hasHardwareNotch ? headerHeight + 8 : compactSize.height
+        // Exactly the camera housing: browser tabs and menus sit right beside and below it.
+        let width = hasHardwareNotch ? cutoutWidth : compactSize.width
+        let height = hasHardwareNotch ? headerHeight : compactSize.height
         return CGRect(x: screen.midX - width / 2, y: screen.maxY - topGap - height, width: width, height: height)
     }
     var topGap: CGFloat { hasHardwareNotch ? 0 : 8 }
-    func frame(on screen: CGRect, expanded: Bool) -> CGRect {
-        let size = expanded ? expandedSize : compactSize
+    func frame(on screen: CGRect, expanded: Bool, notice: Bool = false) -> CGRect {
+        let size = expanded ? (notice ? noticeSize : expandedSize) : compactSize
         return CGRect(x: screen.midX - size.width / 2, y: screen.maxY - topGap - size.height, width: size.width, height: size.height)
     }
 }
@@ -67,6 +71,25 @@ enum IslandHitRegion {
         else { return true }
         return pow(point.x - centerX, 2) + pow(point.y - centerY, 2) <= r * r
     }
+}
+
+/// Tells a pointer resting on the island from one passing through or brushing its edge on the way to a tab.
+/// The rest timer restarts whenever the pointer really moves, and once the island has opened and closed
+/// it takes leaving and coming back to open it again.
+struct HoverIntent {
+    static let dwell = Duration.milliseconds(300)
+    static let stillRadius: CGFloat = 10
+    private var anchor: CGPoint?
+    private var spent = false
+    /// True when the rest timer should start over from this point.
+    mutating func moved(to point: CGPoint) -> Bool {
+        guard !spent else { return false }
+        if let anchor, hypot(point.x - anchor.x, point.y - anchor.y) <= Self.stillRadius { return false }
+        anchor = point
+        return true
+    }
+    mutating func spend() { anchor = nil; spent = true }
+    mutating func left() { anchor = nil; spent = false }
 }
 
 enum IslandPresentation: Equatable {
@@ -96,6 +119,9 @@ struct IslandHUD: Equatable {
     var level: Double?
     var tint: Color = .white
     var label: String
+    /// Draws a battery and its percentage instead of the symbol and level.
+    var battery: Int?
+    var charging = false
 }
 
 /// Selects the display whose window the user is working in, from on-screen window bounds.
@@ -209,8 +235,7 @@ final class NotchController {
     var feedback: String?
     var feedbackSymbol = "checkmark.circle"
     var feedbackTint: Color = .green
-    /// Optional rich content for the current feedback: a battery reading or a screenshot preview.
-    private(set) var feedbackBattery: (level: Int, charging: Bool)?
+    /// Optional rich content for the current feedback: a screenshot preview.
     private(set) var feedbackImage: NSImage?
     private(set) var feedbackURL: URL?
     /// An accessory that just connected, shown as a card with a battery ring per part, like AirPods on iPhone.
@@ -244,6 +269,7 @@ final class NotchController {
     private var mediaExitTask: Task<Void, Never>?
     private var onOpenSettings: () -> Void = {}
     private var pointerInside = false
+    private var hoverIntent = HoverIntent()
     /// Replaces the real pointer location while the smoke test drives the island.
     var previewPointer: CGPoint?
     private var suspended = false
@@ -294,10 +320,25 @@ final class NotchController {
     }
     /// A small swell under the pointer says the compact island can be clicked.
     var hoverSwell: Bool { pointerInside && !expanded && presentation == .compact }
-    var showsTransfersTab: Bool { preferences?.liveTransfers == true || transfers.hasRunning || !activities.running.isEmpty || selectedTab == .transfers }
-    var visibleTabs: [IslandTab] {
-        [.music, .files, .clipboard, .timer, .battery] + (showsTransfersTab ? [.transfers] : [])
+    /// Whether a section is offered. The first one is the island's home and always is; whatever is running
+    /// stays reachable even with its section off, so a timer you started can still be stopped.
+    func shows(_ tab: IslandTab) -> Bool {
+        let simple = preferences?.simpleIsland == true
+        return switch tab {
+        case .music: true
+        case .files: !simple && preferences?.showFiles != false
+        case .clipboard: !simple && preferences?.showClipboard != false
+        case .timer: countdown.active || clock.active || (!simple && preferences?.showClock != false)
+        case .battery: !simple && preferences?.showControls != false
+        case .transfers: transfers.hasRunning || !activities.running.isEmpty || (!simple && (preferences?.liveTransfers == true || selectedTab == .transfers))
+        }
     }
+    var visibleTabs: [IslandTab] {
+        [.music, .files, .clipboard, .timer, .battery, .transfers].filter(shows)
+    }
+    /// Shelf files and clipboard pins are kept while their section is off, just not shown.
+    var shelfHasFiles: Bool { shows(.files) && !shelf.files.isEmpty }
+    var clipboardHasPins: Bool { shows(.clipboard) && !clipboard.pins.isEmpty }
     /// What a plain open shows: the activity under the pointer, otherwise whatever is happening now.
     private func contextTab(at location: CGPoint? = nil) -> IslandTab {
         if let location, bubbleFrame?.contains(location) == true { return .timer }
@@ -327,8 +368,8 @@ final class NotchController {
     var surfaceAnimationsSuppressed: Bool { transitionPhase != .settled }
     private let transitionMonitor = DesktopTransitionMonitor()
     private var systemSwitcherActive = false
-    private var senseSwitcherActive = false
-    private var switcherOverlayActive: Bool { systemSwitcherActive || senseSwitcherActive }
+    private var brimSwitcherActive = false
+    private var switcherOverlayActive: Bool { systemSwitcherActive || brimSwitcherActive }
     private var desktopRestoreTask: Task<Void, Never>?
     private var desktopRestoreGate = DesktopRestoreGate()
     private var lastScreenPreferences: [Bool]?
@@ -337,30 +378,32 @@ final class NotchController {
     var trackpadDeviceCount: Int { transitionMonitor.trackpadDeviceCount }
     var observedContactGestures: Int { transitionMonitor.observedContactGestures }
     var transitionDiagnostics: [String: Bool] {
-        ["systemOverlay": systemSwitcherActive, "senseSwitcher": senseSwitcherActive,
+        ["systemOverlay": systemSwitcherActive, "brimSwitcher": brimSwitcherActive,
          "transition": desktopTransition, "suspended": suspended, "panelVisible": panel?.isVisible ?? false]
     }
     var presentation: IslandPresentation {
         if transitioning || presentationMode { return .hidden }
         if expanded { return .expanded }
-        if fileDragActive || transfers.hasRunning || !activities.running.isEmpty || !shelf.files.isEmpty || !clipboard.pins.isEmpty || countdown.active
+        if fileDragActive || transfers.hasRunning || !activities.running.isEmpty || shelfHasFiles || clipboardHasPins || countdown.active
             || clock.active || media?.sleepTimer.schedule != nil || hud != nil { return .compact }
         return .resolve(expanded: expanded, mediaEnabled: preferences?.mediaEnabled == true,
                         playing: mediaVisible, hasSource: media?.source != nil, hasFeedback: feedback != nil)
     }
+    /// Feedback that's only words: pictures and accessory cards still get the full island.
+    var showsNotice: Bool { expanded && feedback != nil && feedbackImage == nil && feedbackDevice == nil }
     var compactTab: IslandTab {
         if countdown.active || clock.active { return .timer }
         if transfers.hasRunning || !activities.running.isEmpty { return .transfers }
-        if selectedTab == .files && !shelf.files.isEmpty { return .files }
-        if selectedTab == .clipboard && !clipboard.pins.isEmpty { return .clipboard }
+        if selectedTab == .files && shelfHasFiles { return .files }
+        if selectedTab == .clipboard && clipboardHasPins { return .clipboard }
         if preferences?.mediaEnabled == true && mediaVisible { return .music }
-        if !shelf.files.isEmpty { return .files }
-        if !clipboard.pins.isEmpty { return .clipboard }
+        if shelfHasFiles { return .files }
+        if clipboardHasPins { return .clipboard }
         return .music
     }
     var surfaceFrame: CGRect? {
         guard presentation != .hidden, let displayFrame else { return nil }
-        return layout.frame(on: displayFrame, expanded: expanded)
+        return layout.frame(on: displayFrame, expanded: expanded, notice: showsNotice)
     }
     var ignoresMouseEvents: Bool { panel?.ignoresMouseEvents ?? true }
 
@@ -384,8 +427,8 @@ final class NotchController {
         if preferences.calendarPreview { calendar.start() } else { calendar.stop() }
         shelf.actions.transfers = transfers
         if preferences.liveTransfers { transfers.start() } else { transfers.stop() }
-        if preferences.clipboardHistory { clipboard.startHistory() } else { clipboard.stopHistory() }
-        if preferences.screenshotShelf { screenshots.start() } else { screenshots.stop() }
+        if preferences.clipboardHistory && shows(.clipboard) { clipboard.startHistory() } else { clipboard.stopHistory() }
+        if preferences.screenshotShelf && shows(.files) { screenshots.start() } else { screenshots.stop() }
         if preferences.sensorIndicator { sensors.start() } else { sensors.stop() }
         if preferences.systemHUD { brightness.start() } else { brightness.stop() }
         if preferences.bluetoothBatteries { bluetooth.start() } else { bluetooth.stop() }
@@ -536,12 +579,18 @@ final class NotchController {
             _ = preferences?.chargingFeedback
             _ = preferences?.chargeTarget
             _ = preferences?.lowBatteryAlert
+            _ = preferences?.simpleIsland
+            _ = preferences?.showFiles
+            _ = preferences?.showClipboard
+            _ = preferences?.showClock
+            _ = preferences?.showControls
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self, self.observingActivity, self.observationGeneration == generation else { return }
                 if let status = self.status { self.receivePower(PowerSample(percent: status.battery, externalPower: status.charging)) }
                 self.syncMediaVisibility()
-                self.updateInteraction()
+                // An activity appearing under a still pointer isn't the pointer coming to rest on it.
+                self.updateInteraction(scheduleHover: false)
                 if !self.shelf.systemUIActive && self.expanded && !self.pointerInside { self.collapseAfterDelay() }
                 self.observeActivity()
             }
@@ -558,7 +607,7 @@ final class NotchController {
         mediaExitTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled else { return }
-            self?.mediaVisible = false; self?.updateInteraction()
+            self?.mediaVisible = false; self?.updateInteraction(scheduleHover: false)
         }
     }
     func containsPointer(_ point: CGPoint) -> Bool {
@@ -590,10 +639,12 @@ final class NotchController {
     func updateInteraction(scheduleHover: Bool = true, at location: CGPoint? = nil) {
         syncPanelVisibility()
         guard let panel else { return }
-        let inside = !suspended && !presentationMode && !transitioning && containsPointer(location ?? previewPointer ?? NSEvent.mouseLocation)
+        let point = location ?? previewPointer ?? NSEvent.mouseLocation
+        let inside = !suspended && !presentationMode && !transitioning && containsPointer(point)
+        if !inside { hoverIntent.left() }
         // The window never resizes. Transparent space outside the animated surface passes through.
         panel.ignoresMouseEvents = presentation == .hidden || !inside
-        if scheduleHover && (inside != pointerInside || (inside && !expanded && hoverTask == nil && preferences?.hoverToExpand == true)) { hover(inside) }
+        if scheduleHover && (inside != pointerInside || (inside && !expanded)) { hover(inside, at: point) }
         else { pointerInside = inside }
     }
     func stop() {
@@ -604,7 +655,7 @@ final class NotchController {
         shelf.actions.closePreview()
         systemMenuDepth = 0
         observingActivity = false; observationGeneration += 1
-        transitionMonitor.stop(); systemSwitcherActive = false; senseSwitcherActive = false
+        transitionMonitor.stop(); systemSwitcherActive = false; brimSwitcherActive = false
         desktopRestoreTask?.cancel(); desktopRestoreTask = nil; desktopRestoreGate.reset()
         transitionPhase = .settled; surfaceReveal = 1
         paneTask?.cancel(); displayedTab = selectedTab; paneOpacity = 1
@@ -682,24 +733,34 @@ final class NotchController {
         // One SwiftUI animation owns the shape, content and opacity. No NSWindow animator or I/O here.
         if !value { paneTask?.cancel(); displayedTab = selectedTab; paneOpacity = 1 }
         if value { hudTask?.cancel(); hud = nil }
+        // A section that was turned off can't be opened; go to what's happening instead.
+        if value && !visibleTabs.contains(selectedTab) { selectedTab = contextTab() }
+        if !value { hoverIntent.spend() }
         expanded = value
         updateInteraction(scheduleHover: false)
     }
-    func hover(_ inside: Bool) {
+    func hover(_ inside: Bool, at point: CGPoint? = nil) {
         pointerInside = inside
-        collapseTask?.cancel(); hoverTask?.cancel(); hoverTask = nil
-        if inside && !presentationMode && !transitioning && !suspended && preferences?.hoverToExpand == true && !expanded {
-            // A brief dwell avoids opening the island when crossing the menu bar.
-            hoverTask = Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(60))
-                guard !Task.isCancelled, let self else { return }
-                self.hoverTask = nil
-                let wasExpanded = self.expanded
-                if !wasExpanded { self.selectedTab = self.contextTab(at: self.previewPointer ?? NSEvent.mouseLocation) }
-                self.setExpanded(true)
-                if !wasExpanded && self.expanded { self.haptic(.open) }
-            }
-        } else if !inside && expanded { collapseAfterDelay() }
+        collapseTask?.cancel()
+        guard inside else {
+            hoverTask?.cancel(); hoverTask = nil
+            if expanded { collapseAfterDelay() }
+            return
+        }
+        // A held button means a selection or a dragged tab that happens to pass by, not a pause on the island.
+        guard !presentationMode, !transitioning, !suspended, preferences?.hoverToExpand == true, !expanded, NSEvent.pressedMouseButtons == 0 else {
+            hoverTask?.cancel(); hoverTask = nil
+            return
+        }
+        guard hoverIntent.moved(to: point ?? previewPointer ?? NSEvent.mouseLocation) else { return }
+        hoverTask?.cancel()
+        hoverTask = Task { [weak self] in
+            try? await Task.sleep(for: HoverIntent.dwell)
+            guard !Task.isCancelled, let self else { return }
+            self.hoverTask = nil
+            if !self.expanded { self.selectedTab = self.contextTab(at: self.previewPointer ?? NSEvent.mouseLocation) }
+            self.setExpanded(true)
+        }
     }
     private func collapseAfterDelay(seconds: Double = 0.06) {
         collapseTask?.cancel()
@@ -711,8 +772,8 @@ final class NotchController {
         }
     }
     func setSwitcherOverlayActive(_ active: Bool) {
-        guard senseSwitcherActive != active else { return }
-        senseSwitcherActive = active
+        guard brimSwitcherActive != active else { return }
+        brimSwitcherActive = active
         hideForDesktopTransition()
     }
     private func setSystemSwitcherActive(_ active: Bool) {
@@ -772,6 +833,8 @@ final class NotchController {
         case .leftMouseDown:
             dragStartChangeCount = NSPasteboard(name: .drag).changeCount
             startDragPolling()
+            // With nothing on screen the panel lets clicks through, so a click on the bare notch is noticed here.
+            if presentation == .hidden, containsPointer(NSEvent.mouseLocation) { openInContext() }
         case .leftMouseDragged: startDragPolling()
         case .leftMouseUp: endFileDrag()
         default: break
@@ -789,11 +852,12 @@ final class NotchController {
     }
     private func pollFileDrag() {
         guard NSEvent.pressedMouseButtons & 1 != 0 else { endFileDrag(); return }
+        guard shows(.files) else { return }
         let board = NSPasteboard(name: .drag)
         guard board.changeCount != dragStartChangeCount,
               board.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) else { return }
         if !fileDragActive { fileDragActive = true }
-        updateInteraction()
+        updateInteraction(scheduleHover: false)
         guard let displayFrame else { return }
         let target = layout.frame(on: displayFrame, expanded: false).insetBy(dx: -22, dy: -14)
         if target.contains(NSEvent.mouseLocation) { setDropTargeted(true) }
@@ -805,6 +869,7 @@ final class NotchController {
         if expanded && !pointerInside { collapseAfterDelay() }
     }
     func setDropTargeted(_ targeted: Bool, clipboard: Bool = false) {
+        guard !targeted || shows(clipboard ? .clipboard : .files) else { return }
         if targeted && !dropTargeted { haptic(.open); dropZone = .shelf }
         if targeted { dropIsFiles = !clipboard }
         dropTargeted = targeted
@@ -907,7 +972,7 @@ final class NotchController {
     // MARK: Keyboard
 
     /// Opened from the keyboard, the island takes ←, →, Return, Space and Escape until it closes, without
-    /// activating Sense or taking focus from the app you're in.
+    /// activating Brim or taking focus from the app you're in.
     private let keys = IslandKeys()
     private var panelKeyObserver: NSObjectProtocol?
     private func startKeyboardSession() {
@@ -996,11 +1061,11 @@ final class NotchController {
         guard !AppEnvironment.isSmokeTest, !expanded, !fileDragActive, let event else { return }
         switch event {
         case .connected(let percent) where preferences.chargingFeedback:
-            showFeedback(String(localized: "Charging · \(percent)%"), symbol: "battery.100percent.bolt", battery: (percent, true))
+            showHUD(.init(symbol: "battery.100percent.bolt", tint: .green, label: String(localized: "Charging"), battery: percent, charging: true), seconds: 3)
         case .targetReached(let target) where preferences.chargingFeedback:
-            showFeedback(String(localized: "Battery reached \(target)%"), symbol: "battery.100percent", battery: (target, false))
+            showHUD(.init(symbol: "battery.100percent", tint: .green, label: String(localized: "Target reached"), battery: target), seconds: 3)
         case .low(let percent):
-            showFeedback(String(localized: "Battery low · \(percent)%"), symbol: "battery.25percent", tint: .red, battery: (percent, false), seconds: 5)
+            showHUD(.init(symbol: "battery.25percent", tint: .red, label: String(localized: "Battery low"), battery: percent), seconds: 5)
         default: break
         }
     }
@@ -1037,14 +1102,14 @@ final class NotchController {
         haptic(.land)
         showFeedback(device.name, symbol: device.symbol, tint: .white, device: device, seconds: 4)
     }
-    /// Shown compact and brief, as on iPhone. Sense learns only that a Focus is on, not which one.
+    /// Shown compact and brief, as on iPhone. Brim learns only that a Focus is on, not which one.
     func focusChanged(on: Bool) {
         guard preferences?.focusFeedback == true else { return }
         showHUD(.init(symbol: on ? "moon.fill" : "moon", tint: .indigo, label: on ? String(localized: "Focus On") : String(localized: "Focus Off")), seconds: 2)
     }
     /// A new screenshot goes onto the file shelf and gets a brief preview, like the iPhone's corner thumbnail.
     func receiveScreenshot(_ url: URL) {
-        guard preferences?.notchEnabled == true, preferences?.screenshotShelf == true else { return }
+        guard preferences?.notchEnabled == true, preferences?.screenshotShelf == true, shows(.files) else { return }
         shelf.add([url]); shelf.select([url.standardizedFileURL])
         selectedTab = .files
         haptic(.land)
@@ -1053,12 +1118,13 @@ final class NotchController {
 
     // MARK: Feedback presentation
 
-    func showFeedback(_ text: String, symbol: String, tint: Color = .green, battery: (level: Int, charging: Bool)? = nil,
+    func showFeedback(_ text: String, symbol: String, tint: Color = .green,
                       image: NSImage? = nil, url: URL? = nil, action: (title: String, url: URL)? = nil, device: BluetoothDevice? = nil, seconds: Double = 3) {
         guard preferences?.notchEnabled == true else { return }
+        if preferences?.simpleIsland == true { showHUD(.init(symbol: symbol, tint: tint, label: text), seconds: seconds); return }
         feedbackTask?.cancel(); hudTask?.cancel(); hud = nil
         feedback = text; feedbackSymbol = symbol; feedbackTint = tint
-        feedbackBattery = battery; feedbackImage = image; feedbackURL = url; feedbackAction = action; feedbackDevice = device
+        feedbackImage = image; feedbackURL = url; feedbackAction = action; feedbackDevice = device
         setExpanded(true)
         feedbackTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
@@ -1073,7 +1139,7 @@ final class NotchController {
         if !pointerInside { setExpanded(false) }
     }
     private func clearFeedback() {
-        feedback = nil; feedbackBattery = nil; feedbackImage = nil; feedbackURL = nil; feedbackAction = nil; feedbackDevice = nil
+        feedback = nil; feedbackImage = nil; feedbackURL = nil; feedbackAction = nil; feedbackDevice = nil
     }
     /// The trackpad only plays this while a finger rests on it, so it's felt, never heard.
     enum Haptic { case open, land, finish }

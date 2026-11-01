@@ -3,7 +3,7 @@ import ServiceManagement
 
 /// Laid out like System Settings: a sidebar of colored icons and grouped forms with a header per page.
 struct SettingsView: View {
-    @Bindable var model: SenseAppModel
+    @Bindable var model: BrimAppModel
     var captureMode = false
     private var preferences: Preferences { model.preferences }
     private var version: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—" }
@@ -33,7 +33,6 @@ struct SettingsView: View {
         .onChange(of: preferences.notchEnabled) { model.apply() }
         .onChange(of: preferences.switcherEnabled) { model.apply() }
         .onChange(of: preferences.scaleEnabled) { model.apply() }
-        .onChange(of: preferences.lockEnabled) { model.apply() }
         .onChange(of: preferences.lidEffectEnabled) { model.apply() }
         .onChange(of: preferences.showOnExternal) { model.apply() }
         .onChange(of: preferences.followActiveDisplay) { model.apply() }
@@ -54,6 +53,11 @@ struct SettingsView: View {
         .onChange(of: preferences.lidFoldStyle) { model.apply() }
         .onChange(of: preferences.focusFeedback) { model.apply() }
         .onChange(of: preferences.systemChanges) { model.apply() }
+        .onChange(of: preferences.simpleIsland) { model.apply() }
+        .onChange(of: preferences.showFiles) { model.apply() }
+        .onChange(of: preferences.showClipboard) { model.apply() }
+        .onChange(of: preferences.showClock) { model.apply() }
+        .onChange(of: preferences.showControls) { model.apply() }
         .onChange(of: preferences.shortcut) { model.switcher.stop(); model.apply() }
     }
 
@@ -62,9 +66,9 @@ struct SettingsView: View {
     private var sidebar: some View {
         List(selection: Binding<SettingsPage?>(get: { model.page }, set: { if let page = $0 { model.page = page } })) {
             HStack(spacing: 10) {
-                SenseMark(size: 34)
+                BrimMark(size: 34)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Sense").font(.system(size: 13, weight: .semibold))
+                    Text("Brim").font(.system(size: 13, weight: .semibold))
                     Text("Version \(version)").font(.system(size: 11)).foregroundStyle(.secondary)
                 }
             }
@@ -93,7 +97,6 @@ struct SettingsView: View {
         case .notch:
             switch model.islandSection {
             case nil: notch
-            case .nowPlaying: nowPlayingSettings
             case .shelf: shelfSettings
             case .activities: activitySettings
             case .battery: batterySettings
@@ -101,7 +104,6 @@ struct SettingsView: View {
             case .keyboard: keyboardSettings
             }
         case .switcher: switcher
-        case .lock: lock
         case .labs: labs
         case .permissions: permissions
         }
@@ -128,7 +130,7 @@ struct SettingsView: View {
                 Label { SettingsLabel(title: "Open at Login", detail: "Ready when your Mac is.") } icon: { SettingsIcon(symbol: "power", tint: .gray, size: 26) }
             }
         } header: { Text("Around Your Mac") } footer: {
-            Footnote(text: "Sense asks for a permission only when a feature you turned on needs it. Nothing leaves your Mac.", symbol: "lock.shield")
+            Footnote(text: "Brim asks for a permission only when a feature you turned on needs it. Nothing leaves your Mac.", symbol: "lock.shield")
         }
         Section {
             HStack {
@@ -153,7 +155,6 @@ struct SettingsView: View {
         Section("Features") {
             featureToggle(.notch, detail: "Now playing, files, timers and system status around the camera.", isOn: binding(\.notchEnabled))
             featureToggle(.switcher, detail: "Move between windows, not just apps.", isOn: binding(\.switcherEnabled))
-            featureToggle(.lock, detail: "A gentle transition into the macOS lock screen.", isOn: binding(\.lockEnabled))
             LabeledContent {
                 Button("Show") { model.page = .labs }
             } label: {
@@ -193,8 +194,29 @@ struct SettingsView: View {
             Toggle(isOn: binding(\.notchEnabled)) {
                 SettingsLabel(title: "Dynamic Island", detail: "Activities and brief updates around the camera.")
             }
+            Toggle(isOn: binding(\.simpleIsland)) {
+                SettingsLabel(title: "Simple Island", detail: "Just what’s playing and what’s running, with no sections or pop-ups.",
+                              info: "Notices stay small around the camera instead of opening the island. Your shelf and pins are kept for when you turn this off.")
+            }.disabled(!preferences.notchEnabled)
+        }
+        Section {
+            sectionToggle("play.fill", .pink, "Now Playing", binding(\.mediaEnabled),
+                          info: "Works with apps that publish a Now Playing session; some omit artwork or ignore playback commands. Uses an undocumented macOS interface that may change with updates. Music and Spotify remain available as fallbacks.")
+            sectionToggle("tray.fill", .teal, "Files", binding(\.showFiles))
+            sectionToggle("pin.fill", .yellow, "Clipboard", binding(\.showClipboard))
+            sectionToggle("clock.fill", .orange, "Clock", binding(\.showClock))
+            sectionToggle("battery.100percent", .green, "Battery & Controls", binding(\.showControls))
+            sectionToggle("arrow.down.circle.fill", .blue, "Downloads & AirDrop", binding(\.liveTransfers),
+                          detail: model.notch.transfers.accessProblem.map(LocalizedStringKey.verbatim), info: "macOS asks once for access to your Downloads folder.")
+        } header: { Text("Show in the Island") } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                Footnote(text: "Sections you turn off leave the island and the menu. A timer that’s already running stays until it ends.")
+                if let message = model.media.message { Footnote(text: .verbatim(message), symbol: "exclamationmark.circle") }
+            }
+        }.disabled(!preferences.notchEnabled || preferences.simpleIsland)
+        Section("Behavior") {
             Toggle(isOn: binding(\.hoverToExpand)) {
-                SettingsLabel(title: "Expand on Hover", detail: "Point at the camera to open it.")
+                SettingsLabel(title: "Open on Hover", detail: "Rest the pointer on the island to open it. A click always works.")
             }.disabled(!preferences.notchEnabled)
             Toggle(isOn: binding(\.islandGestures)) {
                 SettingsLabel(title: "Gestures", detail: "Scroll on the island for volume, swipe to skip tracks.",
@@ -202,14 +224,16 @@ struct SettingsView: View {
             }.disabled(!preferences.notchEnabled)
             Toggle(isOn: binding(\.haptics)) {
                 SettingsLabel(title: "Haptic Feedback", detail: "A soft tap at moments worth feeling.",
-                              info: "When the island opens, a file lands or a timer ends. Felt only while a finger rests on a Force Touch trackpad.")
+                              info: "When a file lands or a timer ends, never just from moving the pointer. Felt only while a finger rests on a Force Touch trackpad.")
             }.disabled(!preferences.notchEnabled)
             Toggle(isOn: binding(\.showOnExternal)) {
                 SettingsLabel(title: "Show on Displays Without a Notch", detail: "A small island at the top of the screen.")
             }.disabled(!preferences.notchEnabled)
-            Toggle(isOn: binding(\.followActiveDisplay)) {
-                SettingsLabel(title: "Follow the Active Display", detail: "Moves to the display you’re working on.")
-            }.disabled(!preferences.notchEnabled || !preferences.showOnExternal)
+            if preferences.showOnExternal {
+                Toggle(isOn: binding(\.followActiveDisplay)) {
+                    SettingsLabel(title: "Follow the Active Display", detail: "Moves to the display you’re working on.")
+                }.disabled(!preferences.notchEnabled)
+            }
         }
         Section {
             ForEach(IslandSection.allCases) { section in
@@ -224,6 +248,11 @@ struct SettingsView: View {
             }
         }.disabled(!preferences.notchEnabled)
     }
+    private func sectionToggle(_ symbol: String, _ tint: Color, _ title: LocalizedStringKey, _ isOn: Binding<Bool>, detail: LocalizedStringKey? = nil, info: LocalizedStringKey? = nil) -> some View {
+        Toggle(isOn: isOn) {
+            Label { SettingsLabel(title: title, detail: detail, info: info) } icon: { SettingsIcon(symbol: symbol, tint: tint) }
+        }
+    }
     /// The state beside each sub-page row, like "On" or "3 on" in System Settings.
     private func summary(_ section: IslandSection) -> String {
         func count(_ flags: [Bool]) -> String {
@@ -231,29 +260,18 @@ struct SettingsView: View {
             return on == 0 ? String(localized: "Off") : on == flags.count && flags.count == 1 ? String(localized: "On") : String(localized: "\(on) on")
         }
         return switch section {
-        case .nowPlaying: preferences.mediaEnabled ? String(localized: "On") : String(localized: "Off")
         case .shelf: count([preferences.keepShelf, preferences.screenshotShelf, preferences.clipboardHistory])
-        case .activities: count([preferences.liveTransfers, preferences.calendarPreview, preferences.sensorIndicator, preferences.systemHUD, preferences.focusFeedback, preferences.systemChanges])
+        case .activities: count([preferences.calendarPreview, preferences.sensorIndicator, preferences.systemHUD, preferences.focusFeedback, preferences.systemChanges])
         case .battery: count([preferences.chargingFeedback, preferences.lowBatteryAlert > 0, preferences.bluetoothBatteries])
         case .hiding: count([preferences.autoHideFocus, preferences.autoHideSharing])
         case .keyboard: preferences.toolShortcutsEnabled ? String(localized: "\(preferences.toolShortcutModifiers.label)0") : String(localized: "Off")
         }
     }
-    @ViewBuilder private var nowPlayingSettings: some View {
-        Section {
-            Toggle(isOn: binding(\.mediaEnabled)) {
-                SettingsLabel(title: "Now Playing", detail: "Audio and video from any app, including browsers.",
-                              info: "Works with apps that publish a Now Playing session; some omit artwork or ignore playback commands. Uses an undocumented macOS interface that may change with updates. Music and Spotify remain available as fallbacks.")
-            }
-        } footer: {
-            if let message = model.media.message { Footnote(text: .verbatim(message), symbol: "exclamationmark.circle") }
-        }
-    }
     @ViewBuilder private var shelfSettings: some View {
         Section {
             LabeledContent {
-                Button("Open Shelf") { model.notch.openShelfFromMenu() }
-                Button("Clipboard") { model.notch.openClipboardFromMenu() }
+                Button("Open Shelf") { model.notch.openShelfFromMenu() }.disabled(!model.notch.shows(.files))
+                Button("Clipboard") { model.notch.openClipboardFromMenu() }.disabled(!model.notch.shows(.clipboard))
             } label: {
                 SettingsLabel(title: "File Shelf", detail: "Drop files on the island, then drag them out anywhere.")
             }
@@ -271,30 +289,26 @@ struct SettingsView: View {
     }
     @ViewBuilder private var activitySettings: some View {
         Section {
-            Toggle(isOn: binding(\.liveTransfers)) {
-                SettingsLabel(title: "Downloads & AirDrop", detail: model.notch.transfers.accessProblem.map(LocalizedStringKey.verbatim) ?? "Files still arriving, as a progress ring.",
-                              info: "macOS asks once for access to your Downloads folder.")
-            }
             Toggle(isOn: binding(\.calendarPreview)) {
                 SettingsLabel(title: "Next Calendar Event", detail: calendarDetail)
             }
             Toggle(isOn: binding(\.focusFeedback)) {
                 SettingsLabel(title: "Focus", detail: model.autoHide.focusDenied ? focusDenied : "A brief note when a Focus turns on or off.",
-                              info: "Sense learns only whether a Focus is on, not which one.")
+                              info: "Brim learns only whether a Focus is on, not which one.")
             }
             Toggle(isOn: binding(\.sensorIndicator)) {
-                SettingsLabel(title: "Camera & Microphone", detail: "A dot while any app uses them.", info: "Sense never records anything.")
+                SettingsLabel(title: "Camera & Microphone", detail: "A dot while any app uses them.", info: "Brim never records anything.")
             }
             Toggle(isOn: binding(\.systemHUD)) {
                 SettingsLabel(title: "Volume & Brightness", detail: "Changes appear as a small level.")
             }
             Toggle(isOn: binding(\.systemChanges)) {
                 SettingsLabel(title: "System Changes", detail: "Where sound is playing, Low Power Mode, and going offline.",
-                              info: "Sense notices only that the connection dropped or returned, never which network you’re on.")
+                              info: "Brim notices only that the connection dropped or returned, never which network you’re on.")
             }
         }
     }
-    private var focusDenied: LocalizedStringKey { "Focus access is off. Allow Sense in System Settings → Privacy & Security → Focus." }
+    private var focusDenied: LocalizedStringKey { "Focus access is off. Allow Brim in System Settings → Privacy & Security → Focus." }
     @ViewBuilder private var batterySettings: some View {
         Section {
             Toggle(isOn: binding(\.chargingFeedback)) {
@@ -343,11 +357,11 @@ struct SettingsView: View {
             LabeledContent {
                 Button("Copy Example") {
                     NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString("sense://message?text=Coffee%20is%20ready&symbol=cup.and.saucer.fill", forType: .string)
+                    NSPasteboard.general.setString("brim://message?text=Coffee%20is%20ready&symbol=cup.and.saucer.fill", forType: .string)
                 }
             } label: {
                 SettingsLabel(title: "Shortcuts", detail: "Show your own messages and live activities, start timers and more.",
-                              info: "Use a sense:// link with the Open URLs action: message, activity (with progress=0 to 1), activity/end, open, timer/start, focus/start, clipboard/pin, presentation and shelf/add.")
+                              info: "Use a brim:// link with the Open URLs action: message, activity (with progress=0 to 1), activity/end, open, timer/start, focus/start, clipboard/pin, presentation and shelf/add.")
             }
         } footer: {
             if !model.toolShortcuts.unavailable.isEmpty {
@@ -411,27 +425,7 @@ struct SettingsView: View {
                 SettingsLabel(title: "Permissions", detail: "Accessibility to switch. Screen Recording for previews.")
             }
         } footer: {
-            Footnote(text: "Choosing ⌘ Tab replaces the system app switcher while Sense runs. Shift reverses direction, arrows navigate and Escape cancels. Protected or minimized windows may have no thumbnail.")
-        }
-    }
-
-    // MARK: Lock Screen
-
-    @ViewBuilder private var lock: some View {
-        Section {
-            Toggle(isOn: binding(\.lockEnabled)) {
-                SettingsLabel(title: "Lock Actions", detail: "Lock Now, and a welcome back in the island after you unlock.")
-            }
-            LabeledContent {
-                Button("Lock Now") { model.lock.lock() }.disabled(!preferences.lockEnabled)
-            } label: {
-                SettingsLabel(title: "Lock Your Mac", detail: "Uses macOS’s own Lock Screen shortcut.")
-            }
-        } footer: {
-            VStack(alignment: .leading, spacing: 6) {
-                if let error = model.lock.error { Footnote(text: .verbatim(error), symbol: "exclamationmark.circle") }
-                Footnote(text: "macOS handles your password, Touch ID and Apple Watch. Sense never sees credentials.", symbol: "lock.shield")
-            }
+            Footnote(text: "Choosing ⌘ Tab replaces the system app switcher while Brim runs. Shift reverses direction, arrows navigate and Escape cancels. Protected or minimized windows may have no thumbnail.")
         }
     }
 
@@ -442,25 +436,22 @@ struct SettingsView: View {
             Toggle(isOn: binding(\.lidEffectEnabled)) {
                 SettingsLabel(title: "Lid Fold", detail: "Your desktop follows the lid as you close your MacBook.")
             }
-            LabeledContent {
-                lidSetupControl
-            } label: {
-                SettingsLabel(title: .verbatim(model.lidSetupStatus.title), detail: .verbatim(model.lidSetupStatus.detail))
+            if preferences.lidEffectEnabled {
+                LabeledContent {
+                    lidSetupControl
+                } label: {
+                    SettingsLabel(title: .verbatim(model.lidSetupStatus.title), detail: .verbatim(model.lidSetupStatus.detail))
+                }
+                Picker(selection: binding(\.lidFoldStyle)) {
+                    ForEach(LidFoldStyle.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    SettingsLabel(title: "Closing Style", detail: .verbatim(preferences.lidFoldStyle.detail))
+                }
             }
-            Picker(selection: binding(\.lidFoldStyle)) {
-                ForEach(LidFoldStyle.allCases) { Text($0.title).tag($0) }
-            } label: {
-                SettingsLabel(title: "Closing Style", detail: .verbatim(preferences.lidFoldStyle.detail))
-            }
-            LabeledContent {
-                Text("Automatic").foregroundStyle(.secondary)
-            } label: {
-                SettingsLabel(title: "Hinge Sensor", detail: .verbatim(model.lid.status))
-            }
-        } header: { Text("Lid Fold") } footer: {
+        } footer: {
             VStack(alignment: .leading, spacing: 6) {
                 if model.permissions.screenRecordingRequested && !model.permissions.screenRecording {
-                    Footnote(text: "Turn on Sense in macOS settings. If it’s already on, choose Restart Sense above to finish setup.")
+                    Footnote(text: "Turn on Brim in macOS settings. If it’s already on, choose Restart Brim above to finish setup.")
                 }
                 Footnote(text: "Close the lid slowly to see it. macOS still controls sleep and locking.")
             }
@@ -470,23 +461,21 @@ struct SettingsView: View {
                 SettingsLabel(title: "Trackpad Scale", detail: "Weigh small objects with the Force Touch sensor.",
                               info: "Uses an optional private macOS sensor interface. Needs a built-in Force Touch trackpad and a fingertip resting on it; objects alone may not register. Readings are estimates, not precision measurements.")
             }
-            LabeledContent {
-                Button("Open Scale") { model.openScale() }.disabled(!preferences.scaleEnabled)
-                Button("Reset Calibration") { model.scale.reset() }
-            } label: {
-                SettingsLabel(title: "Scale", detail: "Native grams, with optional known-mass calibration.")
+            if preferences.scaleEnabled {
+                LabeledContent {
+                    Button("Open Scale") { model.openScale() }
+                } label: {
+                    SettingsLabel(title: "Scale", detail: "Steps and calibration are in the scale’s own window.")
+                }
             }
-            step(1, "Keep contact", "Rest one fingertip lightly on the trackpad.")
-            step(2, "Set a baseline", "Press T to tare.")
-            step(3, "Add your object", "Place it beside your finger without pressing harder.")
-        } header: { Text("Trackpad Scale") }
+        }
     }
     @ViewBuilder private var lidSetupControl: some View {
         switch model.lidFoldReadiness {
         case .permissionNeeded:
             Button("Allow Screen Recording…") { model.permissions.requestScreenRecording() }
             if model.permissions.screenRecordingRequested {
-                Button("Restart Sense") { model.restartForLidSetup() }
+                Button("Restart Brim") { model.restartForLidSetup() }
             }
         case .reduceMotion:
             Button("Open Accessibility…") {
@@ -500,7 +489,7 @@ struct SettingsView: View {
             case .checking, .unverified: ProgressView().controlSize(.small)
             case .failed:
                 Button("Try Again") { model.lid.verifyDesktopCapture(force: true) }
-                Button("Restart Sense") { model.restartForLidSetup() }
+                Button("Restart Brim") { model.restartForLidSetup() }
             }
         default: EmptyView()
         }
@@ -519,13 +508,11 @@ struct SettingsView: View {
             }
         } header: { Text("Privacy") } footer: {
             VStack(alignment: .leading, spacing: 6) {
-                Footnote(text: "Grant only what you use. Battery, volume, the scale and the camera/microphone indicator need no permissions. Sense never captures from your camera or microphone.", symbol: "hand.raised")
-                Footnote(text: "If macOS asks you to restart after granting Screen Recording, use Restart Sense in Labs.")
+                Footnote(text: "Grant only what you use. Battery, volume, the scale and the camera/microphone indicator need no permissions. Brim never captures from your camera or microphone.", symbol: "hand.raised")
             }
         }
         Section {
             HStack {
-                Button("Refresh Status", systemImage: "arrow.clockwise") { model.permissions.refresh(); model.apply() }
                 Button("Copy Diagnostics", systemImage: "doc.on.clipboard") {
                     NSPasteboard.general.clearContents(); NSPasteboard.general.setString(model.diagnosticsText, forType: .string)
                 }.help("Copies versions and feature status for a bug report. No personal content.")
@@ -548,13 +535,5 @@ struct SettingsView: View {
             }
         }
         .contextMenu { Button("Show \(page.title) Settings") { model.page = page } }
-    }
-    private func step(_ number: Int, _ title: LocalizedStringKey, _ detail: LocalizedStringKey) -> some View {
-        Label {
-            SettingsLabel(title: title, detail: detail)
-        } icon: {
-            Text("\(number)").font(.system(size: 11, weight: .semibold)).frame(width: 22, height: 22)
-                .background(.orange.opacity(0.15), in: Circle()).foregroundStyle(.orange)
-        }
     }
 }

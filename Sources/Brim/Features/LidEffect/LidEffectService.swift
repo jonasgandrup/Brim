@@ -14,10 +14,10 @@ enum LidFoldReadiness: Equatable {
     var message: String {
         switch self {
         case .disabled: String(localized: "Turn on Lid Fold and Duo lid closing above.")
-        case .permissionNeeded: String(localized: "Screen Recording permission is needed for Sense to fold your desktop.")
+        case .permissionNeeded: String(localized: "Screen Recording permission is needed for Brim to fold your desktop.")
         case .reduceMotion: String(localized: "Paused while macOS Reduce Motion is enabled.")
         case .sensorUnavailable: String(localized: "Waiting for a compatible hinge sensor. Check the sensor status above.")
-        case .openLid: String(localized: "Open the lid to your normal working angle. Sense calibrates automatically.")
+        case .openLid: String(localized: "Open the lid to your normal working angle. Brim calibrates automatically.")
         case .ready: String(localized: "Close the lid slowly to see the fold. Reopening reverses it.")
         }
     }
@@ -42,14 +42,14 @@ struct LidSetupStatus: Equatable {
         ready = readiness == .ready && capture == .verified
         switch readiness {
         case .disabled: title = String(localized: "Off"); detail = String(localized: "Turn on Lid fold to get started.")
-        case .permissionNeeded: title = String(localized: "Allow desktop access"); detail = String(localized: "Allow Screen Recording for Sense so it can fold your desktop.")
+        case .permissionNeeded: title = String(localized: "Allow desktop access"); detail = String(localized: "Allow Screen Recording for Brim so it can fold your desktop.")
         case .reduceMotion: title = String(localized: "Paused by Reduce Motion"); detail = String(localized: "Turn off Reduce Motion in macOS Accessibility settings to use the fold.")
         case .sensorUnavailable: title = String(localized: "Checking the hinge sensor"); detail = String(localized: "A compatible MacBook hinge sensor is required.")
         case .openLid: title = String(localized: "Open your MacBook"); detail = String(localized: "Open the lid normally. Calibration is automatic.")
         case .ready:
             title = capture.title
             switch capture {
-            case .unverified, .checking: detail = String(localized: "Checking that Sense can capture the built-in display.")
+            case .unverified, .checking: detail = String(localized: "Checking that Brim can capture the built-in display.")
             case .verified: detail = String(localized: "Close the lid slowly to see the fold. Opening it reverses the effect.")
             case .failed(let message): detail = message
             }
@@ -193,7 +193,7 @@ final class LidEffectService {
         // A real desktop transform requires a captured image. Never substitute a blur-only imitation.
         guard hasScreenAccess() else {
             panel?.orderOut(nil); snapshot = nil
-            captureMessage = String(localized: "Enable Screen Recording for Sense in macOS System Settings → Privacy & Security → Screen & System Audio Recording.")
+            captureMessage = String(localized: "Enable Screen Recording for Brim in macOS System Settings → Privacy & Security → Screen & System Audio Recording.")
             return
         }
         if panel == nil { makePanel() }

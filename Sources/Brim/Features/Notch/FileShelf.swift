@@ -97,7 +97,9 @@ struct ShelfDropDelegate: DropDelegate {
     let controller: NotchController
     /// The island's width, to tell the shelf half from the AirDrop half.
     let width: CGFloat
-    func validateDrop(info: DropInfo) -> Bool { info.hasItemsConforming(to: [.fileURL, .url, .plainText, .image]) }
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [.fileURL]) ? controller.shows(.files) : controller.shows(.clipboard) && info.hasItemsConforming(to: [.url, .plainText, .image])
+    }
     func dropEntered(info: DropInfo) {
         controller.setDropTargeted(true, clipboard: !info.hasItemsConforming(to: [.fileURL]))
         controller.updateDropZone(x: info.location.x, width: width)
@@ -125,7 +127,7 @@ struct FileShelfView: View {
     let dropTargeted: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            IslandPaneHeader {
+            if !shelf.files.isEmpty { IslandPaneHeader {
                 if shelf.selectedURLs.count > 1 {
                     Text("\(shelf.selectedURLs.count)").monospacedDigit().foregroundStyle(.tertiary)
                 }
@@ -160,12 +162,12 @@ struct FileShelfView: View {
                 Button { shelf.actions.preview() } label: { Image(systemName: "eye").frame(width: 20, height: 20) }
                     .help("Quick Look · Space").disabled(shelf.files.isEmpty)
                 FileShareButton(shelf: shelf).frame(width: 20, height: 20)
-                Button("Clear") { shelf.clear() }.disabled(shelf.files.isEmpty || shelf.compressing)
-            }
+                Button("Clear") { shelf.clear() }.disabled(shelf.compressing)
+            } }
             if shelf.files.isEmpty {
                 IslandEmptyState(symbol: dropTargeted ? "tray.and.arrow.down.fill" : "tray.and.arrow.down",
                                  title: dropTargeted ? "Release to Keep Files Here" : "Drop Files Here",
-                                 detail: "Drag them out anywhere. They wait while you switch windows or Spaces.", minHeight: 95)
+                                 detail: "Drag them out anywhere. They wait while you switch windows or Spaces.", minHeight: 140)
                     .background(.white.opacity(dropTargeted ? 0.12 : 0.04), in: RoundedRectangle(cornerRadius: IslandStyle.largeRadius, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: IslandStyle.largeRadius, style: .continuous)
                         .strokeBorder(dropTargeted ? Color.accentColor : .white.opacity(0.1), style: StrokeStyle(lineWidth: 1, dash: dropTargeted ? [] : [4, 3])))

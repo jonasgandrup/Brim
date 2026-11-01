@@ -5,7 +5,7 @@ import CoreAudio
 import Foundation
 import AppKit
 import Testing
-@testable import Sense
+@testable import Brim
 
 @Test func calibrationRequiresRealPositiveDelta() {
     #expect(ScaleCalibration.factor(knownGrams: 50, pressure: 0.2, baseline: 0.2) == nil)
@@ -29,7 +29,7 @@ import Testing
     #expect(SwitcherSelection.next(0, count: 1, backwards: true) == 0)
 }
 @Test @MainActor func preferencesPersistAndHaveConservativeDefaults() throws {
-    let suite = "SenseTests.\(UUID().uuidString)"
+    let suite = "BrimTests.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
     let preferences = Preferences(defaults: defaults)
@@ -44,7 +44,7 @@ import Testing
     #expect(defaults.object(forKey: "notchEnabled") as? Bool == false)
 }
 @Test @MainActor func preferencesClampOnWriteAndIgnoreUnknownValues() throws {
-    let suite = "SenseTests.\(UUID().uuidString)"
+    let suite = "BrimTests.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
     defaults.set("sepia", forKey: "appearance")
@@ -110,7 +110,7 @@ import Testing
 }
 
 @Test @MainActor func shelfAcceptsNativeFileProvidersWithoutMovingSourceFiles() async throws {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("SenseShelfTests-\(UUID().uuidString)")
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("BrimShelfTests-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let source = directory.appendingPathComponent("sample.txt")
@@ -170,9 +170,39 @@ import Testing
     let layout = IslandLayout(cutoutWidth: 185, menuBarHeight: 32, hasHardwareNotch: true)
     let display = CGRect(x: -1728, y: 200, width: 1728, height: 1117)
     let target = layout.idleHoverFrame(on: display)
-    #expect(target.contains(CGPoint(x: display.midX, y: display.maxY - 35)))
-    #expect(!target.contains(CGPoint(x: display.midX, y: display.maxY - 90)))
+    #expect(target.contains(CGPoint(x: display.midX, y: display.maxY - 30)))
     #expect(target.midX == display.midX)
+    // A browser tab just below or beside the camera isn't the island.
+    #expect(!target.contains(CGPoint(x: display.midX, y: display.maxY - 34)))
+    #expect(!target.contains(CGPoint(x: display.midX + 185 / 2 + 2, y: display.maxY - 10)))
+}
+
+@Test func aNoticeTakesLessRoomThanTheFullIsland() {
+    let layout = IslandLayout(cutoutWidth: 185, menuBarHeight: 32, hasHardwareNotch: true)
+    let notice = layout.surfaceSize(for: .expanded, notice: true)
+    #expect(notice == layout.noticeSize)
+    #expect(notice.height < layout.expandedSize.height && notice.width <= layout.expandedSize.width)
+    #expect(notice.width >= layout.compactSize.width)
+    #expect(layout.frame(on: CGRect(x: 0, y: 0, width: 1512, height: 982), expanded: true, notice: true).size == notice)
+}
+
+@Test func hoverOpensOnlyOnceThePointerRests() {
+    var intent = HoverIntent()
+    func moved(_ x: CGFloat) -> Bool { intent.moved(to: CGPoint(x: x, y: 100)) }
+    var restarted = moved(100)
+    #expect(restarted)
+    // Small drift keeps the timer running; real movement starts it over.
+    restarted = moved(105)
+    #expect(!restarted)
+    restarted = moved(130)
+    #expect(restarted)
+    // After the island has opened and closed, it stays closed until the pointer leaves and returns.
+    intent.spend()
+    restarted = moved(400)
+    #expect(!restarted)
+    intent.left()
+    restarted = moved(400)
+    #expect(restarted)
 }
 
 @Test func pointerLeavingRoundedCornerCountsAsLeavingIsland() {
@@ -349,7 +379,7 @@ import Testing
 }
 
 @Test @MainActor func alarmFiresOnceAndCancelsCleanly() {
-    let suite = "SenseClockTests.\(UUID().uuidString)"
+    let suite = "BrimClockTests.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!
     defer { defaults.removePersistentDomain(forName: suite) }
     let clock = ClockTools(defaults: defaults, notificationsEnabled: false)
@@ -379,7 +409,7 @@ import Testing
 }
 
 @Test @MainActor func nativeWeighingRequiresZeroAndInvalidatesChangedContact() {
-    let suite = "SenseNativeScaleTests.\(UUID().uuidString)"
+    let suite = "BrimNativeScaleTests.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!
     defer { defaults.removePersistentDomain(forName: suite) }
     let scale = NativeWeighing(defaults: defaults)
@@ -457,7 +487,7 @@ import Testing
 }
 
 @Test @MainActor func scalePausesWhenSensorFramesLookUnrecognized() {
-    let weighing = NativeWeighing(defaults: UserDefaults(suiteName: "SenseTests.\(UUID().uuidString)")!)
+    let weighing = NativeWeighing(defaults: UserDefaults(suiteName: "BrimTests.\(UUID().uuidString)")!)
     for _ in 0..<29 { weighing.receive(NativeForceSample(grams: nil, touchID: nil, contactCount: 1, plausible: false)) }
     #expect(!weighing.formatUnrecognized)
     weighing.receive(NativeForceSample(grams: nil, touchID: nil, contactCount: 1, plausible: true))
@@ -507,7 +537,7 @@ import Testing
 }
 
 @Test func imageToolsConvertAndStripMetadataWithoutTouchingTheOriginal() throws {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("SenseImageTools-\(UUID().uuidString)")
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("BrimImageTools-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let context = try #require(CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
@@ -557,7 +587,7 @@ import Testing
 
 @Test @MainActor func clipboardHistorySkipsConcealedCopiesAndPasswordManagers() {
     let shelf = ClipboardShelf()
-    let board = NSPasteboard(name: NSPasteboard.Name("SenseTests.\(UUID().uuidString)"))
+    let board = NSPasteboard(name: NSPasteboard.Name("BrimTests.\(UUID().uuidString)"))
     board.clearContents(); board.setString("hello world", forType: .string)
     shelf.recordCopy(from: board, frontmost: "com.apple.TextEdit")
     shelf.recordCopy(from: board, frontmost: "com.1password.1password")
@@ -588,7 +618,7 @@ import Testing
 }
 
 @Test @MainActor func downloadsAppearWhileArrivingAndFinishOnce() async throws {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("SenseDownloads-\(UUID().uuidString)")
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("BrimDownloads-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let tracker = TransferTracker()
@@ -628,7 +658,7 @@ import Testing
 }
 
 @Test @MainActor func clipboardPinsSurviveARelaunchAndForgetWhenTurnedOff() throws {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("SensePins-\(UUID().uuidString)")
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("BrimPins-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: directory) }
     let store = ClipboardPinStore(directory: directory)
     let context = try #require(CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 0,
@@ -653,11 +683,11 @@ import Testing
     #expect(!FileManager.default.fileExists(atPath: directory.path))
 }
 
-@Test func islandTabsShowTransfersOnlyWhenUseful() {
-    let off = IslandTabBar.visible(showsTransfers: false, hasBattery: true)
+@Test @MainActor func islandTabsShowTransfersOnlyWhenUseful() {
+    let off = IslandTabBar.items(for: NotchController().visibleTabs, hasBattery: true)
     #expect(!off.map(\.tab).contains(.transfers) && off.count == 5)
-    #expect(IslandTabBar.visible(showsTransfers: true, hasBattery: true).map(\.tab).last == .transfers)
-    #expect(IslandTabBar.visible(showsTransfers: false, hasBattery: false).first { $0.tab == .battery }?.title == "Controls")
+    #expect(IslandTabBar.items(for: [.music, .transfers], hasBattery: true).map(\.tab).last == .transfers)
+    #expect(IslandTabBar.items(for: [.battery], hasBattery: false).first { $0.tab == .battery }?.title == "Controls")
 }
 
 @Test func soundOutputsUseTheirDeviceSymbol() {
@@ -698,7 +728,7 @@ import Testing
 }
 
 @Test func islandShortcutOpensAtWhatIsHappening() {
-    #expect(SenseCommand(url: URL(string: "sense://open?tool=island")!) == .open(.island))
+    #expect(BrimCommand(url: URL(string: "brim://open?tool=island")!) == .open(.island))
     #expect(ToolShortcuts.Tool.island.title == "Island")
     #expect(Set(IslandKeys.Key.allCases.map(\.keyCode)).count == IslandKeys.Key.allCases.count)
 }
@@ -714,9 +744,34 @@ import Testing
     }
 }
 
+@Test @MainActor func sectionsCanBeTurnedOffAndSimpleIslandKeepsOnlyWhatsRunning() throws {
+    let suite = "BrimTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let preferences = Preferences(defaults: defaults)
+    let controller = NotchController()
+    controller.start(preferences: preferences, status: SystemStatus(), media: MediaService(defaults: defaults))
+    defer { controller.stop() }
+    #expect(controller.visibleTabs == [.music, .files, .clipboard, .timer, .battery])
+    preferences.showFiles = false; preferences.showControls = false
+    #expect(controller.visibleTabs == [.music, .clipboard, .timer])
+    preferences.showClock = false
+    controller.countdown.start(seconds: 60)
+    #expect(controller.shows(.timer))
+    controller.countdown.cancel()
+    #expect(!controller.shows(.timer))
+    preferences.showFiles = true; preferences.showClock = true; preferences.showControls = true
+    preferences.simpleIsland = true
+    #expect(controller.visibleTabs == [.music])
+    // Files stay on the shelf but don't keep the compact island up.
+    controller.shelf.add([URL(fileURLWithPath: "/tmp")])
+    #expect(!controller.shelfHasFiles && controller.compactTab == .music)
+    controller.shelf.clear()
+}
+
 @Test @MainActor func experimentsLiveInLabsAndIslandSettingsAreSplit() {
     #expect(SettingsPage.sidebar.contains(.labs))
-    #expect(SettingsPage.lock.title == "Lock Screen")
+    #expect(!SettingsPage.sidebar.map(\.rawValue).contains("Lock Screen"))
     #expect(Set(IslandSection.allCases.map(\.symbol)).count == IslandSection.allCases.count)
     let controller = NotchController()
     #expect(controller.visibleTabs == [.music, .files, .clipboard, .timer, .battery])
@@ -724,15 +779,15 @@ import Testing
 }
 
 @Test func activityLinksCarryOnlyWhatTheCallerReports() {
-    #expect(SenseCommand(url: URL(string: "sense://activity?id=export&title=Exporting&progress=0.4&symbol=film")!)
+    #expect(BrimCommand(url: URL(string: "brim://activity?id=export&title=Exporting&progress=0.4&symbol=film")!)
             == .activity(id: "export", title: "Exporting", symbol: "film", progress: 0.4))
-    #expect(SenseCommand(url: URL(string: "sense://activity?title=Backup&percent=25%25")!) == .activity(id: "Backup", title: "Backup", symbol: nil, progress: 0.25))
-    #expect(SenseCommand(url: URL(string: "sense://activity?title=Build")!) == .activity(id: "Build", title: "Build", symbol: nil, progress: nil))
-    #expect(SenseCommand(url: URL(string: "sense://activity?id=x&progress=1.5")!) == nil)
-    #expect(SenseCommand(url: URL(string: "sense://activity?id=x&symbol=Bad%20Symbol")!) == .activity(id: "x", title: nil, symbol: nil, progress: nil))
-    #expect(SenseCommand(url: URL(string: "sense://activity/end?id=export&title=Done")!) == .endActivity(id: "export", title: "Done", finished: true))
-    #expect(SenseCommand(url: URL(string: "sense://activity/cancel?id=export")!) == .endActivity(id: "export", title: nil, finished: false))
-    #expect(SenseCommand(url: URL(string: "sense://activity")!) == nil)
+    #expect(BrimCommand(url: URL(string: "brim://activity?title=Backup&percent=25%25")!) == .activity(id: "Backup", title: "Backup", symbol: nil, progress: 0.25))
+    #expect(BrimCommand(url: URL(string: "brim://activity?title=Build")!) == .activity(id: "Build", title: "Build", symbol: nil, progress: nil))
+    #expect(BrimCommand(url: URL(string: "brim://activity?id=x&progress=1.5")!) == nil)
+    #expect(BrimCommand(url: URL(string: "brim://activity?id=x&symbol=Bad%20Symbol")!) == .activity(id: "x", title: nil, symbol: nil, progress: nil))
+    #expect(BrimCommand(url: URL(string: "brim://activity/end?id=export&title=Done")!) == .endActivity(id: "export", title: "Done", finished: true))
+    #expect(BrimCommand(url: URL(string: "brim://activity/cancel?id=export")!) == .endActivity(id: "export", title: nil, finished: false))
+    #expect(BrimCommand(url: URL(string: "brim://activity")!) == nil)
 }
 
 @Test @MainActor func scriptActivitiesFinishOnceAndExpireWhenSilent() {

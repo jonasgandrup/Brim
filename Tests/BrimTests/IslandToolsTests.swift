@@ -2,7 +2,7 @@ import Foundation
 import AppKit
 import Testing
 import UniformTypeIdentifiers
-@testable import Sense
+@testable import Brim
 
 @Test func countdownPreservesRemainingTimeWhilePausedAndFinishesAcrossSleep() {
     let start = Date(timeIntervalSince1970: 1000)
@@ -110,7 +110,7 @@ import UniformTypeIdentifiers
 }
 
 @Test @MainActor func fileShelfMultipleSelectionUsesNativeFileURLsAndKeepsOriginals() throws {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("SenseSelection-\(UUID())")
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("BrimSelection-\(UUID())")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let urls = ["one.txt", "two.txt", "three.txt"].map { directory.appendingPathComponent($0).standardizedFileURL }
@@ -156,7 +156,7 @@ import UniformTypeIdentifiers
 }
 
 @Test @MainActor func batchCopyUsesOnlySelectedFilesAndPreservesSources() throws {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("SenseCopy-\(UUID())")
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("BrimCopy-\(UUID())")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let urls = ["one.txt", "two.txt", "three.txt"].map { directory.appendingPathComponent($0).standardizedFileURL }
@@ -170,7 +170,7 @@ import UniformTypeIdentifiers
 
 @Test @MainActor func compressionIncludesSelectionAndHandlesDuplicateNamesWithoutChangingOriginals() async throws {
     let manager = FileManager.default
-    let directory = manager.temporaryDirectory.appendingPathComponent("SenseZipTest-\(UUID())")
+    let directory = manager.temporaryDirectory.appendingPathComponent("BrimZipTest-\(UUID())")
     try manager.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? manager.removeItem(at: directory) }
     let first = directory.appendingPathComponent("a/report.txt")
@@ -197,7 +197,7 @@ import UniformTypeIdentifiers
 }
 
 @Test func archiveRejectsOverwritingAnOriginal() async throws {
-    let file = FileManager.default.temporaryDirectory.appendingPathComponent("SenseOriginal-\(UUID()).zip")
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent("BrimOriginal-\(UUID()).zip")
     try Data("Original".utf8).write(to: file)
     defer { try? FileManager.default.removeItem(at: file) }
     do { try await ShelfArchive.create(urls: [file], destination: file); Issue.record("Overwrote source") }

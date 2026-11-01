@@ -23,14 +23,15 @@ enum SwitcherShortcut: String, CaseIterable, Identifiable {
 final class Preferences {
     private let defaults: UserDefaults
     private static let initial: [String: Any] = [
-        "toolShortcutsEnabled": true, "notchEnabled": true, "switcherEnabled": false, "scaleEnabled": true,
-        "lockEnabled": true, "lidEffectEnabled": true, "hoverToExpand": true, "showOnExternal": false,
+        "toolShortcutsEnabled": true, "notchEnabled": true, "switcherEnabled": false, "scaleEnabled": false,
+        "lidEffectEnabled": false, "hoverToExpand": true, "showOnExternal": false,
         "followActiveDisplay": false, "shortcut": "command", "includeMinimized": true, "chargingFeedback": true,
         "chargeTarget": 80, "lowBatteryAlert": 20, "mediaEnabled": false, "lidFoldStyle": "duo",
         "liveTransfers": false, "autoHideFocus": false, "autoHideSharing": false, "calendarPreview": false,
         "clipboardHistory": false, "toolShortcutModifiers": "ctrlOptCmd", "menuBarStatus": "off",
         "screenshotShelf": false, "appearance": "system", "sensorIndicator": false, "systemHUD": false,
         "bluetoothBatteries": true, "keepShelf": true, "haptics": true, "focusFeedback": false, "islandGestures": true, "systemChanges": false,
+        "simpleIsland": false, "showFiles": true, "showClipboard": true, "showClock": true, "showControls": true,
     ]
     var toolShortcutsEnabled: Bool { didSet { save(toolShortcutsEnabled, "toolShortcutsEnabled") } }
     var toolShortcutModifiers: ShortcutModifiers { didSet { save(toolShortcutModifiers.rawValue, "toolShortcutModifiers") } }
@@ -46,7 +47,6 @@ final class Preferences {
     var autoHideSharing: Bool { didSet { save(autoHideSharing, "autoHideSharing") } }
     var menuBarStatus: MenuBarStatus { didSet { save(menuBarStatus.rawValue, "menuBarStatus") } }
     var screenshotShelf: Bool { didSet { save(screenshotShelf, "screenshotShelf") } }
-    var lockEnabled: Bool { didSet { save(lockEnabled, "lockEnabled") } }
     var hoverToExpand: Bool { didSet { save(hoverToExpand, "hoverToExpand") } }
     var showOnExternal: Bool { didSet { save(showOnExternal, "showOnExternal") } }
     /// On Macs with more than one display, the island moves to the display with the active window.
@@ -84,6 +84,12 @@ final class Preferences {
     var islandGestures: Bool { didSet { save(islandGestures, "islandGestures") } }
     /// Brief notices for sound output, Low Power Mode and connectivity changes.
     var systemChanges: Bool { didSet { save(systemChanges, "systemChanges") } }
+    /// Only what's playing and what's running: no sections to browse, and notices stay compact.
+    var simpleIsland: Bool { didSet { save(simpleIsland, "simpleIsland") } }
+    var showFiles: Bool { didSet { save(showFiles, "showFiles") } }
+    var showClipboard: Bool { didSet { save(showClipboard, "showClipboard") } }
+    var showClock: Bool { didSet { save(showClock, "showClock") } }
+    var showControls: Bool { didSet { save(showControls, "showControls") } }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -106,7 +112,6 @@ final class Preferences {
         autoHideSharing = flag("autoHideSharing")
         menuBarStatus = choice("menuBarStatus", MenuBarStatus.off)
         screenshotShelf = flag("screenshotShelf")
-        lockEnabled = flag("lockEnabled")
         hoverToExpand = flag("hoverToExpand")
         showOnExternal = flag("showOnExternal")
         followActiveDisplay = flag("followActiveDisplay")
@@ -125,6 +130,11 @@ final class Preferences {
         focusFeedback = flag("focusFeedback")
         islandGestures = flag("islandGestures")
         systemChanges = flag("systemChanges")
+        simpleIsland = flag("simpleIsland")
+        showFiles = flag("showFiles")
+        showClipboard = flag("showClipboard")
+        showClock = flag("showClock")
+        showControls = flag("showControls")
     }
     static func clampTarget(_ value: Int) -> Int { min(100, max(50, value)) }
     static func clampLow(_ value: Int) -> Int { value <= 0 ? 0 : min(50, max(5, value)) }
@@ -141,15 +151,14 @@ final class Preferences {
 enum SettingsPage: String, CaseIterable, Identifiable {
     case welcome = "Welcome"
     case general = "General", notch = "Dynamic Island", switcher = "Window Switcher"
-    case lock = "Lock Screen", labs = "Labs", permissions = "Permissions"
+    case labs = "Labs", permissions = "Permissions"
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .welcome: String(localized: "Welcome to Sense")
+        case .welcome: String(localized: "Welcome to Brim")
         case .general: String(localized: "General")
         case .notch: String(localized: "Dynamic Island")
         case .switcher: String(localized: "Window Switcher")
-        case .lock: String(localized: "Lock Screen")
         case .labs: String(localized: "Labs")
         case .permissions: String(localized: "Permissions")
         }
@@ -162,7 +171,6 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .general: "gearshape.fill"
         case .notch: "capsule.fill"
         case .switcher: "rectangle.on.rectangle"
-        case .lock: "lock.fill"
         case .labs: "flask.fill"
         case .permissions: "hand.raised.fill"
         }
@@ -174,7 +182,6 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .general: .gray
         case .notch: .black
         case .switcher: .blue
-        case .lock: .indigo
         case .labs: .orange
         case .permissions: .blue
         }
@@ -185,7 +192,6 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .general: String(localized: "A little more Mac.")
         case .notch: String(localized: "A quiet home for what’s happening.")
         case .switcher: String(localized: "Every window. One shortcut.")
-        case .lock: String(localized: "A softer landing. The same security.")
         case .labs: String(localized: "Experiments that lean on your Mac’s sensors. Fun, and a little unpredictable.")
         case .permissions: String(localized: "You’re in control.")
         }
@@ -194,12 +200,11 @@ enum SettingsPage: String, CaseIterable, Identifiable {
 
 /// The Dynamic Island page's sub-pages, reached by drilling in, as System Settings does for Control Center.
 enum IslandSection: String, CaseIterable, Identifiable {
-    case nowPlaying = "Now Playing", shelf = "Shelf & Clipboard", activities = "Live Activities"
+    case shelf = "Shelf & Clipboard", activities = "Live Activities"
     case battery = "Battery", hiding = "Hide Automatically", keyboard = "Keyboard & Shortcuts"
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .nowPlaying: String(localized: "Now Playing")
         case .shelf: String(localized: "Shelf & Clipboard")
         case .activities: String(localized: "Live Activities")
         case .battery: String(localized: "Battery")
@@ -209,7 +214,6 @@ enum IslandSection: String, CaseIterable, Identifiable {
     }
     var symbol: String {
         switch self {
-        case .nowPlaying: "play.fill"
         case .shelf: "tray.fill"
         case .activities: "bolt.horizontal.fill"
         case .battery: "battery.100percent"
@@ -219,7 +223,6 @@ enum IslandSection: String, CaseIterable, Identifiable {
     }
     var tint: Color {
         switch self {
-        case .nowPlaying: .pink
         case .shelf: .teal
         case .activities: .blue
         case .battery: .green
@@ -229,7 +232,6 @@ enum IslandSection: String, CaseIterable, Identifiable {
     }
     var subtitle: String {
         switch self {
-        case .nowPlaying: String(localized: "What’s playing in any app, with artwork and controls.")
         case .shelf: String(localized: "A place for files and snippets while you work.")
         case .activities: String(localized: "Brief updates from your Mac, right where you’re looking.")
         case .battery: String(localized: "Power at a glance, and a word when it matters.")

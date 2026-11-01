@@ -1,6 +1,6 @@
 import AppKit
 import Testing
-@testable import Sense
+@testable import Brim
 
 private let playerA = MediaPlayer(source: "test.a", name: "Player A", processID: 111)
 private let playerB = MediaPlayer(source: "test.b", name: "Player B", processID: 222)

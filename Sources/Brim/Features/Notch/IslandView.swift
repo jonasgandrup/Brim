@@ -28,7 +28,8 @@ struct IslandView: View {
         controller.expanded && controller.feedback == nil && controller.displayedTab == .music && preferences.mediaEnabled && media.source != nil
     }
     var body: some View {
-        let base = layout.surfaceSize(for: controller.presentation, reveal: controller.surfaceReveal)
+        let base = layout.surfaceSize(for: controller.presentation, reveal: controller.surfaceReveal, notice: controller.showsNotice)
+        let notice = controller.showsNotice
         let swell = controller.hoverSwell && !reduceMotion
         let size = CGSize(width: base.width + (swell ? 8 : 0), height: base.height + (swell ? 2 : 0))
         header
@@ -38,7 +39,7 @@ struct IslandView: View {
             .overlay(alignment: .top) {
                 // An overlay keeps expanded content from changing the compact header's layout.
                 expandedPane
-                    .frame(width: layout.expandedSize.width - 44, height: 176, alignment: .top)
+                    .frame(width: (notice ? layout.noticeSize : layout.expandedSize).width - 44, height: notice ? IslandLayout.noticeContentHeight : 176, alignment: .top)
                     .padding(.top, layout.headerHeight + 4)
                     .opacity(controller.expanded ? 1 : 0)
                     .blur(radius: controller.expanded || reduceMotion ? 0 : 6)
@@ -62,6 +63,7 @@ struct IslandView: View {
         .contentShape(surface)
         .opacity(!layout.hasHardwareNotch && controller.presentation == .hidden ? 0 : 1)
         .animation(reduceMotion || controller.surfaceAnimationsSuppressed ? nil : .smooth(duration: controller.expanded ? 0.32 : 0.22, extraBounce: controller.expanded ? 0.06 : 0), value: controller.presentation)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.28, extraBounce: 0.04), value: controller.showsNotice)
         .animation(reduceMotion ? nil : IslandStyle.quick, value: controller.hud)
         .animation(reduceMotion ? nil : IslandStyle.quick, value: controller.hoverSwell)
         .animation(reduceMotion ? nil : .smooth(duration: 0.32, extraBounce: 0.1), value: controller.showsActivityBubble)
@@ -72,7 +74,7 @@ struct IslandView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .accessibilityHidden(controller.presentation == .hidden)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Sense Dynamic Island")
+        .accessibilityLabel("Brim Dynamic Island")
         .accessibilityAction(named: controller.expanded ? "Collapse" : "Expand") { controller.setExpanded(!controller.expanded) }
     }
 
@@ -130,6 +132,8 @@ struct IslandView: View {
         if controller.expanded {
             // The tab bar already says where you are; the corner stays empty rather than repeating it or naming the app.
             Color.clear
+        } else if let hud = controller.hud, let battery = hud.battery {
+            BatteryGlyph(level: battery, charging: hud.charging, height: 11, tint: hud.tint).accessibilityLabel(hud.label)
         } else if let hud = controller.hud {
             Image(systemName: hud.symbol).font(.system(size: 14, weight: .semibold)).foregroundStyle(hud.tint)
                 .contentTransition(.symbolEffect(.replace)).accessibilityLabel(hud.label)
@@ -155,7 +159,9 @@ struct IslandView: View {
     }
     @ViewBuilder private var trailingActivity: some View {
         if let hud = controller.hud {
-            if let level = hud.level { HUDLevel(level: level, tint: hud.tint) }
+            if let battery = hud.battery {
+                Text("\(battery)%").font(.system(size: 12, weight: .semibold, design: .rounded)).monospacedDigit().foregroundStyle(hud.tint).minimumScaleFactor(0.7)
+            } else if let level = hud.level { HUDLevel(level: level, tint: hud.tint) }
             else { Circle().fill(hud.tint).frame(width: 7, height: 7) }
         } else if dualActivities {
             PlaybackActivity(playing: media.playing)
@@ -171,9 +177,9 @@ struct IslandView: View {
             TransferRing(fraction: TransferScan.combinedFraction(controller.transfers.running))
         } else if !controller.activities.running.isEmpty {
             TransferRing(fraction: controller.activities.combinedProgress)
-        } else if !controller.clipboard.pins.isEmpty && headerTab == .clipboard {
+        } else if controller.clipboardHasPins && headerTab == .clipboard {
             CountBadge(count: controller.clipboard.pins.count)
-        } else if !controller.shelf.files.isEmpty {
+        } else if controller.shelfHasFiles {
             CountBadge(count: controller.shelf.files.count)
         } else if controller.fileDragActive {
             Image(systemName: "plus.circle.fill").font(.system(size: 15)).foregroundStyle(.white, .white.opacity(0.2))
@@ -222,9 +228,9 @@ struct IslandView: View {
 
     private var expandedPane: some View {
         VStack(spacing: 8) {
-            if controller.feedback == nil {
+            if controller.feedback == nil && controller.visibleTabs.count > 1 {
                 IslandTabBar(selection: $controller.selectedTab,
-                             tabs: IslandTabBar.visible(showsTransfers: controller.showsTransfersTab, hasBattery: status.battery != nil))
+                             tabs: IslandTabBar.items(for: controller.visibleTabs, hasBattery: status.battery != nil))
             }
             if controller.feedback != nil { feedbackContent }
             else if controller.dropTargeted && controller.dropIsFiles && controller.airDropAvailable {
@@ -250,7 +256,7 @@ struct IslandView: View {
             if media.source == nil || !preferences.mediaEnabled {
                 // Nothing playing: a calm glance at the time, the next event and the battery instead of an empty player.
                 IslandOverview(status: status, calendar: controller.calendar, media: media, mediaEnabled: preferences.mediaEnabled,
-                               connectMedia: { controller.connectMedia() })
+                               showsBattery: controller.shows(.battery), offersMedia: !preferences.simpleIsland, connectMedia: { controller.connectMedia() })
             } else {
                 VStack(spacing: 6) {
                     IslandPaneHeader {
@@ -266,8 +272,6 @@ struct IslandView: View {
     @ViewBuilder private var feedbackContent: some View {
         if let device = controller.feedbackDevice {
             AccessoryFeedbackView(device: device)
-        } else if let feedback = controller.feedback, let battery = controller.feedbackBattery {
-            ChargeFeedbackView(level: battery.level, charging: battery.charging, title: feedback)
         } else if let feedback = controller.feedback, let image = controller.feedbackImage {
             VStack(spacing: 8) {
                 Image(nsImage: image).resizable().scaledToFit().frame(maxHeight: 104)
@@ -279,18 +283,19 @@ struct IslandView: View {
                 Text(feedback).font(.system(size: 12, weight: .medium)).foregroundStyle(.primary)
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let feedback = controller.feedback {
-            VStack(spacing: 10) {
-                Image(systemName: controller.feedbackSymbol).font(.system(size: 24, weight: .semibold)).symbolRenderingMode(.hierarchical)
+            HStack(spacing: 12) {
+                Image(systemName: controller.feedbackSymbol).font(.system(size: 17, weight: .semibold)).symbolRenderingMode(.hierarchical)
                     .foregroundStyle(controller.feedbackTint)
-                    .frame(width: 54, height: 54).background(controller.feedbackTint.opacity(0.16), in: Circle())
+                    .frame(width: 36, height: 36).background(controller.feedbackTint.opacity(0.16), in: Circle())
                     .symbolEffect(.bounce, value: feedback)
-                Text(feedback).font(.system(size: 15, weight: .semibold)).multilineTextAlignment(.center).lineLimit(2)
+                Text(feedback).font(.system(size: 13, weight: .semibold)).lineLimit(2)
+                Spacer(minLength: 0)
                 if let action = controller.feedbackAction {
                     Button {
                         NSWorkspace.shared.open(action.url); controller.dismissFeedback()
                     } label: {
                         Label(action.title, systemImage: "video.fill").font(.system(size: 12, weight: .semibold))
-                            .padding(.horizontal, 16).padding(.vertical, 6)
+                            .padding(.horizontal, 12).padding(.vertical, 6).fixedSize()
                             .background(Color.green, in: Capsule()).foregroundStyle(.black)
                     }.buttonStyle(.plain)
                 }
@@ -364,14 +369,18 @@ struct IslandTabBar: View {
     @Namespace private var highlight
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
-    /// Only the sections that have something to offer: Transfers appears once it's turned on or busy,
-    /// and the controls tab is named for what this Mac has.
-    static func visible(showsTransfers: Bool, hasBattery: Bool) -> [Item] {
-        var items: [Item] = [(.music, "play.fill", String(localized: "Now Playing")), (.files, "tray.fill", String(localized: "Files")), (.clipboard, "pin.fill", String(localized: "Clipboard")),
-                             (.timer, "clock.fill", String(localized: "Clock")),
-                             (.battery, hasBattery ? "battery.100percent" : "slider.horizontal.3", hasBattery ? String(localized: "Battery & Controls") : String(localized: "Controls"))]
-        if showsTransfers { items.append((.transfers, "gauge.with.dots.needle.33percent", String(localized: "Activity"))) }
-        return items
+    /// The controls tab is named for what this Mac has.
+    static func items(for tabs: [IslandTab], hasBattery: Bool) -> [Item] {
+        tabs.map { tab in
+            switch tab {
+            case .music: (tab, "play.fill", String(localized: "Now Playing"))
+            case .files: (tab, "tray.fill", String(localized: "Files"))
+            case .clipboard: (tab, "pin.fill", String(localized: "Clipboard"))
+            case .timer: (tab, "clock.fill", String(localized: "Clock"))
+            case .battery: (tab, hasBattery ? "battery.100percent" : "slider.horizontal.3", hasBattery ? String(localized: "Battery & Controls") : String(localized: "Controls"))
+            case .transfers: (tab, "gauge.with.dots.needle.33percent", String(localized: "Activity"))
+            }
+        }
     }
     var body: some View {
         HStack(spacing: 2) {

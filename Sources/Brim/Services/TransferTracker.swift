@@ -79,7 +79,7 @@ enum TransferScan {
         guard let directory else { return }
         self.directory = directory
         let descriptor = open(directory.path, O_EVTONLY)
-        guard descriptor >= 0 else { accessProblem = String(localized: "Sense can’t read the Downloads folder."); return }
+        guard descriptor >= 0 else { accessProblem = String(localized: "Brim can’t read the Downloads folder."); return }
         accessProblem = nil
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.write, .rename, .delete], queue: .main)
         source.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.scan() } }

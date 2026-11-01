@@ -1,8 +1,8 @@
 import Foundation
 import Observation
 
-/// A Live Activity started from Shortcuts or a script with a `sense://activity` link: a title, a symbol and,
-/// when the caller reports it, how far along it is. Sense never guesses progress.
+/// A Live Activity started from Shortcuts or a script with a `brim://activity` link: a title, a symbol and,
+/// when the caller reports it, how far along it is. Brim never guesses progress.
 struct ScriptActivity: Identifiable, Equatable {
     let id: String
     var title: String

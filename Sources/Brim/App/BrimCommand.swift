@@ -1,17 +1,17 @@
 import Foundation
 
-/// `sense://` links, so Shortcuts (Open URLs), scripts and other apps can drive the island.
+/// `brim://` links, so Shortcuts (Open URLs), scripts and other apps can drive the island.
 ///
-///     sense://open?tool=music|files|clipboard|clock|battery|transfers
-///     sense://timer/start?minutes=10      sense://timer/cancel
-///     sense://focus/start                 sense://clipboard/pin
-///     sense://presentation?enabled=on|off|toggle
-///     sense://message?text=Hello&symbol=bell
-///     sense://shelf/add?path=/Users/me/file.pdf
-///     sense://activity?id=export&title=Exporting&progress=0.4&symbol=film   (progress 0–1, or percent=40)
-///     sense://activity/end?id=export&title=Export%20finished              sense://activity/cancel?id=export
-///     sense://settings
-enum SenseCommand: Equatable {
+///     brim://open?tool=music|files|clipboard|clock|battery|transfers
+///     brim://timer/start?minutes=10      brim://timer/cancel
+///     brim://focus/start                 brim://clipboard/pin
+///     brim://presentation?enabled=on|off|toggle
+///     brim://message?text=Hello&symbol=bell
+///     brim://shelf/add?path=/Users/me/file.pdf
+///     brim://activity?id=export&title=Exporting&progress=0.4&symbol=film   (progress 0–1, or percent=40)
+///     brim://activity/end?id=export&title=Export%20finished              brim://activity/cancel?id=export
+///     brim://settings
+enum BrimCommand: Equatable {
     case open(ToolShortcuts.Tool?)
     case startTimer(minutes: Double)
     case cancelTimer
@@ -27,7 +27,8 @@ enum SenseCommand: Equatable {
     static let maxMessageLength = 80
 
     init?(url: URL) {
-        guard url.scheme?.lowercased() == "sense" else { return nil }
+        // sense:// is the app's old name, kept so existing Shortcuts keep working.
+        guard let scheme = url.scheme?.lowercased(), scheme == "brim" || scheme == "sense" else { return nil }
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         func value(_ name: String) -> String? { components?.queryItems?.first { $0.name == name }?.value }
         let path = ([url.host ?? ""] + url.pathComponents.filter { $0 != "/" }).filter { !$0.isEmpty }.joined(separator: "/").lowercased()

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Battery colors follow iPhone: green while charging, yellow in Low Power Mode, red at 20% and below.
-/// Only the fill is tinted; the island and its text stay black and white.
+/// The fill and the percentage beside it share the color; everything else in the island stays black and white.
 enum BatteryTint {
     static func color(level: Int, charging: Bool, lowPower: Bool) -> Color {
         if charging { return .green }
@@ -16,8 +16,10 @@ struct BatteryGlyph: View {
     var charging: Bool
     var lowPower = false
     var height: CGFloat = 26
+    /// Overrides the usual color, for a warning that fires above the usual red level.
+    var tint: Color?
     var body: some View {
-        let tint = BatteryTint.color(level: level, charging: charging, lowPower: lowPower)
+        let tint = tint ?? BatteryTint.color(level: level, charging: charging, lowPower: lowPower)
         let width = height * 2
         let inset = height * 0.1
         HStack(spacing: height * 0.05) {
@@ -29,25 +31,13 @@ struct BatteryGlyph: View {
                     .padding(inset)
                 if charging {
                     Image(systemName: "bolt.fill").font(.system(size: height * 0.5, weight: .bold))
-                        .foregroundStyle(.black.opacity(0.7)).frame(maxWidth: .infinity)
+                        // Black on the fill, white where a low charge leaves the middle of the battery empty.
+                        .foregroundStyle(level >= 60 ? Color.black.opacity(0.75) : .white).frame(maxWidth: .infinity)
                 }
             }.frame(width: width, height: height)
             RoundedRectangle(cornerRadius: height * 0.06).fill(.white.opacity(0.35)).frame(width: height * 0.09, height: height * 0.3)
         }
         .accessibilityElement().accessibilityLabel(charging ? "Battery \(level) percent, charging" : "Battery \(level) percent")
-    }
-}
-
-/// The brief expanded content shown when power connects or the battery target is reached.
-struct ChargeFeedbackView: View {
-    let level: Int
-    let charging: Bool
-    let title: String
-    var body: some View {
-        VStack(spacing: 10) {
-            BatteryGlyph(level: level, charging: charging, height: 34)
-            Text(title).font(.system(size: 17, weight: .medium))
-        }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -76,8 +66,7 @@ struct AccessoryFeedbackView: View {
                     }
                 }
             }
-            Spacer(minLength: 0)
-        }.padding(.horizontal, 10).frame(maxWidth: .infinity, maxHeight: .infinity)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -108,6 +97,7 @@ struct BatteryPaneView: View {
                 HStack(spacing: 10) {
                     BatteryGlyph(level: level, charging: details.charging, lowPower: details.lowPowerMode, height: 18)
                     Text("\(level)%").font(.system(size: 20, weight: .semibold, design: .rounded)).monospacedDigit().contentTransition(.numericText())
+                        .foregroundStyle(BatteryTint.color(level: level, charging: details.charging, lowPower: details.lowPowerMode))
                     Text(details.summary(level: level, externalPower: status.charging))
                         .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                     Spacer(minLength: 0)

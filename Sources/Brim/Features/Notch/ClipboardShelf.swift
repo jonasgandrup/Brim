@@ -34,12 +34,13 @@ struct ClipboardPin: Identifiable, Equatable {
     }
 }
 
-/// Pinned clips on disk: a small index plus one PNG per image pin, in a folder only Sense uses.
+/// Pinned clips on disk: a small index plus one PNG per image pin, in a folder only Brim uses.
 /// Text and links are only written here because you pinned them; clipboard history never is.
 struct ClipboardPinStore: Sendable {
     let directory: URL
     static var standard: ClipboardPinStore? {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            // Still under the app's old name, so pins saved before the rename stay where they are.
             .map { ClipboardPinStore(directory: $0.appendingPathComponent("Sense/Clipboard Pins", isDirectory: true)) }
     }
     private var index: URL { directory.appendingPathComponent("pins.json") }
@@ -244,7 +245,7 @@ struct ClipboardShelfView: View {
             if items.isEmpty {
                 IslandEmptyState(symbol: shelf.showingHistory ? "clock.arrow.circlepath" : "doc.on.clipboard",
                                  title: shelf.showingHistory ? "Nothing Copied Yet" : "Pin Text, Links and Images",
-                                 detail: shelf.showingHistory ? "Recent text and links stay in memory only. Password managers are skipped." : "Sense reads the clipboard only when you ask.",
+                                 detail: shelf.showingHistory ? "Recent text and links stay in memory only. Password managers are skipped." : "Brim reads the clipboard only when you ask.",
                                  minHeight: shelf.showingHistory ? 74 : 95)
                     .background(IslandStyle.tileFill, in: RoundedRectangle(cornerRadius: IslandStyle.largeRadius, style: .continuous))
             } else {

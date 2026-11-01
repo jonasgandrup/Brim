@@ -1,7 +1,7 @@
 import AppKit
 import ImageIO
 
-/// Notices new macOS screenshots through Spotlight, so Sense never reads or polls a folder itself.
+/// Notices new macOS screenshots through Spotlight, so Brim never reads or polls a folder itself.
 /// Screenshots already on disk are ignored, and only files that appear while this is running are reported.
 @MainActor final class ScreenshotWatcher {
     private var query: NSMetadataQuery?

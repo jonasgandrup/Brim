@@ -5,78 +5,89 @@ import ScreenCaptureKit
 @MainActor @Observable
 final class PermissionService {
     var accessibility = AXIsProcessTrusted()
-    /// Asked at least once this session but still not trusted: macOS may be holding an approval from an earlier build.
-    private(set) var accessibilityRequested = false
-    private(set) var resettingAccessibility = false
     private var accessibilityPoll: Task<Void, Never>?
     private(set) var screenRecordingRequested = false
     var screenRecording = CGPreflightScreenCaptureAccess()
     private var probeTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
-    /// CGPreflightScreenCaptureAccess can keep reporting "denied" for a signed local build that macOS shows as
-    /// allowed (and that can capture). Its "denied" is never trusted on its own: a real ScreenCaptureKit query
-    /// decides, and until it answers the last known state stands, so features don't flicker into "Allow…".
+    /// What a real capture query said, once per launch. CGPreflightScreenCaptureAccess can report "denied" for a
+    /// signed local build that can in fact capture, but the query itself can raise macOS's permission prompt. So it
+    /// runs only after the user has pressed Allow, never just because Brim came to the front.
+    private var probeResult: Bool?
+    private var probeAllowed: Bool {
+        get { AppEnvironment.defaults.bool(forKey: "screenCaptureProbeAllowed") }
+        set { AppEnvironment.defaults.set(newValue, forKey: "screenCaptureProbeAllowed") }
+    }
     func refresh() {
         accessibility = AXIsProcessTrusted()
-        if CGPreflightScreenCaptureAccess() { screenRecording = true } else { probeScreenRecording() }
+        if CGPreflightScreenCaptureAccess() { screenRecording = true }
+        else if let probeResult { screenRecording = probeResult }
+        else if probeAllowed && !screenRecordingRequested { probeScreenRecording() }
+        else { screenRecording = false }
     }
-    func probeScreenRecording() {
+    private func probeScreenRecording() {
         guard probeTask == nil else { return }
         probeTask = Task { [weak self] in
-            let usable = (try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true))?.displays.isEmpty == false
+            let usable = await Self.captureWorks()
             guard let self else { return }
-            self.probeTask = nil
-            self.screenRecording = usable
-            if usable { self.pollTask?.cancel(); self.pollTask = nil }
+            self.probeTask = nil; self.probeResult = usable; self.screenRecording = usable
+            if !usable { self.probeAllowed = false }
         }
     }
-    /// After the user opens the privacy pane, notice the grant without a manual refresh.
-    private func pollForScreenRecording() {
-        pollTask?.cancel()
-        pollTask = Task { [weak self] in
-            for _ in 0..<150 {
-                try? await Task.sleep(for: .seconds(2))
-                guard !Task.isCancelled, let self, !self.screenRecording else { return }
-                self.refresh()
-            }
+    static func captureWorks() async -> Bool {
+        (try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true))?.displays.isEmpty == false
+    }
+    /// macOS ties an approval to the signing identity it was given to. One from an earlier, differently signed
+    /// Brim still shows as on in System Settings but no longer applies, and flipping the switch can't fix it.
+    /// So asking always clears Brim's own entry first; it isn't working anyway, or nobody could press Allow.
+    private func clearOldApproval(_ service: String, then ask: @escaping @MainActor () -> Void) {
+        guard let bundleID = Bundle.main.bundleIdentifier else { ask(); return }
+        Task {
+            let result = await ProcessRunner.run("/usr/bin/tccutil", arguments: ["reset", service, bundleID], timeout: 10)
+            if !result.succeeded { Log.app.error("Clearing the old approval failed") }
+            ask()
         }
     }
     func requestAccessibility() {
-        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        accessibility = AXIsProcessTrustedWithOptions(options)
-        guard !accessibility else { return }
-        accessibilityRequested = true
-        openPrivacy("Privacy_Accessibility")
-        // Notice the switch being turned on without asking the user to come back and refresh.
-        accessibilityPoll?.cancel()
-        accessibilityPoll = Task { [weak self] in
-            for _ in 0..<90 {
-                try? await Task.sleep(for: .seconds(2))
-                guard !Task.isCancelled, let self else { return }
-                if AXIsProcessTrusted() { self.accessibility = true; self.onAccessibilityGranted(); return }
+        guard !AXIsProcessTrusted() else { accessibility = true; return }
+        clearOldApproval("Accessibility") { [weak self] in
+            guard let self else { return }
+            let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+            self.accessibility = AXIsProcessTrustedWithOptions(options)
+            guard !self.accessibility else { return }
+            self.openPrivacy("Privacy_Accessibility")
+            // Notice the switch being turned on without asking the user to come back and refresh.
+            self.accessibilityPoll?.cancel()
+            self.accessibilityPoll = Task { [weak self] in
+                for _ in 0..<90 {
+                    try? await Task.sleep(for: .seconds(2))
+                    guard !Task.isCancelled, let self else { return }
+                    if AXIsProcessTrusted() { self.accessibility = true; self.onAccessibilityGranted(); return }
+                }
             }
         }
     }
     /// Called once Accessibility turns on, so features waiting for it can start.
     @ObservationIgnored var onAccessibilityGranted: () -> Void = {}
-    /// macOS ties an approval to the exact build it was given to. An approval from an earlier, differently
-    /// signed Sense still shows as on in System Settings but no longer applies, and the switch can't fix it.
-    /// Resetting removes only Sense's own entry, then asks again so the current build can be approved.
-    func resetAccessibility() {
-        guard !resettingAccessibility, let bundleID = Bundle.main.bundleIdentifier else { return }
-        resettingAccessibility = true
-        Task { [weak self] in
-            let result = await ProcessRunner.run("/usr/bin/tccutil", arguments: ["reset", "Accessibility", bundleID], timeout: 10)
-            guard let self else { return }
-            self.resettingAccessibility = false
-            if !result.succeeded { Log.app.error("Resetting Accessibility failed") }
-            self.requestAccessibility()
-        }
-    }
     func requestScreenRecording() {
+        guard !CGPreflightScreenCaptureAccess() else { screenRecording = true; return }
         screenRecordingRequested = true
-        screenRecording = CGRequestScreenCaptureAccess()
-        if !screenRecording { openPrivacy("Privacy_ScreenCapture"); pollForScreenRecording() }
+        probeAllowed = true
+        clearOldApproval("ScreenCapture") { [weak self] in
+            guard let self else { return }
+            self.screenRecording = CGRequestScreenCaptureAccess()
+            guard !self.screenRecording else { return }
+            self.openPrivacy("Privacy_ScreenCapture")
+            // macOS often applies this grant only after a restart; the setup list offers one meanwhile.
+            self.pollTask?.cancel()
+            self.pollTask = Task { [weak self] in
+                for _ in 0..<150 {
+                    try? await Task.sleep(for: .seconds(2))
+                    guard !Task.isCancelled, let self, !self.screenRecording else { return }
+                    self.screenRecording = CGPreflightScreenCaptureAccess()
+                }
+            }
+        }
     }
     func openPrivacy(_ pane: String) {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") { NSWorkspace.shared.open(url) }

@@ -190,7 +190,7 @@ struct FileShareButton: NSViewRepresentable {
     func makeNSView(context: Context) -> NSButton {
         let button = NSButton(image: NSImage(systemSymbolName: "square.and.arrow.up", accessibilityDescription: String(localized: "Share selected files"))!, target: context.coordinator, action: #selector(Coordinator.share(_:)))
         button.sendAction(on: .leftMouseDown)
-        button.identifier = NSUserInterfaceItemIdentifier("Sense.FileShare")
+        button.identifier = NSUserInterfaceItemIdentifier("Brim.FileShare")
         button.appearance = NSAppearance(named: .darkAqua)
         button.contentTintColor = .white
         button.bezelStyle = .inline; button.isBordered = false; button.toolTip = String(localized: "Share selected files")

@@ -32,7 +32,7 @@ private enum PlayerAutomation {
         return success ? MediaCommandResult(rawValue: result) ?? .failed : .failed
     }
     nonisolated static func snapshot(runningPlayers: Set<String>) async -> PlayerSnapshot? {
-        let artworkFile = FileManager.default.temporaryDirectory.appendingPathComponent("sense-art-\(UUID().uuidString)")
+        let artworkFile = FileManager.default.temporaryDirectory.appendingPathComponent("brim-art-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: artworkFile) }
         let spotifyPlaying = """
         if application id "com.spotify.client" is running then

@@ -1,6 +1,6 @@
 # Native trackpad compatibility acknowledgments
 
-Sense’s independent dynamic binding and native force-field interpretation were informed by TrackWeight and the OpenMultitouchSupport fork. No packaged binary or Swift dependency is bundled. The relevant interface definitions and weighing approach are acknowledged under their MIT licenses.
+Brim’s independent dynamic binding and native force-field interpretation were informed by TrackWeight and the OpenMultitouchSupport fork. No packaged binary or Swift dependency is bundled. The relevant interface definitions and weighing approach are acknowledged under their MIT licenses.
 
 - TrackWeight: https://github.com/KrishKrosh/TrackWeight — Copyright (c) 2025 Krish Shah
 - OpenMultitouchSupport: https://github.com/KrishKrosh/OpenMultitouchSupport — Copyright (c) 2019 Takuto Nakamura

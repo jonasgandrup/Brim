@@ -5,17 +5,29 @@ extension LocalizedStringKey {
     static func verbatim(_ text: String) -> LocalizedStringKey { "\(text)" }
 }
 
-struct SenseMark: View {
+/// Brim's symbol: the island with three playback bars cut out of it. The menu bar draws the same proportions
+/// (`StatusBarController`), and so does the app icon (`scripts/make-icon.swift`).
+struct BrimSymbol: Shape {
+    func path(in rect: CGRect) -> Path {
+        let unit = rect.width / 17
+        var path = Path(CGPath(roundedRect: rect, cornerWidth: rect.height / 2, cornerHeight: rect.height / 2, transform: nil))
+        for (index, height) in [3.0, 6, 4].enumerated() {
+            path.addRoundedRect(in: CGRect(x: rect.minX + (5.75 + CGFloat(index) * 2.25) * unit, y: rect.midY - height * unit / 2, width: 1.25 * unit, height: height * unit),
+                                cornerSize: CGSize(width: 0.625 * unit, height: 0.625 * unit))
+        }
+        return path
+    }
+}
+
+struct BrimMark: View {
     var size: CGFloat = 62
     var body: some View {
-        Image(systemName: "waveform.path")
-            .font(.system(size: size * 0.46, weight: .semibold))
-            .foregroundStyle(.white)
+        BrimSymbol().fill(.black, style: FillStyle(eoFill: true))
+            .frame(width: size * 0.74, height: size * 0.74 * 10 / 17)
             .frame(width: size, height: size)
             .background(
-                LinearGradient(colors: [Color(white: 0.24), Color(white: 0.06)], startPoint: .top, endPoint: .bottom),
-                in: RoundedRectangle(cornerRadius: size * 0.225, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: size * 0.225, style: .continuous).strokeBorder(.white.opacity(0.16), lineWidth: 0.5))
+                LinearGradient(colors: [Color(red: 0.99, green: 0.99, blue: 1), Color(red: 0.82, green: 0.84, blue: 0.89)], startPoint: .top, endPoint: .bottom),
+                in: RoundedRectangle(cornerRadius: size * 0.2237, style: .continuous))
             .shadow(color: .black.opacity(0.18), radius: size * 0.06, y: size * 0.03)
             .accessibilityHidden(true)
     }

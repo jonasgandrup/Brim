@@ -4,10 +4,10 @@ import ServiceManagement
 
 @main
 @MainActor
-enum SenseApp {
+enum BrimApp {
     private static let delegate = AppDelegate()
     static func main() {
-        // Writing to a helper process that just exited must fail with an error, not terminate Sense.
+        // Writing to a helper process that just exited must fail with an error, not terminate Brim.
         signal(SIGPIPE, SIG_IGN)
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
@@ -21,14 +21,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var statusBar: StatusBarController?
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        let model = SenseAppModel.shared
+        let model = BrimAppModel.shared
         statusBar = StatusBarController(model: model)
         model.apply()
         if CommandLine.arguments.contains("--lid-diagnostics") {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(2))
                 model.permissions.refresh()
-                let values: [String: Any] = ["screenRecording": model.permissions.screenRecording,
+                let values: [String: Any] = ["screenRecording": model.permissions.screenRecording, "captureWorks": await PermissionService.captureWorks(),
                     "screenRecordingPreflight": CGPreflightScreenCaptureAccess(), "accessibility": AXIsProcessTrusted(),
                     "reduceMotion": NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
                     "foldEnabled": model.preferences.lidEffectEnabled,
@@ -58,22 +58,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
-    /// `sense://` links from Shortcuts, scripts or other apps.
+    /// `brim://` links from Shortcuts, scripts or other apps.
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
-            guard let command = SenseCommand(url: url) else { Log.app.notice("Ignored unknown link \(url.absoluteString, privacy: .private)"); continue }
-            SenseAppModel.shared.perform(command)
+            guard let command = BrimCommand(url: url) else { Log.app.notice("Ignored unknown link \(url.absoluteString, privacy: .private)"); continue }
+            BrimAppModel.shared.perform(command)
         }
     }
-    func applicationWillTerminate(_ notification: Notification) { SenseAppModel.shared.stop() }
+    func applicationWillTerminate(_ notification: Notification) { BrimAppModel.shared.stop() }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        SenseAppModel.shared.openSettings(); return true
+        BrimAppModel.shared.openSettings(); return true
     }
 }
 
 @MainActor @Observable
-final class SenseAppModel {
-    static let shared = SenseAppModel()
+final class BrimAppModel {
+    static let shared = BrimAppModel()
     let preferences = Preferences(defaults: AppEnvironment.defaults)
     let permissions = PermissionService()
     let status = SystemStatus()
@@ -127,12 +127,11 @@ final class SenseAppModel {
         }
         switcher.onVisibilityChanged = { [weak self] visible in self?.notch.setSwitcherOverlayActive(visible) }
         switcher.configure(preferences: preferences)
-        lock.configure(preferences: preferences, notch: notch)
         lid.style = preferences.lidFoldStyle
         if preferences.lidEffectEnabled { lid.start() } else { lid.stop() }
         if !preferences.scaleEnabled { scaleWindow?.close(); scale.stop() }
     }
-    func perform(_ command: SenseCommand) {
+    func perform(_ command: BrimCommand) {
         let islandReady = preferences.notchEnabled
         switch command {
         case .open(let tool):
@@ -163,10 +162,10 @@ final class SenseAppModel {
         if let page { self.page = page }
         if settingsWindow == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 690), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
-            window.title = String(localized: "Sense Settings"); window.titleVisibility = .hidden; window.titlebarAppearsTransparent = true
+            window.title = String(localized: "Brim Settings"); window.titleVisibility = .hidden; window.titlebarAppearsTransparent = true
             window.minSize = NSSize(width: 820, height: 600); window.isReleasedWhenClosed = false
             window.contentView = NSHostingView(rootView: SettingsView(model: self))
-            window.setFrameAutosaveName(AppEnvironment.isSmokeTest ? "SenseSmokeSettings" : "SenseSettings"); window.center()
+            window.setFrameAutosaveName(AppEnvironment.isSmokeTest ? "BrimSmokeSettings" : "SenseSettings"); window.center()
             settingsWindow = window
         }
         NSApp.activate(); settingsWindow?.makeKeyAndOrderFront(nil)
@@ -187,15 +186,15 @@ final class SenseAppModel {
         guard Bundle.main.bundleURL.pathExtension == "app" else { return }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "for attempt in 1 2 3 4 5 6 7 8 9 10; do /bin/kill -0 \"$1\" 2>/dev/null || exec /usr/bin/open -n \"$2\" --args --lid-setup; /bin/sleep 0.2; done", "sense-relaunch", String(ProcessInfo.processInfo.processIdentifier), Bundle.main.bundleURL.path]
+        process.arguments = ["-c", "for attempt in 1 2 3 4 5 6 7 8 9 10; do /bin/kill -0 \"$1\" 2>/dev/null || exec /usr/bin/open -n \"$2\" --args --lid-setup; /bin/sleep 0.2; done", "brim-relaunch", String(ProcessInfo.processInfo.processIdentifier), Bundle.main.bundleURL.path]
         do { try process.run(); NSApp.terminate(nil) }
-        catch { lid.captureMessage = String(localized: "Couldn’t restart Sense. Quit from the menu bar and reopen it.") }
+        catch { lid.captureMessage = String(localized: "Couldn’t restart Brim. Quit from the menu bar and reopen it.") }
     }
     func setLogin(_ enabled: Bool) {
         do {
             if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
             loginEnabled = SMAppService.mainApp.status == .enabled
-            loginMessage = SMAppService.mainApp.status == .requiresApproval ? String(localized: "Approve Sense in System Settings → General → Login Items.") : nil
+            loginMessage = SMAppService.mainApp.status == .requiresApproval ? String(localized: "Approve Brim in System Settings → General → Login Items.") : nil
             if SMAppService.mainApp.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
         } catch { loginEnabled = SMAppService.mainApp.status == .enabled; loginMessage = error.localizedDescription }
     }

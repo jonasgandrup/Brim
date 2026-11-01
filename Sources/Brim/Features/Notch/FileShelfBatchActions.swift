@@ -86,8 +86,8 @@ enum ShelfArchive {
             let output = destination.standardizedFileURL
             guard output.isFileURL, !urls.isEmpty,
                   !urls.contains(where: { $0.resolvingSymlinksInPath() == output.resolvingSymlinksInPath() }) else { throw Failure.invalidDestination }
-            let staging = manager.temporaryDirectory.appendingPathComponent("SenseArchive-\(UUID())", isDirectory: true)
-            let temporaryZip = output.deletingLastPathComponent().appendingPathComponent(".SenseArchive-\(UUID()).zip")
+            let staging = manager.temporaryDirectory.appendingPathComponent("BrimArchive-\(UUID())", isDirectory: true)
+            let temporaryZip = output.deletingLastPathComponent().appendingPathComponent(".BrimArchive-\(UUID()).zip")
             try manager.createDirectory(at: staging, withIntermediateDirectories: true)
             defer { try? manager.removeItem(at: staging); try? manager.removeItem(at: temporaryZip) }
             var names: Set<String> = []
@@ -123,7 +123,7 @@ enum ShelfImageTools {
         var errorDescription: String? {
             switch self {
             case .alreadySmall: String(localized: "That image is already that size or smaller.")
-            case .unreadable: String(localized: "That file isn’t an image Sense can read.")
+            case .unreadable: String(localized: "That file isn’t an image Brim can read.")
             case .unsupported: String(localized: "This Mac can’t write that format.")
             case .writeFailed: String(localized: "The new file couldn’t be saved. Check that the folder is writable.")
             }

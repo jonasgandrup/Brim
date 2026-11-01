@@ -113,21 +113,21 @@ enum ClockMode: String, CaseIterable {
     func arm(at date: Date) {
         guard date > Date() else { return }
         cancelAlarm(); alarmDate = date; defaults.set(date, forKey: "clockAlarmDate"); runAlarmTicker()
-        notice = String(localized: "Keep Sense running. A sleeping Mac rings on wake.")
+        notice = String(localized: "Keep Brim running. A sleeping Mac rings on wake.")
         guard notificationsEnabled else { return }
         Task { [weak self] in
             let center = UNUserNotificationCenter.current()
             do {
                 let granted = try await center.requestAuthorization(options: [.alert, .sound])
                 guard let self, self.alarmDate == date else { return }
-                guard granted else { self.notice = String(localized: "Notifications are off. Keep Sense running for the alarm."); return }
+                guard granted else { self.notice = String(localized: "Notifications are off. Keep Brim running for the alarm."); return }
                 let content = UNMutableNotificationContent()
-                content.title = String(localized: "Sense Alarm"); content.body = String(localized: "Your alarm is ready."); content.sound = .default
+                content.title = String(localized: "Brim Alarm"); content.body = String(localized: "Your alarm is ready."); content.sound = .default
                 let request = UNNotificationRequest(identifier: self.notificationID, content: content,
                     trigger: UNTimeIntervalNotificationTrigger(timeInterval: max(1, date.timeIntervalSinceNow), repeats: false))
                 try await center.add(request)
                 if self.alarmDate != date { center.removePendingNotificationRequests(withIdentifiers: [self.notificationID]) }
-            } catch { self?.notice = String(localized: "Notifications unavailable. Keep Sense running for the alarm.") }
+            } catch { self?.notice = String(localized: "Notifications unavailable. Keep Brim running for the alarm.") }
         }
     }
     func cancelAlarm() {

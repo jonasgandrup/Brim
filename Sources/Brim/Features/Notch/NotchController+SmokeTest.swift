@@ -36,7 +36,7 @@ extension NotchController {
             check["targetInside"] = containsPointer(previewPointer!)
             updateInteraction()
         }
-        try? await Task.sleep(for: .milliseconds(100))
+        try? await Task.sleep(for: HoverIntent.dwell + .milliseconds(150))
         let opened = expanded && panel?.isVisible == true && panel?.alphaValue == 1
         check["opened"] = opened; check["transitionAfterHover"] = desktopTransition
         smoke.hoverCheckDiagnostics.append(check)
@@ -46,7 +46,7 @@ extension NotchController {
         return opened
     }
     func verifyFileActions() async -> [String: Bool] {
-        let urls = ["Contents/Info.plist", "Contents/Resources/Sense.icns"].map { Bundle.main.bundleURL.appendingPathComponent($0) }
+        let urls = ["Contents/Info.plist", "Contents/Resources/Brim.icns"].map { Bundle.main.bundleURL.appendingPathComponent($0) }
         shelf.add(urls); shelf.select(Set(urls)); openShelfFromMenu()
         previewPointer = surfaceFrame.map { CGPoint(x: $0.midX, y: $0.midY) }
         try? await Task.sleep(for: .milliseconds(500))
@@ -72,7 +72,7 @@ extension NotchController {
         check["previewClosesCleanly"] = !shelf.actions.previewVisible && !shelf.systemUIActive
         openShelfFromMenu()
         try? await Task.sleep(for: .milliseconds(400))
-        if let button = findView(NSButton.self, in: panel?.contentView, matching: { $0.identifier?.rawValue == "Sense.FileShare" }),
+        if let button = findView(NSButton.self, in: panel?.contentView, matching: { $0.identifier?.rawValue == "Brim.FileShare" }),
            let coordinator = button.target as? FileShareButton.Coordinator {
             let location = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
             if let window = button.window {
@@ -130,12 +130,12 @@ extension NotchController {
             try? await Task.sleep(for: .milliseconds(100))
         }
         guard !desktopTransition, snapshot.hasMedia, let panel, let status, let originalView = panel.contentView else { return nil }
-        let suite = "Sense.MediaPreview.\(UUID().uuidString)"
+        let suite = "Brim.MediaPreview.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suite) else { return nil }
         let previewPreferences = Preferences(defaults: defaults); previewPreferences.mediaEnabled = true
         let readOnlyMedia = MediaService(defaults: defaults); readOnlyMedia.apply(snapshot)
         if layoutPreview {
-            let player = MediaPlayer(source: "sense.preview.player", name: "Preview Player", processID: 1)
+            let player = MediaPlayer(source: "brim.preview.player", name: "Preview Player", processID: 1)
             readOnlyMedia.playersReader = { [player] }
             readOnlyMedia.playerReader = { _ in snapshot }
             readOnlyMedia.snapshotReader = { snapshot }
@@ -204,8 +204,8 @@ extension NotchController {
         var result: [String] = []
         let initialFrame = panel.frame
         smoke.idleHoverOpensIsland = await verifyIdleHover()
-        for preview in 0..<19 {
-            let isExpanded = preview != 0 && (preview < 10 || preview >= 12) && preview != 16
+        for preview in 0..<21 {
+            let isExpanded = preview != 0 && preview != 9 && (preview < 10 || preview >= 12) && preview != 16 && preview != 19
             feedback = nil
             selectedTab = preview >= 8 ? .timer : (preview >= 4 ? .clipboard : (preview >= 2 ? .files : .music))
             if preview == 3 {
@@ -214,13 +214,13 @@ extension NotchController {
             if preview == 5 {
                 clipboard.add(.text("Pinned note for the rendering check"))
                 clipboard.add(.link(URL(string: "https://developer.apple.com")!))
-                if let icon = NSImage(contentsOf: Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/Sense.icns")),
+                if let icon = NSImage(contentsOf: Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/Brim.icns")),
                    let tiff = icon.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) { clipboard.add(.image(png)) }
             }
             if preview == 6 { clipboard.clear(); selectedTab = .timer }
             if preview == 7 { selectedTab = .timer; countdown.start() }
             if preview == 8 { countdown.pause() }
-            if preview == 9 { countdown.cancel(); feedback = "Charging feedback preview"; feedbackSymbol = "battery.100percent.bolt" }
+            if preview == 9 { countdown.cancel() }
             if preview == 10 { shelf.clear(); selectedTab = .music; countdown.start() }
             if preview == 11 { countdown.cancel(); clipboard.add(.text("Compact clipboard check")); selectedTab = .music }
             if preview == 12 { clipboard.clear(); selectedTab = .timer; clock.mode = .stopwatch }
@@ -235,10 +235,15 @@ extension NotchController {
             if preview == 16 { dismissFeedback(); shelf.clear(); activities.update(id: "smoke", title: "Exporting video", symbol: "film", progress: 0.4) }
             if preview == 17 { selectedTab = .transfers }
             if preview == 18 { activities.clear(); selectedTab = .files; setDropTargeted(true); updateDropZone(x: 380, width: 408) }
+            if preview == 19 { setDropTargeted(false) }
+            if preview == 20 { showFeedback("Downloaded Report.pdf", symbol: "arrow.down.circle.fill", tint: .blue, seconds: 10) }
             setExpanded(isExpanded)
+            // Sample levels for the rendering check only, cleared before the next state's capture.
+            if preview == 9 { showHUD(.init(symbol: "battery.100percent.bolt", tint: .green, label: "Charging", battery: 42, charging: true), seconds: 1) }
+            if preview == 19 { showHUD(.init(symbol: "battery.25percent", tint: .red, label: "Battery low", battery: 15), seconds: 1) }
             previewPointer = isExpanded ? surfaceFrame.map { CGPoint(x: $0.midX, y: $0.midY) } : CGPoint(x: -10000, y: -10000)
             try? await Task.sleep(for: .milliseconds(650))
-            let extras = [4: "clipboard-empty.png", 5: "clipboard-pins.png", 6: "timer-ready.png", 7: "timer-running.png", 8: "timer-paused.png", 9: "charging-preview.png", 10: "timer-compact.png", 11: "clipboard-compact.png", 12: "stopwatch-ready.png", 13: "stopwatch-running.png", 14: "alarm-ready.png", 15: "accessory-card.png", 16: "activity-compact.png", 17: "activity-expanded.png", 18: "drop-zones.png"]
+            let extras = [4: "clipboard-empty.png", 5: "clipboard-pins.png", 6: "timer-ready.png", 7: "timer-running.png", 8: "timer-paused.png", 9: "charging-compact.png", 10: "timer-compact.png", 11: "clipboard-compact.png", 12: "stopwatch-ready.png", 13: "stopwatch-running.png", 14: "alarm-ready.png", 15: "accessory-card.png", 16: "activity-compact.png", 17: "activity-expanded.png", 18: "drop-zones.png", 19: "battery-low-compact.png", 20: "notice.png"]
             let name = extras[preview] ?? (preview == 3 ? "file-shelf-items.png" : (preview == 2 ? "file-shelf-empty.png" :
                 (isExpanded ? "island-expanded.png" : (presentation == .hidden ? "island-idle.png" : "island-compact.png"))))
             if await capturePanel(named: name, in: directory) { result.append(name) }

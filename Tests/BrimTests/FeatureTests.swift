@@ -1,7 +1,7 @@
 import Testing
 import Foundation
 import AppKit
-@testable import Sense
+@testable import Brim
 
 // MARK: Calendar
 
@@ -54,7 +54,7 @@ import AppKit
 }
 
 @Test @MainActor func runningTimerSurvivesARelaunchButAFinishedOneDoesNot() throws {
-    let suite = "SenseTests.\(UUID().uuidString)"
+    let suite = "BrimTests.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
     let timer = IslandTimer(defaults: defaults)
@@ -141,22 +141,22 @@ import AppKit
 
 // MARK: URL commands
 
-@Test func senseLinksParseIntoCommands() throws {
-    func command(_ text: String) -> SenseCommand? { URL(string: text).flatMap(SenseCommand.init(url:)) }
-    #expect(command("sense://open?tool=battery") == .open(.battery))
-    #expect(command("sense://open") == .open(nil))
-    #expect(command("sense://timer/start?minutes=2.5") == .startTimer(minutes: 2.5))
-    #expect(command("sense://timer/start") == .startTimer(minutes: 5))
-    #expect(command("sense://timer/start?minutes=-1") == nil)
-    #expect(command("sense://focus/start") == .startFocus)
-    #expect(command("sense://presentation?enabled=off") == .presentation(false))
-    #expect(command("sense://presentation") == .presentation(nil))
-    #expect(command("sense://message?text=Build%20done&symbol=hammer.fill") == .message("Build done", symbol: "hammer.fill"))
-    #expect(command("sense://message?text=Hi&symbol=../../etc") == .message("Hi", symbol: "bell.fill"))
+@Test func linksParseIntoCommands() throws {
+    func command(_ text: String) -> BrimCommand? { URL(string: text).flatMap(BrimCommand.init(url:)) }
+    #expect(command("brim://open?tool=battery") == .open(.battery))
+    #expect(command("brim://open") == .open(nil))
+    #expect(command("brim://timer/start?minutes=2.5") == .startTimer(minutes: 2.5))
+    #expect(command("brim://timer/start") == .startTimer(minutes: 5))
+    #expect(command("brim://timer/start?minutes=-1") == nil)
+    #expect(command("brim://focus/start") == .startFocus)
+    #expect(command("brim://presentation?enabled=off") == .presentation(false))
+    #expect(command("brim://presentation") == .presentation(nil))
+    #expect(command("brim://message?text=Build%20done&symbol=hammer.fill") == .message("Build done", symbol: "hammer.fill"))
+    #expect(command("brim://message?text=Hi&symbol=../../etc") == .message("Hi", symbol: "bell.fill"))
     let long = String(repeating: "a", count: 200)
-    #expect(command("sense://message?text=\(long)") == .message(String(repeating: "a", count: SenseCommand.maxMessageLength), symbol: "bell.fill"))
-    #expect(command("sense://shelf/add?path=/tmp/a.txt") == .addToShelf(URL(fileURLWithPath: "/tmp/a.txt")))
-    #expect(command("sense://unknown") == nil)
+    #expect(command("brim://message?text=\(long)") == .message(String(repeating: "a", count: BrimCommand.maxMessageLength), symbol: "bell.fill"))
+    #expect(command("brim://shelf/add?path=/tmp/a.txt") == .addToShelf(URL(fileURLWithPath: "/tmp/a.txt")))
+    #expect(command("brim://unknown") == nil)
     #expect(command("https://open") == nil)
 }
 
@@ -183,10 +183,10 @@ import AppKit
 }
 
 @Test @MainActor func shelfFilesComeBackAfterRelaunchAsReferences() throws {
-    let suite = "SenseTests.\(UUID().uuidString)"
+    let suite = "BrimTests.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("SenseShelf-\(UUID())")
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("BrimShelf-\(UUID())")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let file = directory.appendingPathComponent("note.txt")
@@ -202,14 +202,14 @@ import AppKit
 }
 
 @Test @MainActor func copyPathPutsOnePathPerLineOnThePasteboard() throws {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("SensePaths-\(UUID())")
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("BrimPaths-\(UUID())")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let urls = ["a.txt", "b.txt"].map { directory.appendingPathComponent($0) }
     try urls.forEach { try Data().write(to: $0) }
     let shelf = FileShelf()
     shelf.add(urls); shelf.select(Set(urls.map(\.standardizedFileURL)))
-    let board = NSPasteboard(name: NSPasteboard.Name("SenseTests.\(UUID().uuidString)"))
+    let board = NSPasteboard(name: NSPasteboard.Name("BrimTests.\(UUID().uuidString)"))
     #expect(shelf.actions.copyPaths(to: board))
     #expect(board.string(forType: .string) == urls.map(\.standardizedFileURL.path).joined(separator: "\n"))
 }
@@ -238,7 +238,9 @@ import AppKit
     #expect(!SystemMediaBridge.agrees(base, otherTrack))
 }
 
-@Test func lockShortcutFindsTheQKeyOnTheCurrentLayout() {
-    // On QWERTY-family layouts Q is key code 12; other layouts may map it elsewhere, but it always exists.
-    #expect(LockShortcutKey.keyCode(for: "q") != nil)
+
+@Test func linksWorkUnderBothNames() {
+    #expect(BrimCommand(url: URL(string: "brim://settings")!) == .settings)
+    #expect(BrimCommand(url: URL(string: "sense://settings")!) == .settings)
+    #expect(BrimCommand(url: URL(string: "other://settings")!) == nil)
 }

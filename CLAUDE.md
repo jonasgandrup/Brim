@@ -1,18 +1,20 @@
-# Sense
+# Brim
 
 A native macOS menu-bar utility (SwiftUI + AppKit, Swift Package Manager, macOS 14+). Its identity is the
-Dynamic Island around the camera notch; the window switcher, lid fold, trackpad scale and lock animation are
+Dynamic Island around the camera notch; the window switcher, lid fold, trackpad scale and Lock Mac are
 extras. The goal is an Apple-like feel: quiet by default, opaque black island, system colors and SF Symbols.
 
 ## Build and test
 
 - `./test.sh` runs the tests. Plain `swift test` fails with this toolchain (the Testing framework needs extra
   flags that the script adds). Never report tests as failing because `swift test` failed.
-- `./build.sh debug` builds and signs `dist/Sense.app`. Release: `./build.sh` (or `swift build -c release` to
+- `./build.sh debug` builds and signs `dist/Brim.app`. Release: `./build.sh` (or `swift build -c release` to
   just compile). Check both: test harness code lives behind `#if DEBUG`.
 - Signing uses one stable local identity (`scripts/sign-local.sh`, keys in `.sense-signing/`, never committed),
   so macOS privacy grants survive rebuilds. Don't rotate it.
-- Use the `verify-sense` skill (`.claude/skills/verify-sense`) to check the app on real hardware: lid
+- Permission checks only mean something when the app is launched with `open`: run from a terminal, macOS can
+  judge the terminal's permissions instead of Brim's.
+- Use the `verify-brim` skill (`.claude/skills/verify-brim`) to check the app on real hardware: lid
   diagnostics, the smoke test's screenshots, and crash reports. Unit tests don't prove hardware or UI behavior.
 
 ## Toolchain quirks
@@ -25,9 +27,13 @@ extras. The goal is an Apple-like feel: quiet by default, opaque black island, s
 
 ## Rules of the codebase
 
+- The app used to be called Sense. These keep the old name on purpose, because changing them would lose privacy
+  grants or saved data: the bundle ID `dk.jonasgandrup.Sense`, the signing identity and `.sense-signing/`, the
+  `Sense/Clipboard Pins` folder, the `SenseStatusItem` and `SenseSettings` autosave names, and the `sense://` link scheme
+  (kept next to `brim://`).
 - No third-party dependencies.
 - Private or undocumented macOS interfaces (MediaRemote, MultitouchSupport, DisplayServices,
-  `_AXUIElementGetWindow`) are loaded at runtime with `dlopen`/`dlsym`, isolated in one place, and must fail
+  `_AXUIElementGetWindow`, `SACLockScreenImmediate`) are loaded at runtime with `dlopen`/`dlsym`, isolated in one place, and must fail
   gracefully into an "unavailable" state. Never show invented values: no fake weights, angles or percentages.
 - Anything that reads personal data or needs a permission is opt-in (Downloads, calendar, clipboard history,
   Focus status, screenshots). Clipboard history is memory-only. Titles and file names are never logged
@@ -48,7 +54,7 @@ extras. The goal is an Apple-like feel: quiet by default, opaque black island, s
 
 ## Layout
 
-- `App/`: lifecycle, `SenseAppModel`, preferences, `sense://` commands (`SenseCommand`), menu bar.
+- `App/`: lifecycle, `BrimAppModel`, preferences, `brim://` commands (`BrimCommand`), menu bar.
 - `Features/Notch/`: `NotchController` (panel, presentation, feedback/HUD) and the island views and tabs.
 - `Features/WindowSwitcher`, `Features/LidEffect`, `Features/TrackpadScale`, `Features/LockScreen`, `Features/Timer`.
 - `Services/`: system readers (battery, audio, brightness, media bridge, transfers, calendar, sensors).

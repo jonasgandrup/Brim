@@ -16,7 +16,7 @@ for f in glob.glob(out + '/strings/*.stringsdata'):
     d = json.load(open(f))
     if 'SmokeTest' in d['source']: continue
     for table in d.get('tables', {}).values():
-        for e in table: keys.setdefault(e['key'], f"{d['source'].split('/Sources/Sense/')[-1]}:{e['location']['startingLine']}")
+        for e in table: keys.setdefault(e['key'], f"{d['source'].split('/Sources/Brim/')[-1]}:{e['location']['startingLine']}")
 da = json.load(open(out + '/da.json'))
 spec = re.compile(r'%(?:\d+\$)?(?:lld|ld|d|@|lf|f)|%%')
 norm = lambda s: sorted(re.sub(r'\d+\$', '', m) for m in spec.findall(s))

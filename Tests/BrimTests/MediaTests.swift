@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import Sense
+@testable import Brim
 
 @Test func playbackProgressUsesRealRateAndNeverRunsPastDuration() {
     let date = Date(timeIntervalSince1970: 1000)

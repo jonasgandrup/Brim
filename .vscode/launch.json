@@ -4,21 +4,21 @@
             "type": "swift",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:Sense}",
-            "name": "Debug Sense",
-            "target": "Sense",
+            "cwd": "${workspaceFolder:Brim}",
+            "name": "Debug Brim",
+            "target": "Brim",
             "configuration": "debug",
-            "preLaunchTask": "swift: Build Debug Sense"
+            "preLaunchTask": "swift: Build Debug Brim"
         },
         {
             "type": "swift",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:Sense}",
-            "name": "Release Sense",
-            "target": "Sense",
+            "cwd": "${workspaceFolder:Brim}",
+            "name": "Release Brim",
+            "target": "Brim",
             "configuration": "release",
-            "preLaunchTask": "swift: Build Release Sense"
+            "preLaunchTask": "swift: Build Release Brim"
         }
     ]
 }

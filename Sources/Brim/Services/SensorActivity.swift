@@ -4,7 +4,7 @@ import CoreMediaIO
 
 /// Notices when any app turns on the camera or microphone, using the same public "running somewhere"
 /// properties macOS uses for its menu-bar privacy dot. No permission is needed, and nothing is captured:
-/// Sense only learns *that* a device is in use, never what it records or which app is using it.
+/// Brim only learns *that* a device is in use, never what it records or which app is using it.
 @MainActor @Observable final class SensorActivity {
     private(set) var camera = false
     private(set) var microphone = false

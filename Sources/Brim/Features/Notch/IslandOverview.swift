@@ -24,6 +24,9 @@ struct IslandOverview: View {
     let calendar: CalendarPeek
     let media: MediaService
     let mediaEnabled: Bool
+    var showsBattery = true
+    /// Whether to mention that Now Playing is off, with a button to turn it on.
+    var offersMedia = true
     let connectMedia: () -> Void
     var body: some View {
         TimelineView(.everyMinute) { context in
@@ -36,9 +39,10 @@ struct IslandOverview: View {
                             .font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 8)
-                    if let level = status.battery {
+                    if showsBattery, let level = status.battery {
                         HStack(spacing: 6) {
                             Text("\(level)%").font(.system(size: 13, weight: .semibold)).monospacedDigit()
+                                .foregroundStyle(BatteryTint.color(level: level, charging: status.details.charging, lowPower: status.details.lowPowerMode))
                             BatteryGlyph(level: level, charging: status.details.charging, lowPower: status.details.lowPowerMode, height: 13)
                         }.padding(.top, 8)
                         .accessibilityElement(children: .ignore).accessibilityLabel("Battery \(level) percent")
@@ -60,7 +64,7 @@ struct IslandOverview: View {
                     }.font(.system(size: 12))
                 }
                 Spacer(minLength: 0)
-                HStack(spacing: 6) {
+                if mediaEnabled || offersMedia { HStack(spacing: 6) {
                     Image(systemName: "play.circle")
                     Text(mediaEnabled ? (media.message ?? String(localized: "Nothing playing")) : String(localized: "Now Playing is off")).lineLimit(1)
                     Spacer(minLength: 4)
@@ -71,7 +75,7 @@ struct IslandOverview: View {
                         // A pinned player that stopped publishing can be unpinned right here.
                         MediaPlayerControls(media: media)
                     }
-                }.font(.system(size: 11)).foregroundStyle(.secondary)
+                }.font(.system(size: 11)).foregroundStyle(.secondary) }
             }
         }
     }

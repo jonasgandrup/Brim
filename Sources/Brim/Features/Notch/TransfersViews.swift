@@ -57,7 +57,7 @@ struct TransfersPaneView: View {
             }
         }.foregroundStyle(.white)
     }
-    /// An activity a Shortcut or script reports with a sense://activity link.
+    /// An activity a Shortcut or script reports with a brim://activity link.
     private func activityRow(_ activity: ScriptActivity) -> some View {
         HStack(spacing: 10) {
             Image(systemName: activity.symbol).font(.system(size: 17)).foregroundStyle(Color.blue).frame(width: 24)

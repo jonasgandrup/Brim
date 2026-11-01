@@ -103,7 +103,7 @@ enum ShortcutModifiers: String, CaseIterable, Identifiable {
 }
 
 /// Plain keys the island borrows while it's open from the keyboard. They're registered with macOS only for
-/// that moment, so the island responds without activating Sense, and released the moment it closes.
+/// that moment, so the island responds without activating Brim, and released the moment it closes.
 @MainActor final class IslandKeys {
     enum Key: UInt32, CaseIterable {
         case left = 1, right, `return`, space, escape

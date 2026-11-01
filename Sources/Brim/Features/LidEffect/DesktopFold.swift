@@ -184,7 +184,7 @@ struct DesktopFoldView: View {
     }
 }
 
-// Renders only Sense's own UI at fixed fold poses for inspection; never substitutes a sensor reading.
+// Renders only Brim's own UI at fixed fold poses for inspection; never substitutes a sensor reading.
 #if DEBUG
 extension DesktopFoldView {
     @MainActor static func exportPreviews(to directory: URL) async -> [String] {
