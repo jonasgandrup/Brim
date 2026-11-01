@@ -203,3 +203,10 @@ import UniformTypeIdentifiers
     do { try await ShelfArchive.create(urls: [file], destination: file); Issue.record("Overwrote source") }
     catch { #expect(try String(contentsOf: file, encoding: .utf8) == "Original") }
 }
+
+@Test func batteryFillIsGreenChargingYellowInLowPowerAndRedAtTwentyPercent() {
+    #expect(BatteryTint.color(level: 15, charging: true, lowPower: true) == .green)
+    #expect(BatteryTint.color(level: 15, charging: false, lowPower: true) == .yellow)
+    #expect(BatteryTint.color(level: 20, charging: false, lowPower: false) == .red)
+    #expect(BatteryTint.color(level: 21, charging: false, lowPower: false) == .white)
+}

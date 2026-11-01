@@ -1,11 +1,12 @@
 import SwiftUI
 
-/// Battery colors follow the system: green while charging, yellow in Low Power Mode, red when nearly empty.
+/// Battery colors follow iPhone: green while charging, yellow in Low Power Mode, red at 20% and below.
+/// Only the fill is tinted; the island and its text stay black and white.
 enum BatteryTint {
     static func color(level: Int, charging: Bool, lowPower: Bool) -> Color {
         if charging { return .green }
         if lowPower { return .yellow }
-        return level <= 10 ? .red : .white
+        return level <= 20 ? .red : .white
     }
 }
 
