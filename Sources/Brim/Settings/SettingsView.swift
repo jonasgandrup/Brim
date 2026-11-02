@@ -123,13 +123,14 @@ struct SettingsView: View {
                 Label { SettingsLabel(title: "Open at Login", detail: "Ready when your Mac is.") } icon: { SettingsIcon(symbol: "power", tint: .gray, size: 26) }
             }
         } footer: {
-            Footnote(text: "Brim asks for a permission only when a feature you turned on needs it. Nothing leaves your Mac.", symbol: "lock.shield")
-        }
-        Section {
-            HStack {
-                Spacer()
-                Button("Continue") { model.permissions.refresh(); model.page = preferences.switcherEnabled ? .permissions : .notch }
-                    .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+            // In the footer, so the page's one action stands on its own instead of in a box.
+            VStack(alignment: .leading, spacing: 16) {
+                Footnote(text: "Brim asks for a permission only when a feature you turned on needs it. Nothing leaves your Mac.", symbol: "lock.shield")
+                HStack {
+                    Spacer()
+                    Button("Continue") { model.permissions.refresh(); model.page = preferences.switcherEnabled ? .permissions : .notch }
+                        .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                }
             }
         }
     }
@@ -299,6 +300,8 @@ struct SettingsView: View {
             Toggle(isOn: binding(\.clipboardHistory)) {
                 SettingsLabel(title: "Clipboard History", detail: "Recent text and links, kept in memory.", info: "Skips password managers. Nothing is saved to disk.")
             }
+        } footer: {
+            Footnote(text: "In Files, ⌘-click selects several, Space previews them and dragging a selected file takes the whole selection.")
         }
     }
     @ViewBuilder private var noticeSettings: some View {

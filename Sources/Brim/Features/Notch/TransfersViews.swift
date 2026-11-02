@@ -27,17 +27,15 @@ struct TransfersPaneView: View {
     let addToShelf: (URL) -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            IslandPaneHeader {
-                if !transfers.recent.isEmpty { Button("Clear") { transfers.clearRecent() } }
+            if !transfers.recent.isEmpty {
+                IslandPaneHeader { Button("Clear") { transfers.clearRecent() } }
             }
             if !activities.running.isEmpty {
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 6) {
-                        ForEach(activities.running) { activityRow($0) }
-                        ForEach(transfers.running) { row($0) }
-                        ForEach(transfers.recent) { row($0) }
-                    }
-                }.frame(maxHeight: 138)
+                list(count: activities.running.count + transfers.running.count + transfers.recent.count) {
+                    ForEach(activities.running) { activityRow($0) }
+                    ForEach(transfers.running) { row($0) }
+                    ForEach(transfers.recent) { row($0) }
+                }
             } else if !enabled {
                 IslandEmptyState(symbol: "arrow.down.circle", title: "Watch Downloads and AirDrops",
                                  detail: "Files still arriving in Downloads, and AirDrops you send from Files.") {
@@ -48,14 +46,20 @@ struct TransfersPaneView: View {
                 IslandEmptyState(symbol: "arrow.down.circle", title: transfers.accessProblem.map { LocalizedStringKey($0) } ?? "No Downloads or AirDrops",
                                  detail: transfers.accessProblem == nil ? "Downloads from Safari, Chrome and Firefox appear here while they arrive." : nil)
             } else {
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 6) {
-                        ForEach(transfers.running) { row($0) }
-                        ForEach(transfers.recent) { row($0) }
-                    }
-                }.frame(maxHeight: 138)
+                list(count: transfers.running.count + transfers.recent.count) {
+                    ForEach(transfers.running) { row($0) }
+                    ForEach(transfers.recent) { row($0) }
+                }
             }
         }.foregroundStyle(.white)
+    }
+    /// A short list is as tall as its rows, so the island can fit it. A longer one scrolls in the room there is.
+    @ViewBuilder private func list<Rows: View>(count: Int, @ViewBuilder rows: () -> Rows) -> some View {
+        if count <= 2 {
+            VStack(spacing: 6) { rows() }
+        } else {
+            ScrollView(.vertical, showsIndicators: false) { VStack(spacing: 6) { rows() } }.frame(height: 138)
+        }
     }
     /// An activity a Shortcut or script reports with a brim://activity link.
     private func activityRow(_ activity: ScriptActivity) -> some View {

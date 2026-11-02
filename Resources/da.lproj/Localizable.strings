@@ -378,7 +378,6 @@
 "Paused" = "Sat på pause";
 "Paused %@" = "%@ sat på pause";
 "Paused by Reduce Motion" = "Sat på pause af Reducer bevægelse";
-"Paused in %@" = "Sat på pause i %@";
 "Paused while macOS Reduce Motion is enabled." = "Sat på pause, mens Reducer bevægelse er slået til i macOS.";
 "Pauses %@ at end of track" = "Sætter %@ på pause, når nummeret slutter";
 "Pauses %@ in %@" = "Sætter %1$@ på pause om %2$@";
@@ -395,7 +394,6 @@
 "Player access unavailable. Check Automation access in System Settings." = "Der er ikke adgang til afspilleren. Kontroller adgangen under Automatisering i Systemindstillinger.";
 "Player picker" = "Afspillervælger";
 "Player pinned · choose Automatic to follow macOS" = "Afspiller fastgjort · vælg Automatisk for at følge macOS";
-"Playing in %@" = "Spiller i %@";
 "Playing on %@" = "Afspiller på %@";
 "Plugged in · not charging" = "Tilsluttet · oplader ikke";
 "Rest the pointer on the island to open it. A click always works." = "Lad markøren hvile på øen for at åbne den. Et klik virker altid.";
@@ -596,7 +594,9 @@
 "Your timer has finished" = "Din timer er færdig";
 "You’re in control." = "Du bestemmer.";
 "Zero set. Keep that fingertip still and add your object beside it." = "Nulstillet. Hold fingerspidsen stille, og læg genstanden ved siden af.";
-"⌘-click to select · Space to preview · drag selected files together" = "⌘-klik for at vælge · mellemrum for at se · træk valgte arkiver samlet";
 "Behavior" = "Adfærd";
 "Steps and calibration are in the scale’s own window." = "Trin og kalibrering findes i vægtens eget vindue.";
 "%@, %lld%%" = "%@, %lld %%";
+"Copy %@" = "Kopier %@";
+"Clock Tools" = "Urværktøjer";
+"In Files, ⌘-click selects several, Space previews them and dragging a selected file takes the whole selection." = "I Arkiver vælger ⌘-klik flere, mellemrum viser dem, og når du trækker en valgt fil, følger hele valget med.";

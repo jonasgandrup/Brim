@@ -170,20 +170,31 @@ struct IslandClockView: View {
     @Bindable var clock: ClockTools
     let timer: IslandTimer
     var calendar: CalendarPeek?
+    /// Once something is counting, it's what you came for: the modes step back into a small menu.
+    private var running: Bool {
+        switch clock.mode {
+        case .timer: timer.active
+        case .focus: timer.active && timer.focus != nil
+        case .stopwatch: clock.stopwatch.running
+        case .alarm: false
+        }
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             // The modes are the header: one segmented control, as in the Clock app, instead of a title beside it.
-            HStack(spacing: 2) {
-                ForEach(ClockMode.allCases, id: \.self) { mode in
-                    Button { clock.mode = mode } label: {
-                        Text(mode.title).font(.system(size: 11, weight: clock.mode == mode ? .semibold : .medium))
-                            .frame(maxWidth: .infinity).padding(.vertical, 3)
-                            .background(clock.mode == mode ? IslandStyle.raisedFill : .clear, in: Capsule())
-                            .foregroundStyle(clock.mode == mode ? .primary : .secondary)
-                            .contentShape(Capsule())
-                    }.buttonStyle(.plain).accessibilityAddTraits(clock.mode == mode ? .isSelected : [])
-                }
-            }.padding(2).background(IslandStyle.tileFill, in: Capsule()).frame(height: 24)
+            if !running {
+                HStack(spacing: 2) {
+                    ForEach(ClockMode.allCases, id: \.self) { mode in
+                        Button { clock.mode = mode } label: {
+                            Text(mode.title).font(.system(size: 11, weight: clock.mode == mode ? .semibold : .medium))
+                                .frame(maxWidth: .infinity).padding(.vertical, 3)
+                                .background(clock.mode == mode ? IslandStyle.raisedFill : .clear, in: Capsule())
+                                .foregroundStyle(clock.mode == mode ? .primary : .secondary)
+                                .contentShape(Capsule())
+                        }.buttonStyle(.plain).accessibilityAddTraits(clock.mode == mode ? .isSelected : [])
+                    }
+                }.padding(2).background(IslandStyle.tileFill, in: Capsule()).frame(height: 24)
+            }
             if let event = calendar?.next {
                 TimelineView(.periodic(from: .now, by: 30)) { context in
                     HStack(spacing: 6) {
@@ -240,6 +251,16 @@ struct IslandClockView: View {
                     }
                     if let notice = clock.notice { Text(notice).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2) }
                 }
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if running {
+                Menu {
+                    ForEach(ClockMode.allCases, id: \.self) { mode in Button(mode.title) { clock.mode = mode } }
+                } label: {
+                    Image(systemName: "ellipsis.circle").frame(width: 20, height: 20)
+                }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().foregroundStyle(.secondary)
+                    .help("Clock Tools").accessibilityLabel("Clock Tools")
             }
         }
     }

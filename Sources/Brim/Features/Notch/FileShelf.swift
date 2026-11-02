@@ -174,8 +174,6 @@ struct FileShelfView: View {
                     .animation(IslandStyle.quick, value: dropTargeted)
             } else {
                 FileCollection(shelf: shelf).frame(height: 103)
-                Text("⌘-click to select · Space to preview · drag selected files together")
-                    .font(.system(size: 10)).foregroundStyle(.tertiary)
             }
             if let message = shelf.message { Text(message).font(.system(size: 10)).foregroundStyle(.secondary) }
         }.foregroundStyle(.white)

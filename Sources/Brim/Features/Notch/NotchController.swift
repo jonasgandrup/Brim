@@ -30,15 +30,23 @@ struct IslandLayout {
             ? CGSize(width: cutoutWidth + 104, height: menuBarHeight)
             : CGSize(width: 196, height: 38)
     }
-    func surfaceSize(for presentation: IslandPresentation, reveal: Double = 1, notice: Bool = false) -> CGSize {
+    func surfaceSize(for presentation: IslandPresentation, reveal: Double = 1, notice: Bool = false, paneHeight: CGFloat? = nil) -> CGSize {
         let camera = CGSize(width: cutoutWidth, height: menuBarHeight)
-        let target = presentation == .expanded ? (notice ? noticeSize : expandedSize) : (presentation == .hidden && hasHardwareNotch ? camera : compactSize)
+        let target = presentation == .expanded ? (notice ? noticeSize : fittedSize(paneHeight)) : (presentation == .hidden && hasHardwareNotch ? camera : compactSize)
         guard hasHardwareNotch else { return target }
         let progress = min(1, max(0, reveal.isFinite ? reveal : 1))
         return CGSize(width: camera.width + (target.width - camera.width) * progress,
                       height: camera.height + (target.height - camera.height) * progress)
     }
     var expandedSize: CGSize { CGSize(width: max(408, compactSize.width), height: headerHeight + 202) }
+    /// As tall as its contents, as on iPhone, up to the full island. The panel behind it never resizes.
+    func fittedSize(_ paneHeight: CGFloat?) -> CGSize {
+        guard let paneHeight else { return expandedSize }
+        let fitted = headerHeight + Self.paneTopGap + paneHeight.rounded(.up) + Self.paneBottomGap
+        return CGSize(width: expandedSize.width, height: min(expandedSize.height, fitted))
+    }
+    static let paneTopGap: CGFloat = 4
+    static let paneBottomGap: CGFloat = 22
     /// A line of news only needs a line's worth of island, as on iPhone.
     var noticeSize: CGSize { CGSize(width: max(340, compactSize.width), height: headerHeight + Self.noticeContentHeight + 18) }
     static let noticeContentHeight: CGFloat = 44
@@ -51,8 +59,8 @@ struct IslandLayout {
         return CGRect(x: screen.midX - width / 2, y: screen.maxY - topGap - height, width: width, height: height)
     }
     var topGap: CGFloat { hasHardwareNotch ? 0 : 8 }
-    func frame(on screen: CGRect, expanded: Bool, notice: Bool = false) -> CGRect {
-        let size = expanded ? (notice ? noticeSize : expandedSize) : compactSize
+    func frame(on screen: CGRect, expanded: Bool, notice: Bool = false, paneHeight: CGFloat? = nil) -> CGRect {
+        let size = expanded ? (notice ? noticeSize : fittedSize(paneHeight)) : compactSize
         return CGRect(x: screen.midX - size.width / 2, y: screen.maxY - topGap - size.height, width: size.width, height: size.height)
     }
 }
@@ -272,6 +280,16 @@ final class NotchController {
     var mediaVisible = false
     /// The app in front, so its own Now Playing can step aside. Brim counts too: its windows don't show the player.
     var frontApp: String?
+    /// What the open island's contents measure. Nil until they've been laid out, which means the full island.
+    private(set) var paneHeight: CGFloat?
+    private var paneResizedAt: TimeInterval = -.infinity
+    /// Drop zones fill whatever room there is, so they're the one thing with no height of their own.
+    var paneFitsContent: Bool { !(dropTargeted && dropIsFiles && airDropAvailable) }
+    func receivePaneHeight(_ height: CGFloat) {
+        guard paneHeight.map({ abs($0 - height) > 0.5 }) ?? true else { return }
+        paneHeight = height
+        if expanded { paneResizedAt = ProcessInfo.processInfo.systemUptime }
+    }
     /// True while the pointer is reaching for a menu or status icon under the compact island.
     private(set) var wingsAside = false
     /// Read as the pointer arrives over a wing and kept until it leaves, so moving around there asks nothing further.
@@ -420,7 +438,7 @@ final class NotchController {
     }
     var surfaceFrame: CGRect? {
         guard presentation != .hidden, let displayFrame else { return nil }
-        return layout.frame(on: displayFrame, expanded: expanded, notice: showsNotice)
+        return layout.frame(on: displayFrame, expanded: expanded, notice: showsNotice, paneHeight: paneHeight)
     }
     var ignoresMouseEvents: Bool { panel?.ignoresMouseEvents ?? true }
 
@@ -787,7 +805,8 @@ final class NotchController {
         collapseTask?.cancel()
         guard inside else {
             hoverTask?.cancel(); hoverTask = nil
-            if expanded { collapseAfterDelay() }
+            // Starting a timer can shrink the island out from under the pointer, which isn't the pointer leaving.
+            if expanded { collapseAfterDelay(seconds: ProcessInfo.processInfo.systemUptime - paneResizedAt < 0.9 ? 0.9 : 0.06) }
             return
         }
         // A held button means a selection or a dragged tab that happens to pass by, not a pause on the island.

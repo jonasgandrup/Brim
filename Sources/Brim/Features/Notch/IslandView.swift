@@ -30,7 +30,7 @@ struct IslandView: View {
         controller.expanded && controller.feedback == nil && controller.displayedTab == .music && preferences.mediaEnabled && media.source != nil
     }
     var body: some View {
-        let base = layout.surfaceSize(for: controller.presentation, reveal: controller.surfaceReveal, notice: controller.showsNotice)
+        let base = layout.surfaceSize(for: controller.presentation, reveal: controller.surfaceReveal, notice: controller.showsNotice, paneHeight: controller.paneHeight)
         let notice = controller.showsNotice
         let swell = controller.hoverSwell && !reduceMotion
         let size = CGSize(width: base.width + (swell ? 8 : 0), height: base.height + (swell ? 2 : 0))
@@ -41,8 +41,12 @@ struct IslandView: View {
             .overlay(alignment: .top) {
                 // An overlay keeps expanded content from changing the compact header's layout.
                 expandedPane
+                    .fixedSize(horizontal: false, vertical: !notice && controller.paneFitsContent)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                        if !controller.showsNotice { controller.receivePaneHeight(height) }
+                    }
                     .frame(width: (notice ? layout.noticeSize : layout.expandedSize).width - 44, height: notice ? IslandLayout.noticeContentHeight : 176, alignment: .top)
-                    .padding(.top, layout.headerHeight + 4)
+                    .padding(.top, layout.headerHeight + IslandLayout.paneTopGap)
                     .opacity(controller.expanded ? 1 : 0)
                     .blur(radius: controller.expanded || reduceMotion ? 0 : 6)
                     .scaleEffect(controller.expanded ? 1 : 0.94, anchor: .top)
@@ -66,6 +70,7 @@ struct IslandView: View {
         .opacity(!layout.hasHardwareNotch && controller.presentation == .hidden ? 0 : 1)
         .animation(reduceMotion || controller.surfaceAnimationsSuppressed ? nil : .smooth(duration: controller.expanded ? 0.32 : 0.22, extraBounce: controller.expanded ? 0.06 : 0), value: controller.presentation)
         .animation(reduceMotion ? nil : .smooth(duration: 0.28, extraBounce: 0.04), value: controller.showsNotice)
+        .animation(reduceMotion || !controller.expanded ? nil : .smooth(duration: 0.28, extraBounce: 0.04), value: controller.paneHeight)
         .animation(reduceMotion ? nil : IslandStyle.quick, value: controller.hud)
         .animation(reduceMotion ? nil : IslandStyle.quick, value: controller.hoverSwell)
         .animation(reduceMotion ? nil : .smooth(duration: 0.32, extraBounce: 0.1), value: controller.showsActivityBubble)
@@ -312,17 +317,15 @@ struct IslandView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(media.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
                             .contentTransition(.opacity)
-                        Text(media.artist.isEmpty ? media.sourceName : media.artist)
-                            .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
-                            .contentTransition(.opacity)
-                        HStack(spacing: 4) {
-                            if let icon = media.sourceIcon { Image(nsImage: icon).resizable().frame(width: 11, height: 11) }
-                            Text(media.playing ? "Playing in \(media.sourceName)" : "Paused in \(media.sourceName)")
-                            if media.offersArtworkAccess {
-                                Button("Show Artwork") { controller.allowPlayerAccess() }.buttonStyle(.plain).foregroundStyle(.secondary)
-                                    .fixedSize().help("macOS asks once for access to Music and Spotify.")
-                            }
-                        }.font(.system(size: 10)).foregroundStyle(.tertiary).lineLimit(1)
+                        // The player menu above already names the app, so it isn't named again here.
+                        if !media.artist.isEmpty {
+                            Text(media.artist).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                                .contentTransition(.opacity)
+                        }
+                        if media.offersArtworkAccess {
+                            Button("Show Artwork") { controller.allowPlayerAccess() }.buttonStyle(.plain).foregroundStyle(.secondary)
+                                .font(.system(size: 10)).fixedSize().help("macOS asks once for access to Music and Spotify.")
+                        }
                     }.animation(reduceMotion ? nil : IslandStyle.quick, value: media.title)
                     Spacer(minLength: 0)
                 }

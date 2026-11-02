@@ -179,6 +179,19 @@ struct ClipboardPinStore: Sendable {
         }
         message = String(localized: "Copy text, a link or an image, then choose Pin Clipboard."); return false
     }
+    private(set) var justCopied: ClipboardPin.ID?
+    private var copiedTask: Task<Void, Never>?
+    /// A click on a pin shows a moment's checkmark, since nothing else on screen changes.
+    func copyConfirming(_ pin: ClipboardPin, to board: NSPasteboard = .general) {
+        guard copy(pin, to: board) else { return }
+        justCopied = pin.id
+        copiedTask?.cancel()
+        copiedTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1.2))
+            guard !Task.isCancelled else { return }
+            self?.justCopied = nil
+        }
+    }
     @discardableResult func copy(_ pin: ClipboardPin, to board: NSPasteboard = .general) -> Bool {
         board.clearContents()
         // Copying from the shelf shouldn't reorder the history it came from.
@@ -258,23 +271,34 @@ struct ClipboardShelfView: View {
             if let message = shelf.message { Text(message).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1) }
         }.foregroundStyle(.white)
     }
+    /// The pin itself is the button, so it needn't say "Copy": a click copies, and a checkmark says it worked.
     private func card(_ pin: ClipboardPin) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let copied = shelf.justCopied == pin.id
+        return VStack(alignment: .leading, spacing: 6) {
             if case .image(let data) = pin.payload, let image = NSImage(data: data) {
-                Image(nsImage: image).resizable().scaledToFit().frame(width: 94, height: 48)
+                Image(nsImage: image).resizable().scaledToFit().frame(width: 94, height: 54).opacity(copied ? 0.35 : 1)
+                    .overlay { if copied { Image(systemName: "checkmark").font(.system(size: 18, weight: .semibold)).foregroundStyle(.green) } }
             } else {
-                Image(systemName: pin.symbol).font(.system(size: 14, weight: .medium)).foregroundStyle(pin.symbol == "link" ? Color.blue : .white.opacity(0.55))
+                Image(systemName: copied ? "checkmark" : pin.symbol).font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(copied ? Color.green : pin.symbol == "link" ? Color.blue : .white.opacity(0.55))
+                    .contentTransition(.symbolEffect(.replace))
                 Text(pin.title).font(.system(size: 10)).lineLimit(pin.symbol == "link" ? 1 : 2).truncationMode(.middle).frame(height: 28, alignment: .topLeading)
             }
-            HStack(spacing: 8) {
-                Button("Copy", systemImage: "doc.on.doc") { shelf.copy(pin) }
-                if shelf.showingHistory { Button("Pin", systemImage: "pin") { shelf.pinFromHistory(pin) } }
-            }.font(.system(size: 10)).buttonStyle(.plain)
-        }.padding(9).frame(width: 112, height: 96, alignment: .topLeading)
+        }.padding(9).frame(width: 112, height: 72, alignment: .topLeading)
             .background(IslandStyle.tileFill, in: RoundedRectangle(cornerRadius: IslandStyle.smallRadius, style: .continuous))
+            .overlay(alignment: .topTrailing) {
+                if shelf.showingHistory {
+                    Button { shelf.pinFromHistory(pin) } label: { Image(systemName: "pin").font(.system(size: 10)).frame(width: 22, height: 22).contentShape(Rectangle()) }
+                        .buttonStyle(.plain).padding(3).help("Pin").accessibilityLabel("Pin")
+                }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: IslandStyle.smallRadius, style: .continuous))
+            .onTapGesture { shelf.copyConfirming(pin) }
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel("Copy \(pin.title)")
             .onDrag { pin.provider() }
             .contextMenu {
-                Button("Copy") { shelf.copy(pin) }
+                Button("Copy") { shelf.copyConfirming(pin) }
                 if shelf.showingHistory { Button("Pin") { shelf.pinFromHistory(pin) } }
                 else { Button("Remove Pin") { shelf.remove(pin) } }
             }.help(pin.title)

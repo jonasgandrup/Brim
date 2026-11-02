@@ -220,6 +220,37 @@ import Testing
     #expect(notice.width >= layout.compactSize.width)
     #expect(layout.frame(on: CGRect(x: 0, y: 0, width: 1512, height: 982), expanded: true, notice: true).size == notice)
 }
+@Test func openIslandIsOnlyAsTallAsItsContents() {
+    let layout = IslandLayout(cutoutWidth: 185, menuBarHeight: 32, hasHardwareNotch: true)
+    let display = CGRect(x: 0, y: 0, width: 1512, height: 982)
+    // Not measured yet means the full island, so nothing is ever cut off on the way in.
+    #expect(layout.surfaceSize(for: .expanded) == layout.expandedSize)
+    let short = layout.surfaceSize(for: .expanded, paneHeight: 80)
+    #expect(short.height == 32 + IslandLayout.paneTopGap + 80 + IslandLayout.paneBottomGap)
+    #expect(short.width == layout.expandedSize.width)
+    // Taller contents stop at the full island, and a full pane fills it exactly.
+    #expect(layout.surfaceSize(for: .expanded, paneHeight: 400) == layout.expandedSize)
+    #expect(layout.surfaceSize(for: .expanded, paneHeight: 176) == layout.expandedSize)
+    // The hit area follows the surface, while the panel keeps the size it was made with.
+    #expect(layout.frame(on: display, expanded: true, paneHeight: 80).size == short)
+    #expect(layout.frame(on: display, expanded: true).size == layout.expandedSize)
+    // The measurement belongs to the open island: compact and notices ignore it.
+    #expect(layout.surfaceSize(for: .compact, paneHeight: 80) == layout.compactSize)
+    #expect(layout.surfaceSize(for: .expanded, notice: true, paneHeight: 80) == layout.noticeSize)
+}
+@Test @MainActor func clickingAPinCopiesItAndSaysSo() throws {
+    let board = NSPasteboard.withUniqueName()
+    defer { board.releaseGlobally() }
+    let shelf = ClipboardShelf()
+    board.setString("A note", forType: .string)
+    #expect(shelf.pin(from: board))
+    let pin = try #require(shelf.pins.first)
+    board.clearContents()
+    #expect(shelf.justCopied == nil)
+    shelf.copyConfirming(pin, to: board)
+    #expect(board.string(forType: .string) == "A note")
+    #expect(shelf.justCopied == pin.id)
+}
 
 @Test func hoverOpensOnlyOnceThePointerRests() {
     var intent = HoverIntent()
