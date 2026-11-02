@@ -91,6 +91,36 @@ private actor TimerCommands {
     func send(_ request: MediaPlaybackRequest) -> MediaCommandResult { requests.append(request); return .submitted }
 }
 
+@Test @MainActor func nowPlayingStepsAsideOnlyWhileItsOwnAppIsInFront() {
+    let media = MediaService()
+    #expect(!media.stepsAside(forFrontApp: "com.spotify.client"))
+    media.apply(.init(available: true, title: "Song", source: "com.spotify.client", rate: 1))
+    #expect(media.stepsAside(forFrontApp: "com.spotify.client"))
+    #expect(!media.stepsAside(forFrontApp: "com.apple.Safari"))
+    #expect(!media.stepsAside(forFrontApp: nil))
+    // A paused track still belongs to the app in front.
+    media.apply(.init(available: true, title: "Song", source: "com.spotify.client", rate: 0))
+    #expect(media.stepsAside(forFrontApp: "com.spotify.client"))
+    media.apply(.init(available: true, title: "Video", source: "com.apple.WebKit.GPU", rate: 1, parentSource: "com.apple.Safari"))
+    #expect(media.stepsAside(forFrontApp: "com.apple.Safari"))
+    media.apply(.init(available: true, title: "Song", source: "com.spotify.client", rate: 1))
+    #expect(!media.stepsAside(forFrontApp: "com.apple.Safari"))
+    media.apply(.init(available: true))
+    #expect(!media.stepsAside(forFrontApp: "com.spotify.client"))
+    media.stop()
+}
+
+@Test @MainActor func aSleepTimerKeepsNowPlayingOnTheIslandInsideItsApp() {
+    let media = MediaService()
+    media.updatePlayers([playerA]); media.apply(session(playerA))
+    #expect(media.stepsAside(forFrontApp: playerA.source))
+    media.startSleepTimer(minutes: 15)
+    #expect(!media.stepsAside(forFrontApp: playerA.source))
+    media.sleepTimer.cancel()
+    #expect(media.stepsAside(forFrontApp: playerA.source))
+    media.stop()
+}
+
 @Test @MainActor func sleepTimerPausesItsOriginalPlayerAfterTheCardSwitches() async {
     let recorder = TimerCommands()
     let media = MediaService()

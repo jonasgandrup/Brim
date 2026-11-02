@@ -98,6 +98,13 @@ final class MediaService {
     var playing = false
     var artwork: NSImage?
     var source: String?
+    private var parentSource: String?
+    /// Like the iPhone: the app playing already shows its own controls, so the compact island stays quiet until you
+    /// leave it. A sleep timer is Brim's own and the app can't show it, so it keeps media on the island.
+    func stepsAside(forFrontApp app: String?) -> Bool {
+        guard let app, source != nil, sleepTimer.schedule == nil else { return false }
+        return app == source || app == parentSource
+    }
     var sourceName = String(localized: "Now Playing")
     var sourceIcon: NSImage?
     var timeline: MediaTimeline?
@@ -330,7 +337,7 @@ final class MediaService {
         if coverChanged { artwork = artworkCache[coverKey(source: nextSource, title: nextTitle, identifier: nextIdentifier)]; artworkTask?.cancel(); artworkKey = "" }
         systemTransport = true; title = nextTitle; artist = snapshot.artist ?? ""
         playing = (snapshot.rate ?? 0) > 0
-        setSource(nextSource, name: [snapshot.sourceName, players.first(where: { $0.source == nextSource })?.name].compactMap { $0 }.first(where: { !$0.isEmpty }) ?? String(localized: "Media"))
+        setSource(nextSource, name: [snapshot.sourceName, players.first(where: { $0.source == nextSource })?.name].compactMap { $0 }.first(where: { !$0.isEmpty }) ?? String(localized: "Media"), parent: snapshot.parentSource)
         timeline = nil
         if let duration = snapshot.duration, let position = snapshot.position, let rate = snapshot.rate {
             let value = MediaTimeline(duration: duration, position: position, rate: rate, measuredAt: Date())
@@ -339,7 +346,8 @@ final class MediaService {
         if let encoded = snapshot.artwork, let data = Data(base64Encoded: encoded), data.count < 2_000_000, let image = NSImage(data: data) { artwork = image; rememberCover(image) }
         message = nil
     }
-    private func setSource(_ bundle: String?, name: String) {
+    private func setSource(_ bundle: String?, name: String, parent: String? = nil) {
+        parentSource = parent
         if bundle != source {
             sourceIcon = bundle.flatMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }.map { NSWorkspace.shared.icon(forFile: $0.path) }
         }

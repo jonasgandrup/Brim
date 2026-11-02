@@ -17,6 +17,8 @@ struct SystemMediaSnapshot: Decodable, Sendable {
     var playerPath: String? = nil
     var changing: Bool? = nil
     var processID: Int32? = nil
+    /// The app behind a helper process that publishes media on its behalf.
+    var parentSource: String? = nil
     var hasMedia: Bool { available && !(title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) }
 }
 
@@ -220,7 +222,7 @@ enum SystemMediaBridge {
         let position=scalar(info,k+'ElapsedTime');
         const timestamp=scalar(info,k+'Timestamp');
         if (position!==null && rate>0 && timestamp && typeof timestamp.getTime==='function') position+=Math.max(0,(Date.now()-timestamp.getTime())/1000)*rate;
-        const result={available:true,title:scalar(info,k+'Title'),artist:scalar(info,k+'Artist'),source:scalar(path.client,'bundleIdentifier'),sourceName:scalar(path.client,'displayName'),
+        const result={available:true,title:scalar(info,k+'Title'),artist:scalar(info,k+'Artist'),source:scalar(path.client,'bundleIdentifier'),parentSource:scalar(path.client,'parentApplicationBundleIdentifier'),sourceName:scalar(path.client,'displayName'),
                       processID:Number(scalar(path.client,'processIdentifier')), playerPath:pathData(path),identifier:identity(info),rate:rate,duration:scalar(info,k+'Duration'),position:position,canSeek:false};
         try { const commands=value.commands; for(let i=0;i<commands.count;i++){const c=commands.objectAtIndex(i);if(Number(scalar(c,'command'))===24 && scalar(c,'enabled')===true)result.canSeek=true;} } catch(_){}
         try {const art=info.objectForKey(k+'ArtworkData');if(art && art.length>0 && art.length<2000000)result.artwork=ObjC.unwrap(art.base64EncodedStringWithOptions(0));}catch(_){}

@@ -8,7 +8,9 @@ struct IslandView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var artworkSpace
     private var layout: IslandLayout { controller.layout }
-    private var dualActivities: Bool { preferences.mediaEnabled && media.source != nil && controller.countdown.active }
+    /// Whether media has a place on the compact island: not while the app playing it is in front.
+    private var mediaOnIsland: Bool { preferences.mediaEnabled && media.source != nil && !media.stepsAside(forFrontApp: controller.frontApp) }
+    private var dualActivities: Bool { mediaOnIsland && controller.countdown.active }
     private var headerTab: IslandTab { controller.expanded ? controller.displayedTab : (dualActivities ? .music : controller.compactLeadingTab) }
     private var radius: CGFloat { controller.presentation == .hidden ? 9 : (controller.expanded ? 34 : layout.compactSize.height / 2) }
     private var surface: UnevenRoundedRectangle {
@@ -21,7 +23,7 @@ struct IslandView: View {
     }
     /// Whether the compact island's leading side is the artwork rather than another activity's symbol.
     private var compactShowsArtwork: Bool {
-        controller.hud == nil && preferences.mediaEnabled && media.source != nil
+        controller.hud == nil && mediaOnIsland
             && (dualActivities || ![.timer, .transfers, .clipboard, .files].contains(headerTab))
     }
     private var expandedShowsArtwork: Bool {
@@ -147,7 +149,7 @@ struct IslandView: View {
             Image(systemName: "pin.fill").font(.system(size: 13)).foregroundStyle(.yellow)
         } else if headerTab == .files && !dualActivities {
             Image(systemName: "tray.full.fill").font(.system(size: 14)).foregroundStyle(.primary)
-        } else if media.source != nil && preferences.mediaEnabled {
+        } else if mediaOnIsland {
             // The artwork itself is drawn once, above both places it can be, so it can travel between them.
             Color.clear.frame(width: 22, height: 22).matchedGeometryEffect(id: ArtworkSlot.compact, in: artworkSpace)
         } else if controller.feedback != nil {
@@ -183,7 +185,7 @@ struct IslandView: View {
             CountBadge(count: controller.shelf.files.count)
         } else if controller.fileDragActive {
             Image(systemName: "plus.circle.fill").font(.system(size: 15)).foregroundStyle(.white, .white.opacity(0.2))
-        } else if media.source != nil && preferences.mediaEnabled {
+        } else if mediaOnIsland {
             if media.sleepTimer.schedule != nil && !media.playing {
                 Image(systemName: "moon.zzz.fill").font(.system(size: 12)).foregroundStyle(.orange)
             } else { PlaybackActivity(playing: media.playing) }

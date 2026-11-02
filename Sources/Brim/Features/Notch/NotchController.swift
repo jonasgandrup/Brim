@@ -264,7 +264,9 @@ final class NotchController {
     private(set) var status: SystemStatus?
     private var media: MediaService?
     private var mediaVisible = false
-    private struct MediaVisibilityInput: Equatable { let enabled: Bool; let playing: Bool; let hasSource: Bool }
+    /// The app in front, so its own Now Playing can step aside. Brim counts too: its windows don't show the player.
+    private(set) var frontApp: String?
+    private struct MediaVisibilityInput: Equatable { let enabled: Bool; let playing: Bool; let hasSource: Bool; let stepsAside: Bool }
     private var lastMediaInput: MediaVisibilityInput?
     private var mediaExitTask: Task<Void, Never>?
     private var onOpenSettings: () -> Void = {}
@@ -308,7 +310,8 @@ final class NotchController {
 
     // MARK: Compact activities
 
-    var hasDualActivities: Bool { preferences?.mediaEnabled == true && media?.source != nil && countdown.active }
+    private var mediaStepsAside: Bool { media?.stepsAside(forFrontApp: frontApp) == true }
+    var hasDualActivities: Bool { preferences?.mediaEnabled == true && media?.source != nil && !mediaStepsAside && countdown.active }
     var compactLeadingTab: IslandTab { hasDualActivities ? .music : compactTab }
     var compactTrailingTab: IslandTab { countdown.active || clock.active ? .timer : compactTab }
     /// Two things at once, like the iPhone: media keeps the island and the timer moves to a bubble beside it.
@@ -499,8 +502,12 @@ final class NotchController {
                 self?.hideForDesktopTransition(settleDelay: .milliseconds(900))
             }
         })
+        frontApp = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         observers.append(workspace.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
-            guard (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+            let activated = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            let bundle = activated?.bundleIdentifier
+            Task { @MainActor in self?.frontApp = bundle }
+            guard activated?.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
             Task { @MainActor in
                 guard let self, !self.transitioning else { return }
                 // Switching ordinary apps must not retract/recreate the camera cover.
@@ -566,6 +573,7 @@ final class NotchController {
             _ = media?.source
             _ = media?.sleepTimer.schedule
             _ = media?.holdingScrubber
+            _ = frontApp
             _ = shelf.files
             _ = shelf.systemUIActive
             _ = clipboard.pins
@@ -596,11 +604,11 @@ final class NotchController {
         }
     }
     private func syncMediaVisibility() {
-        let input = MediaVisibilityInput(enabled: preferences?.mediaEnabled == true, playing: media?.playing == true, hasSource: media?.source != nil)
+        let input = MediaVisibilityInput(enabled: preferences?.mediaEnabled == true, playing: media?.playing == true, hasSource: media?.source != nil, stepsAside: mediaStepsAside)
         guard input != lastMediaInput else { return }
         lastMediaInput = input
         mediaExitTask?.cancel()
-        guard preferences?.mediaEnabled == true, media?.source != nil else { mediaVisible = false; return }
+        guard preferences?.mediaEnabled == true, media?.source != nil, !mediaStepsAside else { mediaVisible = false; return }
         if media?.playing == true { mediaVisible = true; return }
         // A short pause grace prevents track changes from flashing the physical cutout.
         mediaExitTask = Task { [weak self] in
