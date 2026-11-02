@@ -28,6 +28,25 @@ import Testing
     #expect(SwitcherSelection.next(0, count: 0, backwards: false) == 0)
     #expect(SwitcherSelection.next(0, count: 1, backwards: true) == 0)
 }
+@Test func islandStepsAsideOnlyForWhatItReallyCovers() {
+    let wings = MenuBarClearance.wings(of: CGRect(x: 100, y: 0, width: 300, height: 32), cutoutWidth: 200)
+    #expect(wings == [100...150, 350...400])
+    let covered: [ClosedRange<CGFloat>] = [120...140]
+    func aside(_ now: Bool, _ x: CGFloat, _ items: [ClosedRange<CGFloat>]) -> Bool {
+        MenuBarClearance.stepsAside(aside: now, x: x, wings: wings, covered: items)
+    }
+    // Nothing underneath: the wing stays put, so opening a menu elsewhere never makes it blink.
+    #expect(!aside(false, 130, []))
+    #expect(!aside(false, 110, covered))
+    #expect(aside(false, 130, covered))
+    // Once aside it holds across both wings, then returns at the camera or away from the island.
+    #expect(aside(true, 110, covered))
+    #expect(aside(true, 380, covered))
+    #expect(!aside(true, 250, covered))
+    #expect(!aside(true, 500, covered))
+    // An item beyond the wings is nothing to step aside for.
+    #expect(!aside(false, 500, [490...510]))
+}
 @Test func switcherPanelFitsItsWindowsWithinTheScreen() {
     let wide: CGFloat = 3000
     let one = SwitcherLayout.panelSize(count: 1, available: wide), three = SwitcherLayout.panelSize(count: 3, available: wide)

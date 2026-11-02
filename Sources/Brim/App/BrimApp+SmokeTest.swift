@@ -69,6 +69,7 @@ extension BrimAppModel {
         preferences.appearance = .system
         rendered += await notch.exportPreview(to: URL(fileURLWithPath: output))
         rendered += await switcher.exportPreviews(to: URL(fileURLWithPath: output))
+        await notch.verifyWingClearance()
         rendered += await DesktopFoldView.exportPreviews(to: URL(fileURLWithPath: output))
         let fileActionsCheck = CommandLine.arguments.contains("--check-file-actions") ? await notch.verifyFileActions() : [:]
         var mediaCheck: [String: Any] = [:]

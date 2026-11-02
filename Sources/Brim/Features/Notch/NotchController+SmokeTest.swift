@@ -221,6 +221,44 @@ extension NotchController {
         try? await Task.sleep(for: .milliseconds(250))
         return captured ? name : nil
     }
+    /// Drives the real island over a pretend covered item, because a test can't move the actual pointer into the menu bar.
+    func verifyWingClearance() async {
+        guard layout.hasHardwareNotch, let displayFrame, let panel else { return }
+        for _ in 0..<30 where desktopTransition || preparingAfterTransition { try? await Task.sleep(for: .milliseconds(100)) }
+        let frame = layout.frame(on: displayFrame, expanded: false)
+        let wings = MenuBarClearance.wings(of: frame, cutoutWidth: layout.cutoutWidth)
+        guard let left = wings.first, let right = wings.last else { return }
+        let reader = menuBarItemsReader
+        smoke.activityChecks["menuBarItemsReadWithoutCrashing"] = reader(displayFrame).allSatisfy { $0.lowerBound <= $0.upperBound }
+        countdown.start(seconds: 60)
+        let top = frame.maxY
+        let coveredPoint = CGPoint(x: left.lowerBound + 10, y: top), clearPoint = CGPoint(x: left.upperBound - 10, y: top)
+        func move(_ point: CGPoint) async {
+            previewPointer = point; updateInteraction(scheduleHover: false)
+            try? await Task.sleep(for: .milliseconds(320))
+        }
+        menuBarItemsReader = { _ in [left.lowerBound...(left.lowerBound + 20)] }
+        await move(CGPoint(x: frame.minX - 40, y: top))
+        let startsCompact = presentation == .compact
+        await move(clearPoint)
+        let staysOverClearPart = presentation == .compact && !wingsAside
+        await move(coveredPoint)
+        let stepsAside = presentation == .hidden && wingsAside && panel.ignoresMouseEvents
+        await move(clearPoint)
+        let staysAsideAcrossWing = presentation == .hidden && wingsAside
+        await move(CGPoint(x: frame.midX, y: top))
+        let returnsAtCamera = presentation == .compact && !wingsAside
+        await move(coveredPoint)
+        await move(CGPoint(x: right.upperBound + 40, y: top))
+        let returnsWhenPointerLeaves = presentation == .compact && !wingsAside && panel.isVisible
+        menuBarItemsReader = { _ in [] }
+        await move(coveredPoint)
+        let nothingCoveredStays = presentation == .compact && !wingsAside
+        smoke.activityChecks["wingsStepAsideOnlyForCoveredItems"] = startsCompact && staysOverClearPart && stepsAside && staysAsideAcrossWing
+            && returnsAtCamera && returnsWhenPointerLeaves && nothingCoveredStays
+        menuBarItemsReader = reader
+        previewPointer = nil; countdown.cancel(); updateInteraction(scheduleHover: false)
+    }
     func exportPreview(to directory: URL) async -> [String] {
         guard let panel else { return [] }
         var result: [String] = []

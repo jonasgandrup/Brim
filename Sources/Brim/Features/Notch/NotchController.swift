@@ -272,6 +272,11 @@ final class NotchController {
     var mediaVisible = false
     /// The app in front, so its own Now Playing can step aside. Brim counts too: its windows don't show the player.
     var frontApp: String?
+    /// True while the pointer is reaching for a menu or status icon under the compact island.
+    private(set) var wingsAside = false
+    /// Read as the pointer arrives over a wing and kept until it leaves, so moving around there asks nothing further.
+    private var coveredByWings: [ClosedRange<CGFloat>]?
+    var menuBarItemsReader: @MainActor (CGRect) -> [ClosedRange<CGFloat>] = { MenuBarClearance.itemSpans(on: $0) }
     private struct MediaVisibilityInput: Equatable { let enabled: Bool; let playing: Bool; let hasSource: Bool; let stepsAside: Bool }
     private var lastMediaInput: MediaVisibilityInput?
     private var mediaExitTask: Task<Void, Never>?
@@ -395,6 +400,7 @@ final class NotchController {
     var presentation: IslandPresentation {
         if transitioning || presentationMode { return .hidden }
         if expanded { return .expanded }
+        if wingsAside { return .hidden }
         if fileDragActive || transfers.hasRunning || !activities.running.isEmpty || shelfHasFiles || clipboardHasPins || countdown.active
             || clock.active || media?.sleepTimer.schedule != nil || hud != nil { return .compact }
         return .resolve(expanded: expanded, mediaEnabled: preferences?.mediaEnabled == true,
@@ -652,10 +658,30 @@ final class NotchController {
             }
         }
     }
+    private func updateWingClearance(at point: CGPoint) {
+        guard layout.hasHardwareNotch, let displayFrame, !expanded, !fileDragActive, wingsAside || presentation == .compact else {
+            if wingsAside { wingsAside = false }
+            coveredByWings = nil
+            return
+        }
+        let frame = layout.frame(on: displayFrame, expanded: false)
+        let wings = MenuBarClearance.wings(of: frame, cutoutWidth: layout.cutoutWidth)
+        // The very top of the screen counts: that's where a pointer thrown at the menu bar lands.
+        guard point.y >= frame.minY, wings.contains(where: { $0.contains(point.x) }) else {
+            if wingsAside { wingsAside = false }
+            coveredByWings = nil
+            return
+        }
+        let covered = coveredByWings ?? menuBarItemsReader(displayFrame)
+        coveredByWings = covered
+        let aside = MenuBarClearance.stepsAside(aside: wingsAside, x: point.x, wings: wings, covered: covered)
+        if aside != wingsAside { wingsAside = aside }
+    }
     func updateInteraction(scheduleHover: Bool = true, at location: CGPoint? = nil) {
+        let point = location ?? previewPointer ?? NSEvent.mouseLocation
+        updateWingClearance(at: point)
         syncPanelVisibility()
         guard let panel else { return }
-        let point = location ?? previewPointer ?? NSEvent.mouseLocation
         let inside = !suspended && !presentationMode && !transitioning && containsPointer(point)
         if !inside { hoverIntent.left() }
         // The window never resizes. Transparent space outside the animated surface passes through.
@@ -676,6 +702,7 @@ final class NotchController {
         transitionPhase = .settled; surfaceReveal = 1
         paneTask?.cancel(); displayedTab = selectedTab; paneOpacity = 1
         mediaExitTask?.cancel(); mediaVisible = false; lastMediaInput = nil
+        wingsAside = false; coveredByWings = nil
         dragPollTimer?.invalidate(); dragPollTimer = nil; fileDragActive = false; dropTargeted = false
         collapseTask?.cancel(); hoverTask?.cancel(); feedbackTask?.cancel(); hudTask?.cancel(); hud = nil
         panel?.orderOut(nil); panel = nil; displayFrame = nil
