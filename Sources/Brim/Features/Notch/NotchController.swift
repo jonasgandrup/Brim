@@ -122,6 +122,11 @@ struct IslandHUD: Equatable {
     /// Draws a battery and its percentage instead of the symbol and level.
     var battery: Int?
     var charging = false
+    /// What VoiceOver says. A level changes too fast to speak every step, so only its absence earns a word.
+    var announcement: String? {
+        if level != nil { return nil }
+        return battery.map { String(localized: "\(label), \($0)%") } ?? label
+    }
 }
 
 /// Selects the display whose window the user is working in, from on-screen window bounds.
@@ -262,10 +267,11 @@ final class NotchController {
     private var observingActivity = false
     private(set) var preferences: Preferences?
     private(set) var status: SystemStatus?
-    private var media: MediaService?
-    private var mediaVisible = false
+    private(set) var media: MediaService?
+    /// Whether media holds the compact island now. The smoke test sets it to preview playing and paused.
+    var mediaVisible = false
     /// The app in front, so its own Now Playing can step aside. Brim counts too: its windows don't show the player.
-    private(set) var frontApp: String?
+    var frontApp: String?
     private struct MediaVisibilityInput: Equatable { let enabled: Bool; let playing: Bool; let hasSource: Bool; let stepsAside: Bool }
     private var lastMediaInput: MediaVisibilityInput?
     private var mediaExitTask: Task<Void, Never>?
@@ -311,7 +317,10 @@ final class NotchController {
     // MARK: Compact activities
 
     private var mediaStepsAside: Bool { media?.stepsAside(forFrontApp: frontApp) == true }
-    var hasDualActivities: Bool { preferences?.mediaEnabled == true && media?.source != nil && !mediaStepsAside && countdown.active }
+    /// Media hidden only because its own app is in front. The bare notch stays a hover or click away from it.
+    private var mediaHiddenForItsApp: Bool { preferences?.mediaEnabled == true && media?.playing == true && mediaStepsAside }
+    /// Only media actually on show shares the island: a paused track leaves the timer where you can read it.
+    var hasDualActivities: Bool { mediaVisible && countdown.active }
     var compactLeadingTab: IslandTab { hasDualActivities ? .music : compactTab }
     var compactTrailingTab: IslandTab { countdown.active || clock.active ? .timer : compactTab }
     /// Two things at once, like the iPhone: media keeps the island and the timer moves to a bubble beside it.
@@ -619,7 +628,7 @@ final class NotchController {
     }
     func containsPointer(_ point: CGPoint) -> Bool {
         if presentation == .hidden {
-            guard !desktopTransition, !presentationMode, preferences?.openWhenIdle != false, let displayFrame else { return false }
+            guard !desktopTransition, !presentationMode, preferences?.openWhenIdle != false || mediaHiddenForItsApp, let displayFrame else { return false }
             return layout.idleHoverFrame(on: displayFrame).contains(point)
         }
         if let bubble = bubbleFrame, IslandHitRegion.contains(point, frame: bubble, radius: bubble.height / 2, roundedTop: true) { return true }
@@ -1137,6 +1146,7 @@ final class NotchController {
         feedback = text; feedbackSymbol = symbol; feedbackTint = tint
         feedbackImage = image; feedbackURL = url; feedbackAction = action; feedbackDevice = device
         setExpanded(true)
+        announce(text)
         feedbackTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
             guard !Task.isCancelled, let self else { return }
@@ -1168,10 +1178,17 @@ final class NotchController {
         guard preferences?.notchEnabled == true, !expanded, !presentationMode, !suspended else { return }
         hudTask?.cancel()
         hud = value
+        if let text = value.announcement { announce(text) }
         hudTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
             guard !Task.isCancelled else { return }
             self?.hud = nil
         }
+    }
+    /// Notices leave on their own, before VoiceOver would ever reach them, so they're spoken as they arrive.
+    private func announce(_ text: String) {
+        guard AppEnvironment.allowsAlerts else { return }
+        NSAccessibility.post(element: NSApplication.shared, notification: .announcementRequested,
+                             userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
     }
 }

@@ -6,15 +6,22 @@ enum ArtworkSlot: Hashable { case compact, expanded }
 /// Album art that fills whatever frame it's given, so one view can grow from the compact island into the player.
 struct ArtworkTile: View {
     let image: NSImage?
+    /// The playing app's icon, for media that publishes no artwork.
+    var appIcon: NSImage? = nil
     let radius: CGFloat
     var body: some View {
-        Color.white.opacity(0.07)
-            .overlay {
-                if let image { Image(nsImage: image).resizable().scaledToFill() }
-                else { Image(systemName: "waveform").font(.system(size: 14, weight: .light)).foregroundStyle(.tertiary) }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .accessibilityHidden(true)
+        if image == nil, let appIcon {
+            // An icon brings its own shape and margin, so it gets no tile behind it.
+            Image(nsImage: appIcon).resizable().scaledToFit().accessibilityHidden(true)
+        } else {
+            Color.white.opacity(0.07)
+                .overlay {
+                    if let image { Image(nsImage: image).resizable().scaledToFill() }
+                    else { Image(systemName: "waveform").font(.system(size: 14, weight: .light)).foregroundStyle(.tertiary) }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+                .accessibilityHidden(true)
+        }
     }
 }
 

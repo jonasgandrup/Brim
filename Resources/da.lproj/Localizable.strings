@@ -605,3 +605,4 @@
 "⌘-click to select · Space to preview · drag selected files together" = "⌘-klik for at vælge · mellemrum for at se · træk valgte arkiver samlet";
 "Behavior" = "Adfærd";
 "Steps and calibration are in the scale’s own window." = "Trin og kalibrering findes i vægtens eget vindue.";
+"%@, %lld%%" = "%@, %lld %%";

@@ -347,10 +347,11 @@ final class MediaService {
         message = nil
     }
     private func setSource(_ bundle: String?, name: String, parent: String? = nil) {
-        parentSource = parent
-        if bundle != source {
-            sourceIcon = bundle.flatMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }.map { NSWorkspace.shared.icon(forFile: $0.path) }
+        if bundle != source || parent != parentSource {
+            // A helper process has no icon of its own worth showing, so the app behind it speaks for it.
+            sourceIcon = (parent ?? bundle).flatMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }.map { NSWorkspace.shared.icon(forFile: $0.path) }
         }
+        parentSource = parent
         source = bundle; sourceName = name
     }
     private func loadArtworkIfNeeded(runningPlayers: Set<String>) {

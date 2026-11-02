@@ -167,10 +167,17 @@ extension NotchController {
         }
         if !captured { try? FileManager.default.removeItem(at: directory.appendingPathComponent(name)) }
         if layoutPreview {
+            let mediaWasVisible = mediaVisible
+            mediaVisible = true
             countdown.start(seconds: 240)
             previewPointer = nil; hover(false); setExpanded(false)
             try? await Task.sleep(for: .milliseconds(300))
             smoke.activityChecks["dualActivityPreviewRendered"] = await capturePanel(named: "dual-activities-compact.png", in: directory)
+            mediaVisible = false
+            try? await Task.sleep(for: .milliseconds(300))
+            smoke.activityChecks["pausedMediaLeavesTimerInIsland"] = presentation == .compact && !hasDualActivities && !showsActivityBubble && compactLeadingTab == .timer
+            _ = await capturePanel(named: "timer-over-paused-media.png", in: directory)
+            mediaVisible = true
             openCompactActivity(.music)
             try? await Task.sleep(for: .milliseconds(80))
             smoke.activityChecks["musicClickOpensPlayer"] = expanded && selectedTab == .music
@@ -191,6 +198,21 @@ extension NotchController {
             setPresentationMode(false)
             smoke.activityChecks["presentationRestoresCompactIsland"] = panel.isVisible && presentation == .compact && !expanded && panel.frame == frame
             countdown.cancel()
+            previewPointer = nil; hover(false); setExpanded(false)
+            // Checked in one step, before the visibility observer can react to the changed app.
+            if media?.playing == true, let source = media?.source, let displayFrame {
+                let notch = CGPoint(x: displayFrame.midX, y: displayFrame.maxY - 4)
+                let front = frontApp, idle = preferences?.openWhenIdle ?? false
+                preferences?.openWhenIdle = false
+                mediaVisible = false
+                frontApp = source
+                let answers = presentation == .hidden && containsPointer(notch)
+                frontApp = "brim.preview.another.app"
+                let staysOut = presentation == .hidden && !containsPointer(notch)
+                smoke.activityChecks["bareNotchAnswersOnlyForMediaHiddenInItsApp"] = answers && staysOut
+                frontApp = front; preferences?.openWhenIdle = idle
+            }
+            mediaVisible = mediaWasVisible
         }
         readOnlyMedia.stop()
         panel.contentView = originalView; panel.setFrame(originalFrame, display: true)

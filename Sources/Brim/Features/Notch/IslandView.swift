@@ -10,7 +10,7 @@ struct IslandView: View {
     private var layout: IslandLayout { controller.layout }
     /// Whether media has a place on the compact island: not while the app playing it is in front.
     private var mediaOnIsland: Bool { preferences.mediaEnabled && media.source != nil && !media.stepsAside(forFrontApp: controller.frontApp) }
-    private var dualActivities: Bool { mediaOnIsland && controller.countdown.active }
+    private var dualActivities: Bool { mediaOnIsland && controller.hasDualActivities }
     private var headerTab: IslandTab { controller.expanded ? controller.displayedTab : (dualActivities ? .music : controller.compactLeadingTab) }
     private var radius: CGFloat { controller.presentation == .hidden ? 9 : (controller.expanded ? 34 : layout.compactSize.height / 2) }
     private var surface: UnevenRoundedRectangle {
@@ -199,7 +199,7 @@ struct IslandView: View {
     @ViewBuilder private var morphingArtwork: some View {
         let expandedArt = expandedShowsArtwork
         if expandedArt || (!controller.expanded && compactShowsArtwork && controller.presentation != .hidden) {
-            ArtworkTile(image: media.artwork, radius: expandedArt ? 12 : 6)
+            ArtworkTile(image: media.artwork, appIcon: media.sourceIcon, radius: expandedArt ? 12 : 6)
                 .matchedGeometryEffect(id: expandedArt ? ArtworkSlot.expanded : ArtworkSlot.compact, in: artworkSpace, isSource: false)
                 .shadow(color: .black.opacity(expandedArt ? 0.45 : 0), radius: 8, y: 3)
                 .opacity(expandedArt ? controller.paneOpacity : controller.surfaceReveal)

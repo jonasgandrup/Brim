@@ -110,6 +110,25 @@ private actor TimerCommands {
     media.stop()
 }
 
+@Test @MainActor func mediaWithoutArtworkFallsBackToItsAppsIcon() {
+    let media = MediaService()
+    media.apply(.init(available: true, title: "Video", source: "com.apple.finder", rate: 1))
+    #expect(media.artwork == nil && media.sourceIcon != nil)
+    media.apply(.init(available: true, title: "Video", source: "test.not.installed", rate: 1))
+    #expect(media.sourceIcon == nil)
+    // A helper with no app of its own borrows the icon of the app behind it.
+    media.apply(.init(available: true, title: "Video", source: "test.not.installed", rate: 1, parentSource: "com.apple.finder"))
+    #expect(media.sourceIcon != nil)
+    media.stop()
+}
+
+@Test func levelsStayQuietForVoiceOverWhileNoticesAreSpoken() {
+    #expect(IslandHUD(symbol: "speaker.wave.2.fill", level: 0.5, label: "Volume").announcement == nil)
+    #expect(IslandHUD(symbol: "wifi.slash", label: "Offline").announcement == "Offline")
+    #expect(IslandHUD(symbol: "battery.25percent", label: "Battery low", battery: 15).announcement?.contains("15") == true)
+    #expect(IslandHUD(symbol: "battery.25percent", label: "Battery low", battery: 15).announcement?.contains("Battery low") == true)
+}
+
 @Test @MainActor func aSleepTimerKeepsNowPlayingOnTheIslandInsideItsApp() {
     let media = MediaService()
     media.updatePlayers([playerA]); media.apply(session(playerA))
