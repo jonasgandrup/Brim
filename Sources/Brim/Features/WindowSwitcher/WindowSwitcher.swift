@@ -94,6 +94,22 @@ enum SwitcherOrder {
     }
 }
 
+/// The panel is as wide as its windows, like the system's app switcher, and scrolls only past the screen's width.
+enum SwitcherLayout {
+    static let tile = CGSize(width: 150, height: 94)
+    static let tileInset: CGFloat = 7
+    static let spacing: CGFloat = 2
+    static let padding: CGFloat = 8
+    static let labelHeight: CGFloat = 30
+    /// A lone window still needs room to name itself.
+    static let minimumWidth: CGFloat = 300
+    static func panelSize(count: Int, available: CGFloat) -> CGSize {
+        let items = CGFloat(max(0, count))
+        let row = items * (tile.width + tileInset * 2) + max(0, items - 1) * spacing + padding * 2
+        return CGSize(width: min(available, max(minimumWidth, row)), height: padding + tile.height + tileInset * 2 + labelHeight)
+    }
+}
+
 @MainActor @Observable
 final class WindowSwitcher {
     var windows: [SwitcherWindow] = []
@@ -268,6 +284,7 @@ final class WindowSwitcher {
     private func afterRemoval() {
         if windows.isEmpty { dismiss(activate: false); return }
         selected = min(selected, max(0, shown.count - 1))
+        refitPanel()
     }
     nonisolated private static func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
         var value: CFTypeRef?
@@ -343,19 +360,30 @@ final class WindowSwitcher {
         if activateWhenReady { return }
         let screen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main
         guard let screen else { dismiss(activate: false); return }
-        let width = min(screen.visibleFrame.width - 64, 1020)
-        let panel = FloatingPanel(contentRect: NSRect(x: screen.visibleFrame.midX - width / 2, y: screen.visibleFrame.midY - 170, width: width, height: 340), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = true
-        panel.level = .popUpMenu; panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
-        panel.contentView = NSHostingView(rootView: SwitcherView(controller: self))
+        let panel = makePanel(on: screen)
         self.panel = panel; panel.orderFrontRegardless()
         captureTask?.cancel()
         captureTask = Task { await loadThumbnails() }
     }
-    private(set) var previewsNeedPermission = false
+    private func makePanel(on screen: NSScreen) -> NSPanel {
+        let size = SwitcherLayout.panelSize(count: windows.count, available: screen.visibleFrame.width - 64)
+        let frame = NSRect(x: screen.visibleFrame.midX - size.width / 2, y: screen.visibleFrame.midY - size.height / 2, width: size.width, height: size.height)
+        let panel = FloatingPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = true
+        panel.level = .popUpMenu; panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        let hosting = NSHostingView(rootView: SwitcherView(controller: self))
+        hosting.sizingOptions = []
+        panel.contentView = hosting
+        return panel
+    }
+    /// Closing a window narrows the panel around its middle, so the row stays where you're looking.
+    private func refitPanel() {
+        guard let panel, let screen = panel.screen else { return }
+        let size = SwitcherLayout.panelSize(count: windows.count, available: screen.visibleFrame.width - 64)
+        panel.setFrame(NSRect(x: panel.frame.midX - size.width / 2, y: panel.frame.midY - size.height / 2, width: size.width, height: size.height), display: true)
+    }
     private func loadThumbnails() async {
-        guard hasScreenAccess() else { previewsNeedPermission = true; return }
-        previewsNeedPermission = false
+        guard hasScreenAccess() else { return }
         let content: SCShareableContent
         do { content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false) }
         catch { status = String(localized: "Thumbnails unavailable. Window switching still works."); return }
@@ -382,8 +410,8 @@ final class WindowSwitcher {
     private func capture(_ captured: SCWindow, into window: SwitcherWindow) async {
         let frame = window.frame
         let configuration = SCStreamConfiguration()
-        // Twice the card size so previews stay sharp on Retina displays.
-        let scale = min(2, min(520 / max(frame.width, 1), 320 / max(frame.height, 1)) * 2)
+        // Twice the tile size so previews stay sharp on Retina displays.
+        let scale = min(2, min(SwitcherLayout.tile.width / max(frame.width, 1), SwitcherLayout.tile.height / max(frame.height, 1)) * 2)
         configuration.width = max(1, Int(frame.width * scale))
         configuration.height = max(1, Int(frame.height * scale))
         configuration.showsCursor = false; configuration.ignoreShadowsSingleWindow = true
@@ -426,54 +454,113 @@ final class WindowSwitcher {
     }
 }
 
+/// Windows speak for themselves, as apps do in the system's switcher: a soft highlight and one name, the selected one's.
+/// The keys are listed in Settings rather than on a panel that's only seen for a moment.
 struct SwitcherView: View {
     @Bindable var controller: WindowSwitcher
+    private var selectedTitle: String? {
+        controller.shown.indices.contains(controller.selected) ? controller.shown[controller.selected].title : nil
+    }
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                Text("Windows").font(.headline)
-                Text("\(controller.shown.count)").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                if controller.searching {
-                    Label(controller.query.isEmpty ? String(localized: "Type to search") : controller.query, systemImage: "magnifyingglass")
-                        .font(.callout).foregroundStyle(controller.query.isEmpty ? .secondary : .primary)
-                        .padding(.horizontal, 10).padding(.vertical, 4).background(.quaternary.opacity(0.5), in: Capsule())
-                    Text("↩ to switch · esc to clear").font(.caption).foregroundStyle(.secondary)
-                } else {
-                    Text("← → navigate · / search · Q quit · W close · H hide · esc dismiss").font(.caption).foregroundStyle(.secondary)
-                }
-            }
+        VStack(spacing: 0) {
             ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 14) {
-                        ForEach(Array(controller.shown.enumerated()), id: \.element.id) { index, window in
-                            Button { controller.choose(index) } label: {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    ZStack {
-                                        RoundedRectangle(cornerRadius: 10).fill(.quaternary.opacity(0.4))
-                                        if let thumbnail = window.thumbnail { Image(nsImage: thumbnail).resizable().scaledToFit().clipShape(RoundedRectangle(cornerRadius: 10)) }
-                                        else {
-                                            VStack(spacing: 8) {
-                                                if let icon = window.app.icon { Image(nsImage: icon).resizable().frame(width: 40, height: 40) }
-                                                Text(window.minimized ? "Minimized" : controller.previewsNeedPermission ? "Allow Screen Recording for previews" : "Preview unavailable")
-                                                    .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                                            }
-                                        }
-                                    }.frame(height: 145)
-                                    HStack(spacing: 7) {
-                                        if let icon = window.app.icon { Image(nsImage: icon).resizable().frame(width: 18, height: 18) }
-                                        Text(window.app.localizedName ?? String(localized: "Application")).font(.system(size: 12, weight: .medium)).lineLimit(1)
-                                    }
-                                    Text(window.title).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                }.padding(12).frame(width: 234)
-                                    .background(controller.selected == index ? Color.accentColor.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 16))
-                                    .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(controller.selected == index ? Color.accentColor : Color.primary.opacity(0.08), lineWidth: controller.selected == index ? 2 : 1))
-                            }.buttonStyle(.plain).id(index)
-                        }
-                    }.padding(2)
-                }
+                GeometryReader { geometry in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: SwitcherLayout.spacing) {
+                            ForEach(Array(controller.shown.enumerated()), id: \.element.id) { index, window in
+                                Button { controller.choose(index) } label: {
+                                    SwitcherTile(window: window, selected: controller.selected == index)
+                                }.buttonStyle(.plain).id(index)
+                            }
+                        }.frame(minWidth: geometry.size.width)
+                    }
+                }.frame(height: SwitcherLayout.tile.height + SwitcherLayout.tileInset * 2)
+                .onAppear { proxy.scrollTo(controller.selected, anchor: .center) }
                 .onChange(of: controller.selected) { _, selection in withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(selection, anchor: .center) } }
             }
-        }.padding(24).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
+            caption
+                .font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.middle)
+                .padding(.horizontal, 12)
+                .frame(height: SwitcherLayout.labelHeight)
+        }
+        .padding([.horizontal, .top], SwitcherLayout.padding)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5))
+    }
+    @ViewBuilder private var caption: some View {
+        if controller.searching {
+            Label(controller.query.isEmpty ? String(localized: "Type to search") : controller.query, systemImage: "magnifyingglass")
+                .foregroundStyle(controller.query.isEmpty ? .secondary : .primary)
+        } else if let selectedTitle {
+            Text(verbatim: selectedTitle)
+        }
     }
 }
+
+private struct SwitcherTile: View {
+    let window: SwitcherWindow
+    let selected: Bool
+    private var appName: String { window.app.localizedName ?? String(localized: "Application") }
+    var body: some View {
+        Group {
+            if let thumbnail = window.thumbnail {
+                Image(nsImage: thumbnail).resizable().scaledToFit()
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay(alignment: .bottomTrailing) {
+                        if let icon = window.app.icon {
+                            Image(nsImage: icon).resizable().frame(width: 28, height: 28).offset(x: 6, y: 6)
+                        }
+                    }
+            } else if let icon = window.app.icon {
+                // No preview to show, or a minimized window: the app's icon says enough, and fades when it's put away.
+                Image(nsImage: icon).resizable().frame(width: 52, height: 52).opacity(window.minimized ? 0.6 : 1)
+            }
+        }
+        .frame(width: SwitcherLayout.tile.width, height: SwitcherLayout.tile.height)
+        .padding(SwitcherLayout.tileInset)
+        .background(selected ? Color.primary.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: "\(appName), \(window.title)"))
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+#if DEBUG
+/// The real panel with sample windows, so the smoke test can show it without Accessibility access or anyone's window titles.
+extension WindowSwitcher {
+    func exportPreviews(to directory: URL) async -> [String] {
+        guard let screen = NSScreen.main else { return [] }
+        let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+        guard !apps.isEmpty else { return [] }
+        let element = AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
+        func samples(_ count: Int, previews: Bool) -> [SwitcherWindow] {
+            (0..<count).map { index in
+                let app = apps[index % apps.count]
+                let window = SwitcherWindow(element: element, app: app, title: "Sample window \(index + 1)", frame: CGRect(x: 0, y: 0, width: 1440, height: 900), minimized: !previews && index == 2)
+                if previews {
+                    let tint = NSColor(hue: (CGFloat(index) * 0.17).truncatingRemainder(dividingBy: 1), saturation: 0.25, brightness: 0.9, alpha: 1)
+                    window.thumbnail = NSImage(size: NSSize(width: 150, height: 94), flipped: false) { rect in tint.setFill(); rect.fill(); return true }
+                }
+                return window
+            }
+        }
+        var rendered: [String] = []
+        func capture(_ name: String, _ list: [SwitcherWindow], selected index: Int, searching isSearching: Bool = false, query text: String = "") async {
+            windows = list; selected = index; searching = isSearching; query = text; visible = true
+            let panel = makePanel(on: screen)
+            self.panel = panel; panel.orderFrontRegardless()
+            try? await Task.sleep(for: .milliseconds(350))
+            if let data = await SmokeCapture.png(of: panel), (try? data.write(to: directory.appendingPathComponent(name))) != nil { rendered.append(name) }
+            panel.orderOut(nil); self.panel = nil; visible = false; windows.removeAll(); query = ""; searching = false; selected = 0
+        }
+        await capture("switcher-previews.png", samples(5, previews: true), selected: 1)
+        await capture("switcher-one-window.png", samples(1, previews: true), selected: 0)
+        await capture("switcher-icons-only.png", samples(5, previews: false), selected: 1)
+        await capture("switcher-many-windows.png", samples(24, previews: true), selected: 23)
+        await capture("switcher-searching.png", samples(5, previews: true), selected: 0, searching: true, query: "Sample")
+        return rendered
+    }
+}
+#endif

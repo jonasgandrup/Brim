@@ -57,7 +57,6 @@
 "Alarm" = "Alarm";
 "All island shortcuts are registered." = "Alle genveje til Dynamic Island er registreret.";
 "Allow desktop access" = "Tillad adgang til skrivebordet";
-"Allow Screen Recording for previews" = "Tillad skærmoptagelse for at se miniaturer";
 "Allow Screen Recording for Brim so it can fold your desktop." = "Tillad skærmoptagelse for Brim, så skrivebordet kan foldes.";
 "Allow Screen Recording…" = "Tillad skærmoptagelse…";
 "Allow…" = "Tillad…";
@@ -105,7 +104,7 @@
 "Choose and pin a player" = "Vælg og fastgør en afspiller";
 "Choose features again from one page." = "Vælg funktioner igen fra én side.";
 "Choose where audio plays" = "Vælg, hvor lyden afspilles";
-"Choosing ⌘ Tab replaces the system app switcher while Brim runs. Shift reverses direction, arrows navigate and Escape cancels. Protected or minimized windows may have no thumbnail." = "Hvis du vælger ⌘ Tab, erstattes systemets appskifter, mens Brim kører. Skift vender retningen, piletasterne navigerer, og Escape annullerer. Beskyttede eller minimerede vinduer har måske ingen miniature.";
+"Choosing ⌘ Tab replaces the system app switcher while Brim runs. Shift reverses direction, arrows navigate and Escape cancels. While it’s open, Q quits an app, W closes a window, H hides an app and / searches. Protected or minimized windows show their app’s icon." = "Hvis du vælger ⌘ Tab, erstattes systemets appskifter, mens Brim kører. Skift vender retningen, piletasterne navigerer, og Escape annullerer. Mens den er åben, afslutter Q en app, W lukker et vindue, H skjuler en app, og / søger. Beskyttede eller minimerede vinduer viser appens symbol.";
 "Clear" = "Ryd";
 "Click or drag to seek" = "Klik eller træk for at spole";
 "Clipboard" = "Udklipsholder";
@@ -277,7 +276,6 @@
 "Media sleep timer" = "Sovetimer til medier";
 "Menu Bar Status" = "Status på menulinjen";
 "Microphone in use" = "Mikrofon i brug";
-"Minimized" = "Minimeret";
 "Mirroring, Zoom and Screen Sharing." = "Synkron visning, Zoom og Skærmdeling.";
 "Modifier Keys" = "Ændringstaster";
 "Move between windows, not just apps." = "Skift mellem vinduer, ikke kun apps.";
@@ -406,7 +404,6 @@
 "Target reached" = "Mål nået";
 "Power at a glance, and a word when it matters." = "Strøm med ét blik og en besked, når det betyder noget.";
 "Press T or Set Zero without lifting your finger." = "Tryk på T eller Nulstil uden at løfte fingeren.";
-"Preview unavailable" = "Miniature ikke tilgængelig";
 "Previous" = "Forrige";
 "Previous Track" = "Forrige nummer";
 "Previous track in %@" = "Forrige nummer i %@";
@@ -593,15 +590,12 @@
 "Window previews and the lid fold can capture the desktop." = "Vinduesminiaturer og lågfold kan optage skrivebordet.";
 "Window Switcher" = "Vinduesskifter";
 "Window switcher preview" = "Eksempel på vinduesskifter";
-"Windows" = "Vinduer";
 "Works with apps that publish a Now Playing session; some omit artwork or ignore playback commands. Uses an undocumented macOS interface that may change with updates. You can also allow Music and Spotify under Permissions." = "Virker med apps, der deler en Spiller nu-session; nogle udelader albumbilleder eller ignorerer afspilningskommandoer. Bruger en udokumenteret grænseflade i macOS, som kan ændre sig med opdateringer. Du kan også tillade Musik og Spotify under Tilladelser.";
 "Your alarm is ready." = "Din alarm er klar.";
 "Your desktop follows the lid as you close your MacBook." = "Skrivebordet følger låget, når du lukker din MacBook.";
 "Your timer has finished" = "Din timer er færdig";
 "You’re in control." = "Du bestemmer.";
 "Zero set. Keep that fingertip still and add your object beside it." = "Nulstillet. Hold fingerspidsen stille, og læg genstanden ved siden af.";
-"← → navigate · / search · Q quit · W close · H hide · esc dismiss" = "← → naviger · / søg · Q slut · W luk · H skjul · esc luk oversigt";
-"↩ to switch · esc to clear" = "↩ for at skifte · esc for at rydde";
 "⌘-click to select · Space to preview · drag selected files together" = "⌘-klik for at vælge · mellemrum for at se · træk valgte arkiver samlet";
 "Behavior" = "Adfærd";
 "Steps and calibration are in the scale’s own window." = "Trin og kalibrering findes i vægtens eget vindue.";

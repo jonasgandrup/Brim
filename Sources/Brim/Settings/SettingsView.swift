@@ -417,13 +417,13 @@ struct SettingsView: View {
 
     @ViewBuilder private var switcher: some View {
         Section {
-            HStack(spacing: 12) {
+            HStack(spacing: 2) {
                 ForEach(0..<3) { index in
-                    RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.primary.opacity(index == 1 ? 0.08 : 0.035))
+                    RoundedRectangle(cornerRadius: 6, style: .continuous).fill(.primary.opacity(0.06))
                         .overlay(Image(systemName: ["safari", "doc.text", "folder"][index]).font(.system(size: 22, weight: .light)).foregroundStyle(.secondary))
-                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(index == 1 ? Color.accentColor : Color.primary.opacity(0.08), lineWidth: index == 1 ? 2.5 : 1))
-                        .frame(height: 84)
+                        .frame(height: 72)
+                        .padding(7)
+                        .background(index == 1 ? Color.primary.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
             }.padding(.vertical, 6).accessibilityLabel("Window switcher preview")
             Toggle(isOn: binding(\.switcherEnabled)) {
@@ -443,7 +443,7 @@ struct SettingsView: View {
                 SettingsLabel(title: "Permissions", detail: "Accessibility to switch. Screen Recording for previews.")
             }
         } footer: {
-            Footnote(text: "Choosing ⌘ Tab replaces the system app switcher while Brim runs. Shift reverses direction, arrows navigate and Escape cancels. Protected or minimized windows may have no thumbnail.")
+            Footnote(text: "Choosing ⌘ Tab replaces the system app switcher while Brim runs. Shift reverses direction, arrows navigate and Escape cancels. While it’s open, Q quits an app, W closes a window, H hides an app and / searches. Protected or minimized windows show their app’s icon.")
         }
     }
 

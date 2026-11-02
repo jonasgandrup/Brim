@@ -28,6 +28,17 @@ import Testing
     #expect(SwitcherSelection.next(0, count: 0, backwards: false) == 0)
     #expect(SwitcherSelection.next(0, count: 1, backwards: true) == 0)
 }
+@Test func switcherPanelFitsItsWindowsWithinTheScreen() {
+    let wide: CGFloat = 3000
+    let one = SwitcherLayout.panelSize(count: 1, available: wide), three = SwitcherLayout.panelSize(count: 3, available: wide)
+    // A lone window keeps room for its name, and each further window adds one tile.
+    #expect(one.width == SwitcherLayout.minimumWidth)
+    #expect(three.width == 3 * (SwitcherLayout.tile.width + SwitcherLayout.tileInset * 2) + 2 * SwitcherLayout.spacing + SwitcherLayout.padding * 2)
+    #expect(SwitcherLayout.panelSize(count: 40, available: 1200).width == 1200)
+    // The height never depends on the windows, so the panel doesn't jump as they change.
+    #expect(one.height == three.height && three.height < 170)
+    #expect(SwitcherLayout.panelSize(count: 0, available: wide).width == SwitcherLayout.minimumWidth)
+}
 @Test @MainActor func preferencesPersistAndHaveConservativeDefaults() throws {
     let suite = "BrimTests.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suite))
