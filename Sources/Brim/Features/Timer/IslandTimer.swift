@@ -310,7 +310,7 @@ struct FocusTimerView: View {
                         Text("A timer is already running").font(.system(size: 10)).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    TimerActionButton(title: "Start Focus", symbol: "play.fill", prominent: true, tint: .red) { timer.startFocus() }
+                    TimerActionButton(title: "Start Focus Session", symbol: "play.fill", prominent: true, tint: .red) { timer.startFocus() }
                         .disabled(timer.active && timer.state.phase != .finished)
                 }
             }

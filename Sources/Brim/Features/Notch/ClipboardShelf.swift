@@ -156,7 +156,7 @@ struct ClipboardPinStore: Sendable {
     func pinFromHistory(_ pin: ClipboardPin) { add(pin.payload) }
     var message: String?
     @discardableResult func add(_ payload: ClipboardPin.Payload) -> Bool {
-        guard pins.count < 20 else { message = String(localized: "Remove a pin to make room. The shelf holds 20 items."); return false }
+        guard pins.count < 20 else { message = String(localized: "Remove a pin to make room. Clipboard holds 20 pins."); return false }
         guard !pins.contains(where: { $0.payload == payload }) else { message = String(localized: "Already pinned."); return false }
         switch payload {
         case .text(let text): guard !text.isEmpty, text.utf8.count <= 1_000_000 else { message = String(localized: "Copy a smaller piece of text."); return false }

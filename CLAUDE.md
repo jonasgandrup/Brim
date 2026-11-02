@@ -36,7 +36,8 @@ extras. The goal is an Apple-like feel: quiet by default, opaque black island, s
   `_AXUIElementGetWindow`, `SACLockScreenImmediate`) are loaded at runtime with `dlopen`/`dlsym`, isolated in one place, and must fail
   gracefully into an "unavailable" state. Never show invented values: no fake weights, angles or percentages.
 - Anything that reads personal data or needs a permission is opt-in (Downloads, calendar, clipboard history,
-  Focus status, screenshots). Clipboard history is memory-only. Titles and file names are never logged
+  Focus status, screenshots). Now Playing is on by default because its system feed asks for nothing; its Music and
+  Spotify access (Apple Events, `playerAccess`) stays opt-in, so a new install never sees an Automation prompt unasked. Clipboard history is memory-only. Titles and file names are never logged
   (`Log.*` with `privacy: .private`).
 - Launch-time flags come from `AppEnvironment` (`isSmokeTest`, `isBundledApp`, `allowsAlerts`); feature code
   doesn't parse `CommandLine.arguments` itself.
@@ -44,6 +45,9 @@ extras. The goal is an Apple-like feel: quiet by default, opaque black island, s
   never `CGWindowID(window.windowNumber)`, which traps.
 - Settings: every preference is a stored property on `Preferences` saved under its own name; a change in
   `SettingsView` calls `model.apply()`.
+- A new install is Essentials, what iPhone does and nothing more. `IslandLevel` isn't saved; it's read back from the
+  switches in `levelSwitches`. Add a new extra there unless it reads personal data or needs a permission: those stay
+  their own switch, so choosing a level never sets off a run of prompts.
 - Match the surrounding code: dense, few comments that explain why, Apple-style user-facing copy.
 - Every user-facing string is translatable: SwiftUI literals, `LocalizedStringKey` parameters on our own
   components (`SettingsLabel`, `Footnote`, `IslandEmptyState`, `TimerActionButton`…), or `String(localized:)` in

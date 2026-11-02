@@ -34,7 +34,12 @@ import Testing
     defer { defaults.removePersistentDomain(forName: suite) }
     let preferences = Preferences(defaults: defaults)
     #expect(!preferences.switcherEnabled)
-    #expect(!preferences.mediaEnabled)
+    #expect(preferences.mediaEnabled)
+    #expect(!preferences.playerAccess)
+    #expect(preferences.toolShortcutsEnabled && !preferences.sectionShortcuts)
+    #expect(preferences.level == .essentials)
+    #expect(!preferences.showFiles && !preferences.showClipboard && !preferences.showClock && !preferences.showControls)
+    #expect(preferences.smallNotices && !preferences.openWhenIdle && !preferences.islandGestures && !preferences.menuLockMac)
     preferences.notchEnabled = false; preferences.shortcut = .option
     let restored = Preferences(defaults: defaults)
     #expect(!restored.notchEnabled)
@@ -744,7 +749,7 @@ import Testing
     }
 }
 
-@Test @MainActor func sectionsCanBeTurnedOffAndSimpleIslandKeepsOnlyWhatsRunning() throws {
+@Test @MainActor func sectionsCanBeAddedOneAtATimeAndWhatsRunningStaysReachable() throws {
     let suite = "BrimTests.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
@@ -752,21 +757,90 @@ import Testing
     let controller = NotchController()
     controller.start(preferences: preferences, status: SystemStatus(), media: MediaService(defaults: defaults))
     defer { controller.stop() }
-    #expect(controller.visibleTabs == [.music, .files, .clipboard, .timer, .battery])
-    preferences.showFiles = false; preferences.showControls = false
-    #expect(controller.visibleTabs == [.music, .clipboard, .timer])
-    preferences.showClock = false
+    #expect(controller.visibleTabs == [.music])
     controller.countdown.start(seconds: 60)
     #expect(controller.shows(.timer))
     controller.countdown.cancel()
     #expect(!controller.shows(.timer))
-    preferences.showFiles = true; preferences.showClock = true; preferences.showControls = true
-    preferences.simpleIsland = true
+    // Adding one section keeps everything else as it was.
+    preferences.showFiles = true
+    #expect(controller.visibleTabs == [.music, .files])
+    #expect(preferences.level == nil)
+    preferences.level = .more
+    #expect(controller.visibleTabs == [.music, .files, .clipboard, .timer, .battery])
+    preferences.level = .essentials
     #expect(controller.visibleTabs == [.music])
-    // Files stay on the shelf but don't keep the compact island up.
+    // Files stay put but don't keep the compact island up.
     controller.shelf.add([URL(fileURLWithPath: "/tmp")])
     #expect(!controller.shelfHasFiles && controller.compactTab == .music)
     controller.shelf.clear()
+}
+
+@Test @MainActor func levelsAreReadBackFromTheSwitchesAndNeverTurnOnWhatAsksPermission() throws {
+    let suite = "BrimTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let preferences = Preferences(defaults: defaults)
+    for level in IslandLevel.allCases {
+        preferences.level = level
+        #expect(preferences.level == level)
+        #expect(Preferences(defaults: defaults).level == level)
+    }
+    #expect(preferences.sensorIndicator && preferences.sectionShortcuts && preferences.menuLockMac)
+    #expect(!preferences.playerAccess && !preferences.liveTransfers && !preferences.calendarPreview && !preferences.screenshotShelf)
+    #expect(!preferences.clipboardHistory && !preferences.focusFeedback && !preferences.autoHideFocus && !preferences.switcherEnabled)
+    preferences.sensorIndicator = false
+    #expect(preferences.level == nil)
+    // Choosing nothing changes nothing.
+    preferences.level = nil
+    #expect(!preferences.sensorIndicator && preferences.showFiles)
+}
+
+@Test func switcherOrdersWindowsFrontToBackAcrossApps() {
+    // Two apps with two windows each: the stack says which was used last, not which app.
+    let ids: [CGWindowID?] = [11, 12, 21, 22, nil, 31]
+    let ranks = [0, 0, 1, 1, 2, 3]
+    #expect(SwitcherOrder.positions(windowIDs: ids, appRanks: ranks, stack: [11: 0, 21: 1, 12: 2, 22: 3]) == [0, 2, 1, 3, 4, 5])
+    #expect(SwitcherOrder.positions(windowIDs: ids, appRanks: ranks, stack: [:]) == [0, 1, 2, 3, 4, 5])
+    #expect(SwitcherSelection.initial(count: 3, firstIsCurrent: true, backwards: false) == 1)
+    #expect(SwitcherSelection.initial(count: 3, firstIsCurrent: false, backwards: false) == 0)
+    #expect(SwitcherSelection.initial(count: 1, firstIsCurrent: true, backwards: false) == 0)
+    #expect(SwitcherSelection.initial(count: 3, firstIsCurrent: true, backwards: true) == 2)
+    #expect(SwitcherSelection.initial(count: 0, firstIsCurrent: true, backwards: false) == 0)
+}
+
+@Test @MainActor func onlyPeopleWhoAlreadyUsedNowPlayingKeepMusicAndSpotifyAccess() throws {
+    let suite = "BrimTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    defaults.set(true, forKey: "mediaEnabled")
+    #expect(Preferences(defaults: defaults).playerAccess)
+    // A newer install that turns Now Playing off and on again isn't mistaken for one.
+    let fresh = "BrimTests.\(UUID().uuidString)"
+    let freshDefaults = try #require(UserDefaults(suiteName: fresh))
+    defer { freshDefaults.removePersistentDomain(forName: fresh) }
+    let preferences = Preferences(defaults: freshDefaults)
+    #expect(!preferences.playerAccess)
+    preferences.mediaEnabled = false; preferences.mediaEnabled = true
+    #expect(!Preferences(defaults: freshDefaults).playerAccess)
+}
+
+@Test @MainActor func nowPlayingNeverReachesForMusicOrSpotifyUntilAllowed() async {
+    let media = MediaService()
+    media.playersReader = { [] }
+    media.snapshotReader = { .init(available: true) }
+    media.refresh()
+    for _ in 0..<200 where media.refreshing { try? await Task.sleep(for: .milliseconds(5)) }
+    #expect(media.source == nil && media.message == nil && !media.offersPlayerAccess)
+    media.snapshotReader = { .init(available: false) }
+    media.refresh()
+    for _ in 0..<200 where media.refreshing { try? await Task.sleep(for: .milliseconds(5)) }
+    #expect(media.message != nil && media.offersPlayerAccess)
+    media.apply(.init(available: true, title: "Song", source: "com.spotify.client", rate: 1))
+    #expect(media.offersArtworkAccess)
+    media.apply(.init(available: true, title: "Video", source: "com.google.Chrome", rate: 1))
+    #expect(!media.offersArtworkAccess)
+    media.stop()
 }
 
 @Test @MainActor func experimentsLiveInLabsAndIslandSettingsAreSplit() {

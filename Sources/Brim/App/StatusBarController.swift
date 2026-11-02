@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 
 /// Retained for the app's lifetime, independently of any SwiftUI window or scene.
 @MainActor
@@ -123,6 +124,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             add(String(localized: "Island hidden automatically · \(reason)")).isEnabled = false
             menu.addItem(.separator())
         }
+        // Without this, a missing approval looks like the switcher simply showing apps: macOS's own ⌘Tab carries on.
+        if model.preferences.switcherEnabled && !AXIsProcessTrusted() {
+            add(String(localized: "Window Switcher Needs Permission…"), action: #selector(openPermissions), symbol: "exclamationmark.triangle")
+            menu.addItem(.separator())
+        }
         add(String(localized: "Open Dynamic Island"), action: #selector(openIsland), symbol: "capsule").isEnabled = ready
         let sections = NSMenu()
         sections.autoenablesItems = false
@@ -133,38 +139,38 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             (.clipboard, String(localized: "Clipboard"), #selector(openClipboard), "pin", "3"),
             (.timer, String(localized: "Clock"), #selector(openTimer), "timer", "4"),
             (.battery, String(localized: "Battery"), #selector(openBattery), "battery.100", "5"),
-            (.transfers, String(localized: "Transfers"), #selector(openTransfers), "arrow.down.circle", "6")
-        ] where tab == .transfers ? !model.preferences.simpleIsland : notch.shows(tab) {
-            let entry = NSMenuItem(title: title, action: action, keyEquivalent: model.preferences.toolShortcutsEnabled ? key : "")
+            (.transfers, String(localized: "Downloads & AirDrop"), #selector(openTransfers), "arrow.down.circle", "6")
+        ] where notch.shows(tab) {
+            let keyed = model.preferences.toolShortcutsEnabled && model.preferences.sectionShortcuts
+            let entry = NSMenuItem(title: title, action: action, keyEquivalent: keyed ? key : "")
             entry.target = self; entry.isEnabled = ready
             entry.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-            if model.preferences.toolShortcutsEnabled { entry.keyEquivalentModifierMask = model.preferences.toolShortcutModifiers.menuMask }
+            if keyed { entry.keyEquivalentModifierMask = model.preferences.toolShortcutModifiers.menuMask }
             sections.addItem(entry)
         }
         if sections.items.count > 1 { let show = add(String(localized: "Show")); show.submenu = sections; show.isEnabled = ready }
-        if notch.shows(.timer) { add(String(localized: "Start Focus Session"), action: #selector(startFocus), symbol: "brain.head.profile").isEnabled = ready && !notch.countdown.active }
-        if notch.shows(.clipboard) { add(String(localized: "Pin Clipboard"), action: #selector(pinClipboard), symbol: "doc.on.clipboard").isEnabled = ready }
-        menu.addItem(.separator())
-        let presentation = add(notch.manualPresentation ? String(localized: "End Presentation Mode") : String(localized: "Presentation Mode"), action: #selector(togglePresentation), symbol: "display")
-        presentation.state = notch.manualPresentation ? .on : .off
+        if model.preferences.notchEnabled {
+            add(notch.manualPresentation ? String(localized: "Show Island") : String(localized: "Hide Island"), action: #selector(togglePresentation), symbol: notch.manualPresentation ? "eye" : "eye.slash")
+        }
+        let extras = model.preferences.scaleEnabled || (model.preferences.menuLockMac && LockScreenService.available)
+        if extras { menu.addItem(.separator()) }
         if model.preferences.scaleEnabled { add(String(localized: "Open Trackpad Scale"), action: #selector(openScale), symbol: "scalemass") }
-        if LockScreenService.available { add(String(localized: "Lock Mac"), action: #selector(lockMac), symbol: "lock") }
+        if model.preferences.menuLockMac && LockScreenService.available { add(String(localized: "Lock Mac"), action: #selector(lockMac), symbol: "lock") }
         menu.addItem(.separator())
         add(String(localized: "Settings…"), action: #selector(openSettings), key: ",", symbol: "gearshape")
         add(String(localized: "Quit Brim"), action: #selector(quit), key: "q")
     }
     @objc private func togglePresentation() {
         model.notch.setPresentationMode(!model.notch.manualPresentation)
-        item.button?.toolTip = model.notch.manualPresentation ? String(localized: "Brim — Presentation Mode · island hidden") : String(localized: "Brim — Dynamic Island and Mac utilities")
+        item.button?.toolTip = model.notch.manualPresentation ? String(localized: "Brim — island hidden") : String(localized: "Brim — Dynamic Island and Mac utilities")
         rebuildMenu()
     }
     @objc private func openNowPlaying() { model.notch.openTool(.nowPlaying) }
     @objc private func openTimer() { model.notch.openTimerFromMenu() }
-    @objc private func startFocus() { model.notch.startFocus() }
+    @objc private func openPermissions() { model.permissions.refresh(); model.openSettings(page: .permissions) }
     @objc private func openTransfers() { model.notch.openTransfersFromMenu() }
     @objc private func openBattery() { model.notch.openBatteryFromMenu() }
     @objc private func openClipboard() { model.notch.openClipboardFromMenu() }
-    @objc private func pinClipboard() { model.notch.pinClipboard() }
     @objc private func openSettings() { model.openSettings() }
     @objc private func openFileShelf() { model.notch.openShelfFromMenu() }
     @objc private func openIsland() { model.notch.openInContext() }

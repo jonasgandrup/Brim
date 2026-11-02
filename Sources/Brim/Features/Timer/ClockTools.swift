@@ -47,7 +47,7 @@ enum ClockMode: String, CaseIterable {
     case timer = "Timer", focus = "Focus", stopwatch = "Stopwatch", alarm = "Alarm"
     var title: String {
         switch self {
-        case .timer: String(localized: "Timer"); case .focus: String(localized: "Focus")
+        case .timer: String(localized: "Timer"); case .focus: String(localized: "Focus Session")
         case .stopwatch: String(localized: "Stopwatch"); case .alarm: String(localized: "Alarm")
         }
     }

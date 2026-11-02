@@ -230,7 +230,7 @@ struct IslandView: View {
         VStack(spacing: 8) {
             if controller.feedback == nil && controller.visibleTabs.count > 1 {
                 IslandTabBar(selection: $controller.selectedTab,
-                             tabs: IslandTabBar.items(for: controller.visibleTabs, hasBattery: status.battery != nil))
+                             tabs: IslandTabBar.items(for: controller.visibleTabs, hasBattery: status.battery != nil, downloads: preferences.liveTransfers || controller.transfers.hasRunning))
             }
             if controller.feedback != nil { feedbackContent }
             else if controller.dropTargeted && controller.dropIsFiles && controller.airDropAvailable {
@@ -256,7 +256,7 @@ struct IslandView: View {
             if media.source == nil || !preferences.mediaEnabled {
                 // Nothing playing: a calm glance at the time, the next event and the battery instead of an empty player.
                 IslandOverview(status: status, calendar: controller.calendar, media: media, mediaEnabled: preferences.mediaEnabled,
-                               showsBattery: controller.shows(.battery), offersMedia: !preferences.simpleIsland, connectMedia: { controller.connectMedia() })
+                               connectMedia: { controller.connectMedia() }, allowPlayers: { controller.allowPlayerAccess() })
             } else {
                 VStack(spacing: 6) {
                     IslandPaneHeader {
@@ -316,6 +316,10 @@ struct IslandView: View {
                         HStack(spacing: 4) {
                             if let icon = media.sourceIcon { Image(nsImage: icon).resizable().frame(width: 11, height: 11) }
                             Text(media.playing ? "Playing in \(media.sourceName)" : "Paused in \(media.sourceName)")
+                            if media.offersArtworkAccess {
+                                Button("Show Artwork") { controller.allowPlayerAccess() }.buttonStyle(.plain).foregroundStyle(.secondary)
+                                    .fixedSize().help("macOS asks once for access to Music and Spotify.")
+                            }
                         }.font(.system(size: 10)).foregroundStyle(.tertiary).lineLimit(1)
                     }.animation(reduceMotion ? nil : IslandStyle.quick, value: media.title)
                     Spacer(minLength: 0)
@@ -369,8 +373,8 @@ struct IslandTabBar: View {
     @Namespace private var highlight
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
-    /// The controls tab is named for what this Mac has.
-    static func items(for tabs: [IslandTab], hasBattery: Bool) -> [Item] {
+    /// The controls tab is named for what this Mac has, and the last tab for whether it's holding downloads or only a script's activity.
+    static func items(for tabs: [IslandTab], hasBattery: Bool, downloads: Bool = true) -> [Item] {
         tabs.map { tab in
             switch tab {
             case .music: (tab, "play.fill", String(localized: "Now Playing"))
@@ -378,7 +382,7 @@ struct IslandTabBar: View {
             case .clipboard: (tab, "pin.fill", String(localized: "Clipboard"))
             case .timer: (tab, "clock.fill", String(localized: "Clock"))
             case .battery: (tab, hasBattery ? "battery.100percent" : "slider.horizontal.3", hasBattery ? String(localized: "Battery & Controls") : String(localized: "Controls"))
-            case .transfers: (tab, "gauge.with.dots.needle.33percent", String(localized: "Activity"))
+            case .transfers: downloads ? (tab, "arrow.down.circle.fill", String(localized: "Downloads & AirDrop")) : (tab, "gauge.with.dots.needle.33percent", String(localized: "Activity"))
             }
         }
     }
@@ -533,7 +537,7 @@ struct DropZonesView: View {
     let zone: DropZone
     var body: some View {
         HStack(spacing: 10) {
-            tile(.shelf, symbol: "tray.and.arrow.down.fill", title: String(localized: "Shelf"), tint: .white)
+            tile(.shelf, symbol: "tray.and.arrow.down.fill", title: String(localized: "Files"), tint: .white)
             tile(.airDrop, symbol: "dot.radiowaves.up.forward", title: "AirDrop", tint: .blue)
         }
         .animation(IslandStyle.quick, value: zone)

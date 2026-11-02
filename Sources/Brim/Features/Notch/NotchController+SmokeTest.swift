@@ -250,6 +250,13 @@ extension NotchController {
         }
         clock.mode = .timer
         setDropTargeted(false); activities.clear()
+        // The new install's look: one section, so no tab strip.
+        let level = preferences?.level
+        dismissFeedback(); shelf.clear(); clipboard.clear(); preferences?.level = .essentials; selectedTab = .music; setExpanded(true)
+        previewPointer = surfaceFrame.map { CGPoint(x: $0.midX, y: $0.midY) }
+        try? await Task.sleep(for: .milliseconds(650))
+        if await capturePanel(named: "essentials-home.png", in: directory) { result.append("essentials-home.png") }
+        preferences?.level = level
         dismissFeedback(); countdown.cancel(); clipboard.clear(); shelf.add([Bundle.main.bundleURL.appendingPathComponent("Contents/Info.plist")]); selectedTab = .files; previewPointer = nil
         setSwitcherOverlayActive(true)
         try? await Task.sleep(for: .milliseconds(420))

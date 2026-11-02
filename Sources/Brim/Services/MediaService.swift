@@ -103,6 +103,14 @@ final class MediaService {
     var timeline: MediaTimeline?
     var message: String?
     var refreshing = false
+    /// Music and Spotify over Apple Events, which makes macOS ask for Automation access. Off until someone agrees.
+    var playerAccess = false {
+        didSet { if playerAccess != oldValue, pollTask != nil { artworkKey = ""; refresh() } }
+    }
+    /// macOS isn't sharing what's playing, so Music and Spotify are the only way left.
+    var offersPlayerAccess: Bool { !playerAccess && !systemAvailable && message != nil }
+    /// Music or Spotify is playing without artwork, which only they can supply.
+    var offersArtworkAccess: Bool { !playerAccess && artwork == nil && source.map { ["com.apple.Music", "com.spotify.client"].contains($0) } == true }
     let sleepTimer = MediaSleepTimer()
     /// True while the playback scrubber is visible. Otherwise playback is checked every two seconds.
     @ObservationIgnored var wantsFrequentUpdates: () -> Bool = { true }
@@ -287,6 +295,11 @@ final class MediaService {
                 self.message = String(localized: "\(chosen.name) isn’t publishing a media session. Choose Automatic or another player.")
                 return
             }
+            guard self.playerAccess else {
+                self.clearPlayback(); self.refreshing = false
+                self.message = self.systemAvailable ? nil : String(localized: "Now Playing isn’t available.")
+                return
+            }
             let native = await PlayerAutomation.snapshot(runningPlayers: runningPlayers)
             guard !Task.isCancelled, self.generation == currentGeneration, self.selectionRevision == selection else { return }
             self.refreshing = false
@@ -333,7 +346,7 @@ final class MediaService {
         source = bundle; sourceName = name
     }
     private func loadArtworkIfNeeded(runningPlayers: Set<String>) {
-        guard artwork == nil, let source, ["com.apple.Music", "com.spotify.client"].contains(source) else { return }
+        guard playerAccess, artwork == nil, let source, ["com.apple.Music", "com.spotify.client"].contains(source) else { return }
         let key = source + "\n" + title
         guard key != artworkKey else { return }
         artworkKey = key

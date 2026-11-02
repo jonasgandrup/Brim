@@ -28,8 +28,9 @@ extension BrimAppModel {
         let output = ProcessInfo.processInfo.environment["BRIM_SMOKE_OUTPUT"] ?? "/tmp/brim-smoke"
         try? FileManager.default.createDirectory(atPath: output, withIntermediateDirectories: true)
         settingsWindow?.setContentSize(NSSize(width: 900, height: 840))
-        // Labs is off by default; the run still has to exercise the hinge and force sensors.
-        preferences.lidEffectEnabled = true; preferences.scaleEnabled = true; apply()
+        // Labs and most sections are off by default; the run still has to exercise and capture them.
+        preferences.lidEffectEnabled = true; preferences.scaleEnabled = true
+        preferences.level = .everything; apply()
         var rendered: [String] = []
         for appearance in [Appearance.light, .dark] {
             preferences.appearance = appearance

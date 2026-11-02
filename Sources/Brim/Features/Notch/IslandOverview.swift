@@ -24,10 +24,8 @@ struct IslandOverview: View {
     let calendar: CalendarPeek
     let media: MediaService
     let mediaEnabled: Bool
-    var showsBattery = true
-    /// Whether to mention that Now Playing is off, with a button to turn it on.
-    var offersMedia = true
     let connectMedia: () -> Void
+    var allowPlayers: () -> Void = {}
     var body: some View {
         TimelineView(.everyMinute) { context in
             VStack(alignment: .leading, spacing: 8) {
@@ -39,7 +37,7 @@ struct IslandOverview: View {
                             .font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 8)
-                    if showsBattery, let level = status.battery {
+                    if let level = status.battery {
                         HStack(spacing: 6) {
                             Text("\(level)%").font(.system(size: 13, weight: .semibold)).monospacedDigit()
                                 .foregroundStyle(BatteryTint.color(level: level, charging: status.details.charging, lowPower: status.details.lowPowerMode))
@@ -64,18 +62,21 @@ struct IslandOverview: View {
                     }.font(.system(size: 12))
                 }
                 Spacer(minLength: 0)
-                if mediaEnabled || offersMedia { HStack(spacing: 6) {
+                HStack(spacing: 6) {
                     Image(systemName: "play.circle")
                     Text(mediaEnabled ? (media.message ?? String(localized: "Nothing playing")) : String(localized: "Now Playing is off")).lineLimit(1)
                     Spacer(minLength: 4)
                     if !mediaEnabled {
                         Button("Turn On", action: connectMedia).buttonStyle(.plain).font(.system(size: 11, weight: .semibold))
                             .padding(.horizontal, 9).padding(.vertical, 2).background(IslandStyle.raisedFill, in: Capsule())
+                    } else if media.offersPlayerAccess {
+                        Button("Use Music & Spotify", action: allowPlayers).buttonStyle(.plain).font(.system(size: 11, weight: .semibold))
+                            .padding(.horizontal, 9).padding(.vertical, 2).background(IslandStyle.raisedFill, in: Capsule()).fixedSize()
                     } else if media.pinnedPlayer != nil {
                         // A pinned player that stopped publishing can be unpinned right here.
                         MediaPlayerControls(media: media)
                     }
-                }.font(.system(size: 11)).foregroundStyle(.secondary) }
+                }.font(.system(size: 11)).foregroundStyle(.secondary)
             }
         }
     }

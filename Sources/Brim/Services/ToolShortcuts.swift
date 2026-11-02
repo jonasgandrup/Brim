@@ -29,7 +29,7 @@ enum ShortcutModifiers: String, CaseIterable, Identifiable {
     enum Tool: UInt32, CaseIterable {
         case nowPlaying = 1, files, clipboard, clock, battery, transfers, island
         var title: String {
-            switch self { case .island: String(localized: "Island"); case .nowPlaying: String(localized: "Now Playing"); case .files: String(localized: "Files"); case .clipboard: String(localized: "Clipboard"); case .clock: String(localized: "Clock"); case .battery: String(localized: "Battery"); case .transfers: String(localized: "Transfers") }
+            switch self { case .island: String(localized: "Island"); case .nowPlaying: String(localized: "Now Playing"); case .files: String(localized: "Files"); case .clipboard: String(localized: "Clipboard"); case .clock: String(localized: "Clock"); case .battery: String(localized: "Battery"); case .transfers: String(localized: "Downloads & AirDrop") }
         }
         var keyCode: UInt32 {
             switch self { case .island: UInt32(kVK_ANSI_0); case .nowPlaying: UInt32(kVK_ANSI_1); case .files: UInt32(kVK_ANSI_2)
@@ -42,10 +42,16 @@ enum ShortcutModifiers: String, CaseIterable, Identifiable {
     @ObservationIgnored private var open: (Tool) -> Void = { _ in }
     static let signature: OSType = 0x53656E73
     private var modifiers = ShortcutModifiers.ctrlOptCmd
-    func configure(enabled: Bool, modifiers next: ShortcutModifiers = .ctrlOptCmd, onOpen: @escaping (Tool) -> Void) {
+    /// Only the shortcut that opens the island, unless the section shortcuts are asked for too.
+    private var tools: [Tool] = [.island]
+    func configure(enabled: Bool, sections: Bool = false, modifiers next: ShortcutModifiers = .ctrlOptCmd, onOpen: @escaping (Tool) -> Void) {
         if next != modifiers { stop(); modifiers = next }
         open = onOpen
         guard enabled else { stop(); return }
+        tools = sections ? Tool.allCases : [.island]
+        for tool in Tool.allCases where !tools.contains(tool) {
+            if let reference = registered.removeValue(forKey: tool) { UnregisterEventHotKey(reference) }
+        }
         if handler != nil { registerMissing(); return }
         var event = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         let result = InstallEventHandler(GetApplicationEventTarget(), { _, event, context in
@@ -60,13 +66,13 @@ enum ShortcutModifiers: String, CaseIterable, Identifiable {
                 owner.open(tool); return noErr
             }
         }, 1, &event, Unmanaged.passUnretained(self).toOpaque(), &handler)
-        guard result == noErr else { unavailable = Tool.allCases.map(\.title); return }
+        guard result == noErr else { unavailable = tools.map(\.title); return }
         registerMissing()
     }
     /// Registers any shortcut that isn't held yet, so one that another app released is picked up later.
     private func registerMissing() {
         unavailable = []
-        for tool in Tool.allCases {
+        for tool in tools {
             if registered[tool] != nil { continue }
             var reference: EventHotKeyRef?
             let status = RegisterEventHotKey(tool.keyCode, modifiers.carbon,
@@ -86,7 +92,7 @@ enum ShortcutModifiers: String, CaseIterable, Identifiable {
         open = { received.append($0) }
         defer { open = savedOpen }
         var results: [String: Bool] = [:]
-        for tool in Tool.allCases {
+        for tool in tools {
             var event: EventRef?
             var id = EventHotKeyID(signature: Self.signature, id: tool.rawValue)
             if CreateEvent(nil, OSType(kEventClassKeyboard), UInt32(kEventHotKeyPressed), 0,

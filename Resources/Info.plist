@@ -42,7 +42,7 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Brim reads Music or Spotify artwork and controls their playback when you enable Now Playing.</string>
+	<string>Brim reads Music or Spotify artwork and controls their playback when you allow it.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Brim reads your calendar on this Mac to show your next event in the island. Nothing is stored or sent anywhere.</string>
 	<key>NSCalendarsUsageDescription</key>

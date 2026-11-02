@@ -116,13 +116,14 @@ final class BrimAppModel {
         if preferences.notchEnabled {
             status.start(); notch.start(preferences: preferences, status: status, media: media, onOpenSettings: { [weak self] in self?.openSettings(page: .notch) })
         } else { notch.stop(); if preferences.menuBarStatus == .battery { status.start() } else { status.stop() } }
+        media.playerAccess = preferences.playerAccess
         if preferences.notchEnabled && preferences.mediaEnabled { media.start() } else { media.stop() }
         if preferences.notchEnabled {
             autoHide.configure(focus: preferences.autoHideFocus, sharing: preferences.autoHideSharing, focusChanges: preferences.focusFeedback,
                                onChange: { [notch] reason in notch.setAutoHide(reason: reason) },
                                onFocusChange: { [notch] on in notch.focusChanged(on: on) })
         } else { autoHide.stop() }
-        toolShortcuts.configure(enabled: preferences.notchEnabled && preferences.toolShortcutsEnabled, modifiers: preferences.toolShortcutModifiers) { [weak self] tool in
+        toolShortcuts.configure(enabled: preferences.notchEnabled && preferences.toolShortcutsEnabled, sections: preferences.sectionShortcuts, modifiers: preferences.toolShortcutModifiers) { [weak self] tool in
             self?.notch.openTool(tool, fromKeyboard: true)
         }
         switcher.onVisibilityChanged = { [weak self] visible in self?.notch.setSwitcherOverlayActive(visible) }

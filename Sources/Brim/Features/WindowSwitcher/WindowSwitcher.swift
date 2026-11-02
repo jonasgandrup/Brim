@@ -66,6 +66,32 @@ enum SwitcherSelection {
         guard count > 0 else { return 0 }
         return (current + (backwards ? -1 : 1) + count) % count
     }
+    /// One Tab reaches the previous window, unless the first in the list isn't the one you're already in.
+    static func initial(count: Int, firstIsCurrent: Bool, backwards: Bool) -> Int {
+        guard count > 0 else { return 0 }
+        return backwards ? count - 1 : (firstIsCurrent ? min(1, count - 1) : 0)
+    }
+}
+
+enum SwitcherOrder {
+    /// Front to back, whichever app each window belongs to. Windows that aren't on screen, like minimized ones,
+    /// follow in the order their apps were last used. Returns positions in the original list.
+    static func positions(windowIDs: [CGWindowID?], appRanks: [Int], stack: [CGWindowID: Int]) -> [Int] {
+        windowIDs.indices.sorted { first, second in
+            switch (windowIDs[first].flatMap { stack[$0] }, windowIDs[second].flatMap { stack[$0] }) {
+            case let (a?, b?): a < b
+            case (_?, nil): true
+            case (nil, _?): false
+            case (nil, nil): appRanks[first] != appRanks[second] ? appRanks[first] < appRanks[second] : first < second
+            }
+        }
+    }
+    /// Reading window numbers and their stacking order needs no permission.
+    nonisolated static func currentStack() -> [CGWindowID: Int] {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return [:] }
+        let normal = list.filter { $0[kCGWindowLayer as String] as? Int == 0 }.compactMap { $0[kCGWindowNumber as String] as? CGWindowID }
+        return Dictionary(normal.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { first, _ in first })
+    }
 }
 
 @MainActor @Observable
@@ -292,9 +318,11 @@ final class WindowSwitcher {
             .sorted { Self.rank($0.processIdentifier, frontmost: frontmost, recent: recentApps) < Self.rank($1.processIdentifier, frontmost: frontmost, recent: recentApps) }
         let pids = apps.map(\.processIdentifier)
         let includeMinimized = preferences?.includeMinimized != false
-        let raw = await Task.detached(priority: .userInitiated) { Self.scan(pids: pids, includeMinimized: includeMinimized) }.value
+        let (raw, stack) = await Task.detached(priority: .userInitiated) { (Self.scan(pids: pids, includeMinimized: includeMinimized), SwitcherOrder.currentStack()) }.value
         let byPID = Dictionary(apps.map { ($0.processIdentifier, $0) }, uniquingKeysWith: { first, _ in first })
-        return raw.compactMap { window in
+        let ranks = raw.map { Self.rank($0.pid, frontmost: frontmost, recent: recentApps) }
+        return SwitcherOrder.positions(windowIDs: raw.map(\.windowID), appRanks: ranks, stack: stack).compactMap { position in
+            let window = raw[position]
             guard let app = byPID[window.pid] else { return nil }
             let title = window.title.flatMap { $0.isEmpty ? nil : $0 } ?? app.localizedName ?? String(localized: "Untitled")
             return SwitcherWindow(element: window.element, app: app, title: title, frame: window.frame, minimized: window.minimized, windowID: window.windowID)
@@ -307,7 +335,9 @@ final class WindowSwitcher {
         guard awaitingPresentation else { return }
         windows = found
         guard !windows.isEmpty else { return }
-        selected = backwards ? windows.count - 1 : min(1, windows.count - 1)
+        let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let firstIsCurrent = windows.first.map { $0.app.processIdentifier == frontmost && !$0.minimized } ?? false
+        selected = SwitcherSelection.initial(count: windows.count, firstIsCurrent: firstIsCurrent, backwards: backwards)
         if !windows.isEmpty { selected = ((selected + pendingSteps) % windows.count + windows.count) % windows.count }
         visible = true; onVisibilityChanged(true)
         if activateWhenReady { return }
@@ -368,11 +398,31 @@ final class WindowSwitcher {
         let target = activate && list.indices.contains(selected) ? list[selected] : nil
         query = ""; searching = false
         visible = false; onVisibilityChanged(false); panel?.orderOut(nil); panel = nil; captureTask?.cancel(); windows.removeAll()
-        guard let target else { return }
-        if target.minimized { AXUIElementSetAttributeValue(target.element, kAXMinimizedAttribute as CFString, kCFBooleanFalse) }
-        target.app.activate()
-        AXUIElementPerformAction(target.element, kAXRaiseAction as CFString)
-        AXUIElementSetAttributeValue(target.element, kAXMainAttribute as CFString, kCFBooleanTrue)
+        if let target { bringForward(target) }
+    }
+    /// Since macOS 14 an app in the background can have `activate()` declined, so the app is also asked to come
+    /// forward through Accessibility. It can then put its own last window on top, so that's checked once it settles.
+    private func bringForward(_ target: SwitcherWindow) {
+        let element = target.element
+        let app = target.app
+        func raise() {
+            AXUIElementSetAttributeValue(element, kAXMainAttribute as CFString, kCFBooleanTrue)
+            AXUIElementPerformAction(element, kAXRaiseAction as CFString)
+        }
+        if app.isHidden { app.unhide() }
+        if target.minimized { AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse) }
+        let application = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetAttributeValue(application, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        raise()
+        app.activate()
+        Task { @MainActor in
+            for delay in [80, 200] {
+                try? await Task.sleep(for: .milliseconds(delay))
+                guard NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier else { continue }
+                if let focused = Self.attribute(application, kAXFocusedWindowAttribute), CFEqual(focused, element) { return }
+                raise()
+            }
+        }
     }
 }
 

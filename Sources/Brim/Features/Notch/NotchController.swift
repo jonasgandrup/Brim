@@ -323,14 +323,13 @@ final class NotchController {
     /// Whether a section is offered. The first one is the island's home and always is; whatever is running
     /// stays reachable even with its section off, so a timer you started can still be stopped.
     func shows(_ tab: IslandTab) -> Bool {
-        let simple = preferences?.simpleIsland == true
         return switch tab {
         case .music: true
-        case .files: !simple && preferences?.showFiles != false
-        case .clipboard: !simple && preferences?.showClipboard != false
-        case .timer: countdown.active || clock.active || (!simple && preferences?.showClock != false)
-        case .battery: !simple && preferences?.showControls != false
-        case .transfers: transfers.hasRunning || !activities.running.isEmpty || (!simple && (preferences?.liveTransfers == true || selectedTab == .transfers))
+        case .files: preferences?.showFiles != false
+        case .clipboard: preferences?.showClipboard != false
+        case .timer: countdown.active || clock.active || clock.alarmDate != nil || preferences?.showClock != false
+        case .battery: preferences?.showControls != false
+        case .transfers: transfers.hasRunning || !activities.running.isEmpty || preferences?.liveTransfers == true || selectedTab == .transfers
         }
     }
     var visibleTabs: [IslandTab] {
@@ -579,7 +578,7 @@ final class NotchController {
             _ = preferences?.chargingFeedback
             _ = preferences?.chargeTarget
             _ = preferences?.lowBatteryAlert
-            _ = preferences?.simpleIsland
+            _ = preferences?.openWhenIdle
             _ = preferences?.showFiles
             _ = preferences?.showClipboard
             _ = preferences?.showClock
@@ -612,7 +611,7 @@ final class NotchController {
     }
     func containsPointer(_ point: CGPoint) -> Bool {
         if presentation == .hidden {
-            guard !desktopTransition, !presentationMode, let displayFrame else { return false }
+            guard !desktopTransition, !presentationMode, preferences?.openWhenIdle != false, let displayFrame else { return false }
             return layout.idleHoverFrame(on: displayFrame).contains(point)
         }
         if let bubble = bubbleFrame, IslandHitRegion.contains(point, frame: bubble, radius: bubble.height / 2, roundedTop: true) { return true }
@@ -1004,6 +1003,10 @@ final class NotchController {
         preferences?.mediaEnabled = true
         media?.start()
     }
+    func allowPlayerAccess() {
+        preferences?.playerAccess = true
+        media?.playerAccess = true
+    }
     func startTimer(minutes: Double) {
         countdown.start(seconds: minutes * 60)
         clock.mode = .timer; selectedTab = .timer
@@ -1121,7 +1124,7 @@ final class NotchController {
     func showFeedback(_ text: String, symbol: String, tint: Color = .green,
                       image: NSImage? = nil, url: URL? = nil, action: (title: String, url: URL)? = nil, device: BluetoothDevice? = nil, seconds: Double = 3) {
         guard preferences?.notchEnabled == true else { return }
-        if preferences?.simpleIsland == true { showHUD(.init(symbol: symbol, tint: tint, label: text), seconds: seconds); return }
+        if preferences?.smallNotices == true, image == nil, action == nil, device == nil { showHUD(.init(symbol: symbol, tint: tint, label: text), seconds: seconds); return }
         feedbackTask?.cancel(); hudTask?.cancel(); hud = nil
         feedback = text; feedbackSymbol = symbol; feedbackTint = tint
         feedbackImage = image; feedbackURL = url; feedbackAction = action; feedbackDevice = device

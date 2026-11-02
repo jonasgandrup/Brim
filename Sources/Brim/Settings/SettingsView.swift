@@ -38,7 +38,9 @@ struct SettingsView: View {
         .onChange(of: preferences.followActiveDisplay) { model.apply() }
         .onChange(of: preferences.toolShortcutsEnabled) { model.apply() }
         .onChange(of: preferences.toolShortcutModifiers) { model.apply() }
+        .onChange(of: preferences.sectionShortcuts) { model.apply() }
         .onChange(of: preferences.mediaEnabled) { model.apply() }
+        .onChange(of: preferences.playerAccess) { model.apply() }
         .onChange(of: preferences.screenshotShelf) { model.apply() }
         .onChange(of: preferences.keepShelf) { model.apply() }
         .onChange(of: preferences.clipboardHistory) { model.apply() }
@@ -53,7 +55,8 @@ struct SettingsView: View {
         .onChange(of: preferences.lidFoldStyle) { model.apply() }
         .onChange(of: preferences.focusFeedback) { model.apply() }
         .onChange(of: preferences.systemChanges) { model.apply() }
-        .onChange(of: preferences.simpleIsland) { model.apply() }
+        .onChange(of: preferences.smallNotices) { model.apply() }
+        .onChange(of: preferences.openWhenIdle) { model.apply() }
         .onChange(of: preferences.showFiles) { model.apply() }
         .onChange(of: preferences.showClipboard) { model.apply() }
         .onChange(of: preferences.showClock) { model.apply() }
@@ -98,7 +101,7 @@ struct SettingsView: View {
             switch model.islandSection {
             case nil: notch
             case .shelf: shelfSettings
-            case .activities: activitySettings
+            case .notices: noticeSettings
             case .battery: batterySettings
             case .hiding: hidingSettings
             case .keyboard: keyboardSettings
@@ -113,34 +116,37 @@ struct SettingsView: View {
 
     /// First launch: choose features in one place, then go straight to whatever they need.
     @ViewBuilder private var welcome: some View {
+        levelSection
         Section {
-            welcomeToggle("capsule.fill", .black, "Dynamic Island", "Activities, files, timers and system status around the camera.", binding(\.notchEnabled))
-            welcomeToggle("play.fill", .pink, "Now Playing", "What’s playing in any app, with controls and artwork.", binding(\.mediaEnabled))
-                .disabled(!preferences.notchEnabled)
-            welcomeToggle("camera.viewfinder", .teal, "Screenshot Shelf", "New screenshots appear in the island, ready to drag.", binding(\.screenshotShelf))
-                .disabled(!preferences.notchEnabled)
-            welcomeToggle("arrow.down.circle.fill", .blue, "Downloads & AirDrop", "Files still arriving show as a progress ring.", binding(\.liveTransfers))
-                .disabled(!preferences.notchEnabled)
-        } header: { Text("The Island") }
-        Section {
-            welcomeToggle(SettingsPage.switcher.symbol, SettingsPage.switcher.tint, "Window Switcher", "Every window, not just apps, on ⌘ Tab.", binding(\.switcherEnabled))
-            welcomeToggle("laptopcomputer", .indigo, "Lid Fold", "Your desktop folds as you close the lid.", binding(\.lidEffectEnabled))
-            welcomeToggle("scalemass.fill", .orange, "Trackpad Scale", "Weigh small objects on your Force Touch trackpad.", binding(\.scaleEnabled))
+            welcomeToggle(SettingsPage.switcher.symbol, SettingsPage.switcher.tint, "Window Switcher", "Every window, with a preview, on ⌘ Tab.", binding(\.switcherEnabled))
             Toggle(isOn: Binding(get: { model.loginEnabled }, set: { model.setLogin($0) })) {
                 Label { SettingsLabel(title: "Open at Login", detail: "Ready when your Mac is.") } icon: { SettingsIcon(symbol: "power", tint: .gray, size: 26) }
             }
-        } header: { Text("Around Your Mac") } footer: {
+        } footer: {
             Footnote(text: "Brim asks for a permission only when a feature you turned on needs it. Nothing leaves your Mac.", symbol: "lock.shield")
         }
         Section {
             HStack {
-                Button("Skip") { model.page = .general }
                 Spacer()
-                Button("Continue") { model.permissions.refresh(); model.page = .permissions }
+                Button("Continue") { model.permissions.refresh(); model.page = preferences.switcherEnabled ? .permissions : .notch }
                     .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
             }
-        } footer: {
-            Footnote(text: "Continue shows a checklist of anything your choices still need, each with a one-click fix.")
+        }
+    }
+    /// One choice for most people; the switches below it are there for anyone who wants their own mix.
+    private var levelSection: some View {
+        Section {
+            VStack(spacing: 10) {
+                Picker("How Much to Show", selection: Binding<IslandLevel?>(get: { preferences.level }, set: { preferences.level = $0 })) {
+                    ForEach(IslandLevel.allCases) { Text($0.title).tag(IslandLevel?.some($0)) }
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+                .disabled(!preferences.notchEnabled)
+                Text(verbatim: preferences.level?.summary ?? String(localized: "Your own mix. Choose a level to start over."))
+                    .font(.system(size: 12)).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            }.frame(maxWidth: .infinity).padding(.vertical, 4)
+        } header: { Text("How Much to Show") } footer: {
+            Footnote(text: "Anything that reads your calendar, downloads, screenshots or clipboard history, or needs a macOS permission, stays a separate switch.")
         }
     }
     private func welcomeToggle(_ symbol: String, _ tint: Color, _ title: LocalizedStringKey, _ detail: LocalizedStringKey, _ isOn: Binding<Bool>) -> some View {
@@ -173,6 +179,11 @@ struct SettingsView: View {
             Picker("Appearance", selection: binding(\.appearance)) {
                 ForEach(Appearance.allCases) { Text($0.title).tag($0) }
             }
+            if LockScreenService.available {
+                Toggle(isOn: binding(\.menuLockMac)) {
+                    SettingsLabel(title: "Lock Mac in Menu", detail: "Adds Lock Mac to Brim’s menu bar menu.")
+                }
+            }
             LabeledContent {
                 Button("Show") { model.page = .welcome }
             } label: {
@@ -194,14 +205,11 @@ struct SettingsView: View {
             Toggle(isOn: binding(\.notchEnabled)) {
                 SettingsLabel(title: "Dynamic Island", detail: "Activities and brief updates around the camera.")
             }
-            Toggle(isOn: binding(\.simpleIsland)) {
-                SettingsLabel(title: "Simple Island", detail: "Just what’s playing and what’s running, with no sections or pop-ups.",
-                              info: "Notices stay small around the camera instead of opening the island. Your shelf and pins are kept for when you turn this off.")
-            }.disabled(!preferences.notchEnabled)
         }
+        levelSection
         Section {
             sectionToggle("play.fill", .pink, "Now Playing", binding(\.mediaEnabled),
-                          info: "Works with apps that publish a Now Playing session; some omit artwork or ignore playback commands. Uses an undocumented macOS interface that may change with updates. Music and Spotify remain available as fallbacks.")
+                          info: "Works with apps that publish a Now Playing session; some omit artwork or ignore playback commands. Uses an undocumented macOS interface that may change with updates. You can also allow Music and Spotify under Permissions.")
             sectionToggle("tray.fill", .teal, "Files", binding(\.showFiles))
             sectionToggle("pin.fill", .yellow, "Clipboard", binding(\.showClipboard))
             sectionToggle("clock.fill", .orange, "Clock", binding(\.showClock))
@@ -213,10 +221,16 @@ struct SettingsView: View {
                 Footnote(text: "Sections you turn off leave the island and the menu. A timer that’s already running stays until it ends.")
                 if let message = model.media.message { Footnote(text: .verbatim(message), symbol: "exclamationmark.circle") }
             }
-        }.disabled(!preferences.notchEnabled || preferences.simpleIsland)
+        }.disabled(!preferences.notchEnabled)
         Section("Behavior") {
             Toggle(isOn: binding(\.hoverToExpand)) {
                 SettingsLabel(title: "Open on Hover", detail: "Rest the pointer on the island to open it. A click always works.")
+            }.disabled(!preferences.notchEnabled)
+            Toggle(isOn: binding(\.openWhenIdle)) {
+                SettingsLabel(title: "Open When Nothing’s Happening", detail: "Point at the camera for the time and battery.")
+            }.disabled(!preferences.notchEnabled)
+            Toggle(isOn: binding(\.smallNotices)) {
+                SettingsLabel(title: "Keep Notices Small", detail: "Short notices stay around the camera instead of opening the island.")
             }.disabled(!preferences.notchEnabled)
             Toggle(isOn: binding(\.islandGestures)) {
                 SettingsLabel(title: "Gestures", detail: "Scroll on the island for volume, swipe to skip tracks.",
@@ -261,7 +275,7 @@ struct SettingsView: View {
         }
         return switch section {
         case .shelf: count([preferences.keepShelf, preferences.screenshotShelf, preferences.clipboardHistory])
-        case .activities: count([preferences.calendarPreview, preferences.sensorIndicator, preferences.systemHUD, preferences.focusFeedback, preferences.systemChanges])
+        case .notices: count([preferences.calendarPreview, preferences.sensorIndicator, preferences.systemHUD, preferences.focusFeedback, preferences.systemChanges])
         case .battery: count([preferences.chargingFeedback, preferences.lowBatteryAlert > 0, preferences.bluetoothBatteries])
         case .hiding: count([preferences.autoHideFocus, preferences.autoHideSharing])
         case .keyboard: preferences.toolShortcutsEnabled ? String(localized: "\(preferences.toolShortcutModifiers.label)0") : String(localized: "Off")
@@ -270,24 +284,24 @@ struct SettingsView: View {
     @ViewBuilder private var shelfSettings: some View {
         Section {
             LabeledContent {
-                Button("Open Shelf") { model.notch.openShelfFromMenu() }.disabled(!model.notch.shows(.files))
+                Button("Open Files") { model.notch.openShelfFromMenu() }.disabled(!model.notch.shows(.files))
                 Button("Clipboard") { model.notch.openClipboardFromMenu() }.disabled(!model.notch.shows(.clipboard))
             } label: {
-                SettingsLabel(title: "File Shelf", detail: "Drop files on the island, then drag them out anywhere.")
+                SettingsLabel(title: "Files", detail: "Drop files on the island, then drag them out anywhere.")
             }
             Toggle(isOn: binding(\.keepShelf)) {
-                SettingsLabel(title: "Keep After Quitting", detail: "Shelf files and clipboard pins stay put.",
+                SettingsLabel(title: "Keep After Quitting", detail: "Files and clipboard pins stay put.",
                               info: "Files are remembered by location, never copied. Clipboard pins are saved on this Mac; turning this off deletes them. History is never saved.")
             }
             Toggle(isOn: binding(\.screenshotShelf)) {
-                SettingsLabel(title: "Screenshot Shelf", detail: "New screenshots wait in the island.", info: "Found with Spotlight, so only indexed folders are seen.")
+                SettingsLabel(title: "Screenshots", detail: "New screenshots wait in the island.", info: "Found with Spotlight, so only indexed folders are seen.")
             }
             Toggle(isOn: binding(\.clipboardHistory)) {
                 SettingsLabel(title: "Clipboard History", detail: "Recent text and links, kept in memory.", info: "Skips password managers. Nothing is saved to disk.")
             }
         }
     }
-    @ViewBuilder private var activitySettings: some View {
+    @ViewBuilder private var noticeSettings: some View {
         Section {
             Toggle(isOn: binding(\.calendarPreview)) {
                 SettingsLabel(title: "Next Calendar Event", detail: calendarDetail)
@@ -339,7 +353,7 @@ struct SettingsView: View {
             }
             Toggle(isOn: binding(\.autoHideSharing)) {
                 SettingsLabel(title: "While Sharing Your Screen", detail: "Mirroring, Zoom and Screen Sharing.",
-                              info: "Browser meetings can’t be detected. Use Presentation Mode from the menu bar instead.")
+                              info: "Browser meetings can’t be detected. Use Hide Island from the menu bar instead.")
             }
         } footer: {
             if let reason = model.notch.autoHideReason { Footnote(text: "Hidden right now: \(reason).", symbol: "eye.slash") }
@@ -348,9 +362,13 @@ struct SettingsView: View {
     @ViewBuilder private var keyboardSettings: some View {
         Section {
             Toggle(isOn: binding(\.toolShortcutsEnabled)) {
-                SettingsLabel(title: "Keyboard Shortcuts", detail: "\(preferences.toolShortcutModifiers.label)0 opens the island. 1 to 6 open a section.",
-                              info: "1 Now Playing · 2 Files · 3 Clipboard · 4 Clock · 5 Battery · 6 Transfers. Opened this way, ← and → switch sections, Return plays or pauses, and Escape closes.")
+                SettingsLabel(title: "Keyboard Shortcut", detail: "\(preferences.toolShortcutModifiers.label)0 opens the island.",
+                              info: "Opened this way, ← and → switch sections, Return plays or pauses, and Escape closes.")
             }
+            Toggle(isOn: binding(\.sectionShortcuts)) {
+                SettingsLabel(title: "Section Shortcuts", detail: "\(preferences.toolShortcutModifiers.label)1 to 6 open a section.",
+                              info: "1 Now Playing · 2 Files · 3 Clipboard · 4 Clock · 5 Battery · 6 Downloads & AirDrop.")
+            }.disabled(!preferences.toolShortcutsEnabled)
             Picker("Modifier Keys", selection: binding(\.toolShortcutModifiers)) {
                 ForEach(ShortcutModifiers.allCases) { Text($0.label).tag($0) }
             }.disabled(!preferences.toolShortcutsEnabled)
@@ -500,11 +518,17 @@ struct SettingsView: View {
     @ViewBuilder private var permissions: some View {
         SetupChecklist(model: model)
         Section {
-            LabeledContent {
-                Button("Manage…") { model.permissions.openPrivacy("Privacy_Automation") }
-            } label: {
-                Label { SettingsLabel(title: "Automation", detail: "Music and Spotify fallback controls and artwork, when Now Playing is on.") }
-                    icon: { SettingsIcon(symbol: "gearshape.2.fill", tint: .gray) }
+            Toggle(isOn: binding(\.playerAccess)) {
+                Label { SettingsLabel(title: "Music & Spotify", detail: "Artwork and controls those apps don’t share with macOS. macOS asks once.") }
+                    icon: { SettingsIcon(symbol: "music.note", tint: .pink) }
+            }.disabled(!preferences.mediaEnabled)
+            if preferences.playerAccess {
+                LabeledContent {
+                    Button("Manage…") { model.permissions.openPrivacy("Privacy_Automation") }
+                } label: {
+                    Label { SettingsLabel(title: "Automation", detail: "Music and Spotify fallback controls and artwork, when Now Playing is on.") }
+                        icon: { SettingsIcon(symbol: "gearshape.2.fill", tint: .gray) }
+                }
             }
         } header: { Text("Privacy") } footer: {
             VStack(alignment: .leading, spacing: 6) {

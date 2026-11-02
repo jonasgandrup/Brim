@@ -40,12 +40,12 @@ struct TransfersPaneView: View {
                 }.frame(maxHeight: 138)
             } else if !enabled {
                 IslandEmptyState(symbol: "arrow.down.circle", title: "Watch Downloads and AirDrops",
-                                 detail: "Files still arriving in Downloads, and AirDrops you send from the shelf.") {
-                    Button("Turn On Live Transfers", action: enable)
+                                 detail: "Files still arriving in Downloads, and AirDrops you send from Files.") {
+                    Button("Turn On Downloads & AirDrop", action: enable)
                         .buttonStyle(.borderedProminent).controlSize(.small).tint(.blue)
                 }
             } else if transfers.running.isEmpty && transfers.recent.isEmpty {
-                IslandEmptyState(symbol: "arrow.down.circle", title: transfers.accessProblem.map { LocalizedStringKey($0) } ?? "No Transfers",
+                IslandEmptyState(symbol: "arrow.down.circle", title: transfers.accessProblem.map { LocalizedStringKey($0) } ?? "No Downloads or AirDrops",
                                  detail: transfers.accessProblem == nil ? "Downloads from Safari, Chrome and Firefox appear here while they arrive." : nil)
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
@@ -89,7 +89,7 @@ struct TransfersPaneView: View {
             Spacer(minLength: 0)
             if activity.state == .finished, let url = activity.url, FileManager.default.fileExists(atPath: url.path) {
                 Button { addToShelf(url) } label: { Image(systemName: "tray.and.arrow.down") }
-                    .buttonStyle(IslandPressStyle()).help("Add to the shelf").accessibilityLabel("Add to shelf")
+                    .buttonStyle(IslandPressStyle()).help("Add to Files").accessibilityLabel("Add to Files")
                 Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Image(systemName: "magnifyingglass") }
                     .buttonStyle(IslandPressStyle()).help("Reveal in Finder").accessibilityLabel("Reveal in Finder")
             }

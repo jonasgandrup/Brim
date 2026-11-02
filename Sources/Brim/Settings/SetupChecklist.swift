@@ -45,7 +45,10 @@ extension BrimAppModel {
         if preferences.notchEnabled && preferences.mediaEnabled {
             items.append(SetupItem(id: "media", title: String(localized: "Now Playing"), state: media.systemAvailable ? .ready : .attention,
                 detail: media.systemAvailable ? String(localized: "Reading the active media session.") : (media.message ?? String(localized: "No media session yet. Play something, or check Automation access for Music and Spotify.")),
-                actionTitle: media.systemAvailable ? nil : String(localized: "Automation…"), action: { [permissions] in permissions.openPrivacy("Privacy_Automation") }))
+                actionTitle: media.systemAvailable ? nil : (media.offersPlayerAccess ? String(localized: "Use Music & Spotify") : String(localized: "Automation…")),
+                action: { [weak self, permissions, offersAccess = media.offersPlayerAccess] in
+                    if offersAccess { self?.preferences.playerAccess = true; self?.apply() } else { permissions.openPrivacy("Privacy_Automation") }
+                }))
         }
         if preferences.notchEnabled && preferences.toolShortcutsEnabled {
             let blocked = toolShortcuts.unavailable
@@ -120,7 +123,7 @@ extension BrimAppModel {
             "macOS \(ProcessInfo.processInfo.operatingSystemVersionString) · \(sysctl("hw.model"))",
             "Accessibility: \(yes(permissions.accessibility)) · Screen Recording: \(yes(permissions.screenRecording))",
             "Lid fold: \(yes(preferences.lidEffectEnabled)) (\(preferences.lidFoldStyle.rawValue)) · hinge: \(lid.status) · capture check: \(lid.captureCheck.title)",
-            "Now Playing: \(yes(preferences.mediaEnabled)) · system bridge available: \(yes(media.systemAvailable))",
+            "Now Playing: \(yes(preferences.mediaEnabled)) · system bridge available: \(yes(media.systemAvailable)) · Music/Spotify access: \(yes(preferences.playerAccess))",
             "Trackpad devices seen: \(notch.trackpadDeviceCount) · scale format recognized: \(yes(!scale.formatUnrecognized))",
             "Island: \(yes(preferences.notchEnabled)) · switcher: \(yes(preferences.switcherEnabled)) (\(switcher.status))",
             "Tool shortcuts unavailable: \(toolShortcuts.unavailable.isEmpty ? "none" : toolShortcuts.unavailable.joined(separator: ", "))",

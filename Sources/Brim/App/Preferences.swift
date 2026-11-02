@@ -12,6 +12,26 @@ enum MenuBarStatus: String, CaseIterable, Identifiable {
     var title: String { switch self { case .off: String(localized: "Off"); case .battery: String(localized: "Battery"); case .activity: String(localized: "Timer") } }
 }
 
+/// How much the island does. It isn't saved: it's read back from the switches, so changing one of them just makes it custom.
+enum IslandLevel: String, CaseIterable, Identifiable {
+    case essentials, more, everything
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .essentials: String(localized: "Essentials")
+        case .more: String(localized: "More")
+        case .everything: String(localized: "Everything")
+        }
+    }
+    var summary: String {
+        switch self {
+        case .essentials: String(localized: "What iPhone shows: what’s playing, charging and your AirPods. Otherwise, nothing.")
+        case .more: String(localized: "Adds files, clipboard, clock and quick controls, all a hover away.")
+        case .everything: String(localized: "Adds every other extra, like the camera dot, system notices and more shortcuts.")
+        }
+    }
+}
+
 enum SwitcherShortcut: String, CaseIterable, Identifiable {
     case command, option, control
     var id: String { rawValue }
@@ -26,14 +46,17 @@ final class Preferences {
         "toolShortcutsEnabled": true, "notchEnabled": true, "switcherEnabled": false, "scaleEnabled": false,
         "lidEffectEnabled": false, "hoverToExpand": true, "showOnExternal": false,
         "followActiveDisplay": false, "shortcut": "command", "includeMinimized": true, "chargingFeedback": true,
-        "chargeTarget": 80, "lowBatteryAlert": 20, "mediaEnabled": false, "lidFoldStyle": "duo",
+        "chargeTarget": 80, "lowBatteryAlert": 20, "lidFoldStyle": "duo",
         "liveTransfers": false, "autoHideFocus": false, "autoHideSharing": false, "calendarPreview": false,
         "clipboardHistory": false, "toolShortcutModifiers": "ctrlOptCmd", "menuBarStatus": "off",
         "screenshotShelf": false, "appearance": "system", "sensorIndicator": false, "systemHUD": false,
-        "bluetoothBatteries": true, "keepShelf": true, "haptics": true, "focusFeedback": false, "islandGestures": true, "systemChanges": false,
-        "simpleIsland": false, "showFiles": true, "showClipboard": true, "showClock": true, "showControls": true,
+        "bluetoothBatteries": true, "keepShelf": true, "haptics": true, "focusFeedback": false, "islandGestures": false, "systemChanges": false,
+        "smallNotices": true, "openWhenIdle": false, "showFiles": false, "showClipboard": false, "showClock": false, "showControls": false,
+        "sectionShortcuts": false, "menuLockMac": false,
     ]
     var toolShortcutsEnabled: Bool { didSet { save(toolShortcutsEnabled, "toolShortcutsEnabled") } }
+    /// The shortcuts for each section, on top of the one that opens the island.
+    var sectionShortcuts: Bool { didSet { save(sectionShortcuts, "sectionShortcuts") } }
     var toolShortcutModifiers: ShortcutModifiers { didSet { save(toolShortcutModifiers.rawValue, "toolShortcutModifiers") } }
     var notchEnabled: Bool { didSet { save(notchEnabled, "notchEnabled") } }
     var switcherEnabled: Bool { didSet { save(switcherEnabled, "switcherEnabled") } }
@@ -54,6 +77,8 @@ final class Preferences {
     var shortcut: SwitcherShortcut { didSet { save(shortcut.rawValue, "shortcut") } }
     var includeMinimized: Bool { didSet { save(includeMinimized, "includeMinimized") } }
     var mediaEnabled: Bool { didSet { save(mediaEnabled, "mediaEnabled") } }
+    /// Music and Spotify artwork and controls over Apple Events, which macOS asks about once.
+    var playerAccess: Bool { didSet { save(playerAccess, "playerAccess") } }
     var appearance: Appearance { didSet { save(appearance.rawValue, "appearance"); applyAppearance() } }
     var chargingFeedback: Bool { didSet { save(chargingFeedback, "chargingFeedback") } }
     var chargeTarget: Int {
@@ -84,8 +109,12 @@ final class Preferences {
     var islandGestures: Bool { didSet { save(islandGestures, "islandGestures") } }
     /// Brief notices for sound output, Low Power Mode and connectivity changes.
     var systemChanges: Bool { didSet { save(systemChanges, "systemChanges") } }
-    /// Only what's playing and what's running: no sections to browse, and notices stay compact.
-    var simpleIsland: Bool { didSet { save(simpleIsland, "simpleIsland") } }
+    /// Notices that are only words stay around the camera instead of opening the island.
+    var smallNotices: Bool { didSet { save(smallNotices, "smallNotices") } }
+    /// The pointer can open the island with nothing going on. Off, as on iPhone, it stays out of the way until there's something to show.
+    var openWhenIdle: Bool { didSet { save(openWhenIdle, "openWhenIdle") } }
+    /// Lock Mac is in the menu bar menu.
+    var menuLockMac: Bool { didSet { save(menuLockMac, "menuLockMac") } }
     var showFiles: Bool { didSet { save(showFiles, "showFiles") } }
     var showClipboard: Bool { didSet { save(showClipboard, "showClipboard") } }
     var showClock: Bool { didSet { save(showClock, "showClock") } }
@@ -93,12 +122,18 @@ final class Preferences {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        // Whoever already turned on Now Playing has answered the Automation prompt. Nobody else sees it unasked.
+        // mediaEnabled stays unregistered so a saved value can be told apart from the default, which is on.
+        let savedMedia = defaults.object(forKey: "mediaEnabled") as? Bool
+        if defaults.object(forKey: "playerAccess") == nil { defaults.set(savedMedia == true, forKey: "playerAccess") }
         defaults.register(defaults: Self.initial)
         func flag(_ key: String) -> Bool { defaults.bool(forKey: key) }
         func choice<T: RawRepresentable>(_ key: String, _ fallback: T) -> T where T.RawValue == String {
             defaults.string(forKey: key).flatMap(T.init(rawValue:)) ?? fallback
         }
         toolShortcutsEnabled = flag("toolShortcutsEnabled")
+        sectionShortcuts = flag("sectionShortcuts")
+        playerAccess = flag("playerAccess")
         toolShortcutModifiers = choice("toolShortcutModifiers", ShortcutModifiers.ctrlOptCmd)
         notchEnabled = flag("notchEnabled")
         switcherEnabled = flag("switcherEnabled")
@@ -117,7 +152,7 @@ final class Preferences {
         followActiveDisplay = flag("followActiveDisplay")
         shortcut = choice("shortcut", SwitcherShortcut.command)
         includeMinimized = flag("includeMinimized")
-        mediaEnabled = flag("mediaEnabled")
+        mediaEnabled = savedMedia ?? true
         appearance = choice("appearance", Appearance.system)
         chargingFeedback = flag("chargingFeedback")
         chargeTarget = Self.clampTarget(defaults.integer(forKey: "chargeTarget"))
@@ -130,11 +165,30 @@ final class Preferences {
         focusFeedback = flag("focusFeedback")
         islandGestures = flag("islandGestures")
         systemChanges = flag("systemChanges")
-        simpleIsland = flag("simpleIsland")
+        smallNotices = flag("smallNotices")
+        openWhenIdle = flag("openWhenIdle")
+        menuLockMac = flag("menuLockMac")
         showFiles = flag("showFiles")
         showClipboard = flag("showClipboard")
         showClock = flag("showClock")
         showControls = flag("showControls")
+    }
+    /// What each level turns on. Anything that reads personal data or makes macOS ask for a permission isn't here:
+    /// those stay their own switches, so choosing a level never sets off a run of prompts.
+    private var levelSwitches: [(key: ReferenceWritableKeyPath<Preferences, Bool>, on: Set<IslandLevel>)] {
+        [(\.mediaEnabled, [.essentials, .more, .everything]), (\.smallNotices, [.essentials]),
+         (\.showFiles, [.more, .everything]), (\.showClipboard, [.more, .everything]), (\.showClock, [.more, .everything]),
+         (\.showControls, [.more, .everything]), (\.openWhenIdle, [.more, .everything]), (\.islandGestures, [.more, .everything]),
+         (\.systemHUD, [.more, .everything]), (\.sensorIndicator, [.everything]), (\.systemChanges, [.everything]),
+         (\.sectionShortcuts, [.everything]), (\.menuLockMac, [.everything])]
+    }
+    /// The level the switches currently add up to, or nil for a custom mix.
+    var level: IslandLevel? {
+        get { IslandLevel.allCases.first { level in levelSwitches.allSatisfy { self[keyPath: $0.key] == $0.on.contains(level) } } }
+        set {
+            guard let newValue else { return }
+            for item in levelSwitches where self[keyPath: item.key] != item.on.contains(newValue) { self[keyPath: item.key] = item.on.contains(newValue) }
+        }
     }
     static func clampTarget(_ value: Int) -> Int { min(100, max(50, value)) }
     static func clampLow(_ value: Int) -> Int { value <= 0 ? 0 : min(50, max(5, value)) }
@@ -188,7 +242,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     }
     var subtitle: String {
         switch self {
-        case .welcome: String(localized: "Turn on what you want. Everything else stays off, and you can change it anytime.")
+        case .welcome: String(localized: "Choose how much Brim shows. You can change it anytime.")
         case .general: String(localized: "A little more Mac.")
         case .notch: String(localized: "A quiet home for what’s happening.")
         case .switcher: String(localized: "Every window. One shortcut.")
@@ -200,13 +254,13 @@ enum SettingsPage: String, CaseIterable, Identifiable {
 
 /// The Dynamic Island page's sub-pages, reached by drilling in, as System Settings does for Control Center.
 enum IslandSection: String, CaseIterable, Identifiable {
-    case shelf = "Shelf & Clipboard", activities = "Live Activities"
+    case shelf = "Files & Clipboard", notices = "Notices"
     case battery = "Battery", hiding = "Hide Automatically", keyboard = "Keyboard & Shortcuts"
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .shelf: String(localized: "Shelf & Clipboard")
-        case .activities: String(localized: "Live Activities")
+        case .shelf: String(localized: "Files & Clipboard")
+        case .notices: String(localized: "Notices")
         case .battery: String(localized: "Battery")
         case .hiding: String(localized: "Hide Automatically")
         case .keyboard: String(localized: "Keyboard & Shortcuts")
@@ -215,7 +269,7 @@ enum IslandSection: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .shelf: "tray.fill"
-        case .activities: "bolt.horizontal.fill"
+        case .notices: "bolt.horizontal.fill"
         case .battery: "battery.100percent"
         case .hiding: "eye.slash.fill"
         case .keyboard: "keyboard.fill"
@@ -224,7 +278,7 @@ enum IslandSection: String, CaseIterable, Identifiable {
     var tint: Color {
         switch self {
         case .shelf: .teal
-        case .activities: .blue
+        case .notices: .blue
         case .battery: .green
         case .hiding: .gray
         case .keyboard: .gray
@@ -233,7 +287,7 @@ enum IslandSection: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .shelf: String(localized: "A place for files and snippets while you work.")
-        case .activities: String(localized: "Brief updates from your Mac, right where you’re looking.")
+        case .notices: String(localized: "Brief updates from your Mac, right where you’re looking.")
         case .battery: String(localized: "Power at a glance, and a word when it matters.")
         case .hiding: String(localized: "The island steps aside when it should.")
         case .keyboard: String(localized: "Open the island without reaching for the pointer.")

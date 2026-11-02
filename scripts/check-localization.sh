@@ -4,7 +4,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out="$PWD/.build/localization"
-rm -rf "$out/strings"; mkdir -p "$out/strings"
+# Strings come out only for files that get compiled, so a cached build would check just part of the app.
+rm -rf "$out/strings" "$out/build"; mkdir -p "$out/strings"
 swift build --disable-sandbox --scratch-path "$out/build" \
   -Xswiftc -emit-localized-strings -Xswiftc -emit-localized-strings-path -Xswiftc "$out/strings" >/dev/null
 plutil -convert json -o "$out/da.json" Resources/da.lproj/Localizable.strings
