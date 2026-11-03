@@ -4,6 +4,60 @@ import Testing
 import UniformTypeIdentifiers
 @testable import Brim
 
+/// Runs scripts/brim against a stand-in for `open`, and reads back the links it would have sent to the app.
+private func runBrimCommand(_ arguments: [String]) throws -> (status: Int32, links: [String]) {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("brim-cli-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let log = folder.appendingPathComponent("links"), stub = folder.appendingPathComponent("open")
+    try "#!/bin/sh\nprintf '%s %s\\n' \"$1\" \"$2\" >> \"\(log.path)\"\n".write(to: stub, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stub.path)
+    let script = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("scripts/brim")
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/bash")
+    process.arguments = [script.path] + arguments
+    process.environment = ["PATH": "\(folder.path):/usr/bin:/bin"]
+    process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
+    try process.run(); process.waitUntilExit()
+    let lines = ((try? String(contentsOf: log, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
+    // Always in the background, so the app you're working in keeps the front.
+    #expect(lines.allSatisfy { $0.hasPrefix("-g brim://") })
+    return (process.terminationStatus, lines.map { String($0.dropFirst(3)) })
+}
+
+@Test func brimRunShowsACommandAndKeepsItsExitCode() throws {
+    let done = try runBrimCommand(["run", "/usr/bin/true"])
+    #expect(done.status == 0 && done.links.count == 2)
+    let start = try #require(URL(string: done.links[0])), end = try #require(URL(string: done.links[1]))
+    guard case .activity(let id, let title, let symbol, nil)? = BrimCommand(url: start) else { Issue.record("Not an activity: \(start)"); return }
+    #expect(title == "true" && symbol == "terminal.fill")
+    #expect(BrimCommand(url: end) == .endActivity(id: id, title: "true", finished: true))
+
+    // Spaces, quotes and accents survive the trip through the link.
+    let named = try runBrimCommand(["run", "--title", "Sikkerhedskopi \"nat\" & co", "--", "/usr/bin/true"])
+    let namedStart = try #require(URL(string: named.links[0]))
+    guard case .activity(_, let name, _, _)? = BrimCommand(url: namedStart) else { Issue.record("Not an activity"); return }
+    #expect(name == "Sikkerhedskopi \"nat\" & co")
+
+    // A failure keeps its own exit code, ends the activity quietly and says so with a cross.
+    let failed = try runBrimCommand(["run", "/bin/sh", "-c", "exit 3"])
+    #expect(failed.status == 3 && failed.links.count == 3)
+    let cancelled = try #require(URL(string: failed.links[1])), cross = try #require(URL(string: failed.links[2]))
+    guard case .endActivity(_, nil, false)? = BrimCommand(url: cancelled) else { Issue.record("Not a quiet end"); return }
+    guard case .message(let text, "xmark.circle.fill")? = BrimCommand(url: cross) else { Issue.record("Not a cross"); return }
+    #expect(text.hasPrefix("sh"))
+
+    // Stopping it on purpose isn't a failure, so there's no cross.
+    let stopped = try runBrimCommand(["run", "/bin/sh", "-c", "exit 130"])
+    #expect(stopped.status == 130 && stopped.links.count == 2)
+
+    // Missing commands fail normally, and misuse shows the usage without running anything.
+    #expect(try runBrimCommand(["run", "/no/such/command"]).status == 127)
+    let misuse = try runBrimCommand(["run"])
+    #expect(misuse.status == 2 && misuse.links.isEmpty)
+    #expect(try runBrimCommand(["help"]).status == 0)
+}
+
 @Test func countdownPreservesRemainingTimeWhilePausedAndFinishesAcrossSleep() {
     let start = Date(timeIntervalSince1970: 1000)
     var timer = CountdownState()

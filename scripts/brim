@@ -1,0 +1,72 @@
+#!/bin/bash
+# Shows a long-running command in Brim's island, with a checkmark or a cross when it ends.
+# The command runs exactly as it would without this: same terminal, input, output and exit code.
+# If Brim isn't around, the command still runs and nothing else happens.
+set -u
+
+usage() {
+  cat <<'USAGE'
+Usage: brim run [--title <name>] [--] <command> [arguments...]
+
+Shows the command in Brim's island while it runs, then a checkmark or a cross.
+The exit code is the command's own.
+
+  brim run make test
+  brim run --title "Nightly backup" ./backup.sh
+USAGE
+}
+
+# Every byte percent-encoded, so spaces, quotes and accents all survive the trip through a URL.
+encode() { printf '%s' "$1" | /usr/bin/od -An -tx1 | /usr/bin/tr -d ' \n' | /usr/bin/sed 's/../%&/g'; }
+# -g keeps Brim in the background, so the app you're working in stays in front.
+notify() { open -g "brim://$1" >/dev/null 2>&1 || true; }
+
+if [[ "${1:-}" != "run" ]]; then
+  usage
+  [[ "${1:-}" == "help" || "${1:-}" == "--help" || "${1:-}" == "-h" ]] && exit 0
+  exit 2
+fi
+shift
+title=""
+if [[ "${1:-}" == "--title" ]]; then
+  [[ $# -ge 2 ]] || { usage >&2; exit 2; }
+  title="$2"
+  shift 2
+fi
+[[ "${1:-}" == "--" ]] && shift
+[[ $# -gt 0 ]] || { usage >&2; exit 2; }
+[[ -n "$title" ]] || title="$(/usr/bin/basename "$1")${2:+ ${*:2}}"
+
+id="run-$$"
+name="$(encode "$title")"
+update="activity?id=$id&title=$name&symbol=terminal.fill"
+notify "$update"
+# Brim forgets an activity that's silent for 15 minutes, so a long command keeps saying it's alive.
+(
+  trap 'kill "$nap" 2>/dev/null; exit 0' TERM
+  while :; do
+    sleep 300 & nap=$!
+    wait "$nap"
+    notify "$update"
+  done
+) >/dev/null 2>&1 </dev/null &
+heartbeat=$!
+
+# The command gets Control-C itself. Trapping it here only keeps this script alive long enough to tidy up.
+trap ':' INT TERM
+"$@"
+status=$?
+trap - INT TERM
+kill "$heartbeat" 2>/dev/null
+wait "$heartbeat" 2>/dev/null
+
+case "$status" in
+  0) notify "activity/end?id=$id&title=$name" ;;
+  # Stopped on purpose, with Control-C or kill: nothing went wrong, so it just leaves.
+  130 | 143) notify "activity/cancel?id=$id" ;;
+  *)
+    notify "activity/cancel?id=$id"
+    notify "message?text=$name&symbol=xmark.circle.fill"
+    ;;
+esac
+exit "$status"

@@ -17,6 +17,7 @@ cp "$binary_directory/Brim" "$app/Contents/MacOS/.Brim.build"
 mv -f "$app/Contents/MacOS/.Brim.build" "$app/Contents/MacOS/Brim"
 cp Resources/Info.plist "$app/Contents/Info.plist"
 cp THIRD_PARTY_NOTICES.md "$app/Contents/Resources/THIRD_PARTY_NOTICES.md"
+cp scripts/brim "$app/Contents/Resources/brim"
 if [[ -f Resources/Brim.icns ]]; then cp Resources/Brim.icns "$app/Contents/Resources/Brim.icns"; fi
 # Translations: one folder per language (English is the development language, Danish is translated).
 for lproj in Resources/*.lproj; do rm -rf "$app/Contents/Resources/$(basename "$lproj")"; cp -R "$lproj" "$app/Contents/Resources/"; done
