@@ -220,6 +220,66 @@ import Testing
     #expect(notice.width >= layout.compactSize.width)
     #expect(layout.frame(on: CGRect(x: 0, y: 0, width: 1512, height: 982), expanded: true, notice: true).size == notice)
 }
+@Test func panelLeavesRoomForTheSpringToOvershoot() {
+    let layout = IslandLayout(cutoutWidth: 185, menuBarHeight: 32, hasHardwareNotch: true)
+    let display = CGRect(x: 0, y: 0, width: 1512, height: 982)
+    let open = layout.frame(on: display, expanded: true), panel = layout.panelFrame(on: display)
+    #expect(panel.minX < open.minX && panel.maxX > open.maxX && panel.minY < open.minY)
+    // Centered on the same line, and still flush with the top of the screen.
+    #expect(panel.midX == open.midX && panel.maxY == open.maxY)
+}
+@Test func swipingHidesOnlyWhatWasShowing() {
+    var dismissal = ActivityDismissal()
+    #expect(!dismissal.active)
+    dismissal.dismiss(["media:a", "timer"])
+    #expect(dismissal.active)
+    // What was hidden can pause, finish or come back without bringing the island back.
+    dismissal.update(["media:a"])
+    #expect(dismissal.active)
+    dismissal.update(["media:a", "timer"])
+    #expect(dismissal.active)
+    // Something it wasn't showing does.
+    dismissal.update(["media:a", "clipboard"])
+    #expect(!dismissal.active)
+    // So does a different player, and everything having ended.
+    dismissal.dismiss(["media:a"])
+    dismissal.update(["media:b"])
+    #expect(!dismissal.active)
+    dismissal.dismiss(["timer"])
+    dismissal.update([])
+    #expect(!dismissal.active)
+}
+@Test func clickGoesToThePlayingAppOnlyWhenHoverCanStillOpenTheIsland() {
+    #expect(IslandClick.opensApp(tab: .music, hoverOpensIsland: true, hasPlayer: true))
+    #expect(!IslandClick.opensApp(tab: .music, hoverOpensIsland: false, hasPlayer: true))
+    #expect(!IslandClick.opensApp(tab: .music, hoverOpensIsland: true, hasPlayer: false))
+    #expect(!IslandClick.opensApp(tab: .timer, hoverOpensIsland: true, hasPlayer: true))
+    #expect(!IslandClick.opensApp(tab: .files, hoverOpensIsland: true, hasPlayer: true))
+}
+@Test func barsTakeTheirColorFromTheArtwork() throws {
+    func swatch(_ colors: [NSColor]) -> NSImage {
+        NSImage(size: NSSize(width: 32, height: 32), flipped: false) { rect in
+            for (index, color) in colors.enumerated() {
+                color.setFill()
+                CGRect(x: rect.minX, y: rect.minY + rect.height * CGFloat(index) / CGFloat(colors.count), width: rect.width, height: rect.height / CGFloat(colors.count)).fill()
+            }
+            return true
+        }
+    }
+    let srgb = { (r: CGFloat, g: CGFloat, b: CGFloat) in NSColor(deviceRed: r, green: g, blue: b, alpha: 1) }
+    #expect(ArtworkTint.rgb(of: nil) == .standard)
+    let red = ArtworkTint.rgb(of: swatch([srgb(0.9, 0.05, 0.05)]))
+    #expect(red.red > red.green + 0.3 && red.red > red.blue + 0.3)
+    // A dark cover still gives a color bright enough to read on the black island.
+    let dark = ArtworkTint.rgb(of: swatch([srgb(0.05, 0.05, 0.3)]))
+    #expect(dark.blue > 0.85)
+    // A splash of color on black sets the tone, rather than being averaged away.
+    let splash = ArtworkTint.rgb(of: swatch([.black, .black, .black, srgb(0.1, 0.8, 0.1)]))
+    #expect(splash.green > splash.red + 0.3 && splash.green > 0.85)
+    // Black and white art has no color to give, so the bars go a soft white.
+    let gray = ArtworkTint.rgb(of: swatch([srgb(0.4, 0.4, 0.4), .white, .black]))
+    #expect(gray.red == gray.green && gray.green == gray.blue && gray.red > 0.8)
+}
 @Test func openIslandIsOnlyAsTallAsItsContents() {
     let layout = IslandLayout(cutoutWidth: 185, menuBarHeight: 32, hasHardwareNotch: true)
     let display = CGRect(x: 0, y: 0, width: 1512, height: 982)
@@ -950,9 +1010,6 @@ import Testing
     // Natural scrolling (inverted) and classic scrolling report opposite deltas for the same finger movement.
     #expect(IslandGesture.fingers(dx: -10, dy: -5, inverted: true) == (right: -10, up: 5))
     #expect(IslandGesture.fingers(dx: 10, dy: 5, inverted: false) == (right: -10, up: 5))
-    #expect(IslandGesture.skip(rightTravel: -60) == "next track")
-    #expect(IslandGesture.skip(rightTravel: 60) == "previous track")
-    #expect(IslandGesture.skip(rightTravel: 20) == nil)
     #expect(IslandGesture.volume(0.99, up: 100, precise: true) == 1)
     #expect(IslandGesture.volume(0.5, up: -1, precise: false) == 0.47)
     #expect(DropZone.at(x: 300, width: 408, airDropAvailable: true) == .airDrop)

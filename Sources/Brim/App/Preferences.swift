@@ -105,7 +105,7 @@ final class Preferences {
     var haptics: Bool { didSet { save(haptics, "haptics") } }
     /// A brief compact notice when a Focus turns on or off.
     var focusFeedback: Bool { didSet { save(focusFeedback, "focusFeedback") } }
-    /// Scroll for volume, swipe to skip tracks and Force Click for controls, on the compact island.
+    /// Scroll for volume and Force Click for controls, on the compact island.
     var islandGestures: Bool { didSet { save(islandGestures, "islandGestures") } }
     /// Brief notices for sound output, Low Power Mode and connectivity changes.
     var systemChanges: Bool { didSet { save(systemChanges, "systemChanges") } }

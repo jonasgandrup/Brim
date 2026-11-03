@@ -234,8 +234,8 @@ struct SettingsView: View {
                 SettingsLabel(title: "Keep Notices Small", detail: "Short notices stay around the camera instead of opening the island.")
             }.disabled(!preferences.notchEnabled)
             Toggle(isOn: binding(\.islandGestures)) {
-                SettingsLabel(title: "Gestures", detail: "Scroll on the island for volume, swipe to skip tracks.",
-                              info: "Over the compact island: scroll up or down to change the volume, swipe two fingers left for the next track or right for the previous one, and Force Click to open the controls.")
+                SettingsLabel(title: "Gestures", detail: "Scroll on the island for volume, Force Click for controls.",
+                              info: "Over the compact island: scroll up or down to change the volume and Force Click to open the controls. Swiping an activity away always works.")
             }.disabled(!preferences.notchEnabled)
             Toggle(isOn: binding(\.haptics)) {
                 SettingsLabel(title: "Haptic Feedback", detail: "A soft tap at moments worth feeling.",

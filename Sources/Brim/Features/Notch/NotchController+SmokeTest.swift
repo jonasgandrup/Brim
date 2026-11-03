@@ -170,7 +170,8 @@ extension NotchController {
             let mediaWasVisible = mediaVisible
             mediaVisible = true
             countdown.start(seconds: 240)
-            previewPointer = nil; hover(false); setExpanded(false)
+            // A pointer of its own, so these checks don't depend on what's happening on this Mac meanwhile.
+            previewPointer = CGPoint(x: -10000, y: -10000); hover(false); setExpanded(false)
             try? await Task.sleep(for: .milliseconds(300))
             smoke.activityChecks["dualActivityPreviewRendered"] = await capturePanel(named: "dual-activities-compact.png", in: directory)
             mediaVisible = false
@@ -179,6 +180,9 @@ extension NotchController {
             _ = await capturePanel(named: "timer-over-paused-media.png", in: directory)
             mediaVisible = true
             openCompactActivity(.music)
+            // A real click has the pointer on the island, and an open island with no pointer over it closes.
+            previewPointer = surfaceFrame.map { CGPoint(x: $0.midX, y: $0.midY) }
+            updateInteraction(scheduleHover: false)
             try? await Task.sleep(for: .milliseconds(80))
             smoke.activityChecks["musicClickOpensPlayer"] = expanded && selectedTab == .music
             openCompactActivity(.timer)
@@ -220,6 +224,42 @@ extension NotchController {
         defaults.removePersistentDomain(forName: suite)
         try? await Task.sleep(for: .milliseconds(250))
         return captured ? name : nil
+    }
+    /// Empty files with everyday names, so previews show nobody's real documents.
+    private static func sampleFiles() -> [URL] {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("BrimSampleFiles", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return ["Trip.pdf", "Photos.zip", "Budget.pdf", "Notes.txt"].map { name in
+            let url = folder.appendingPathComponent(name)
+            if !FileManager.default.fileExists(atPath: url.path) { FileManager.default.createFile(atPath: url.path, contents: Data()) }
+            return url
+        }
+    }
+    /// A real swipe can't be sent from here, so this starts just after it: hiding, what brings the island back, and the way in.
+    func verifySwipeDismissal() async {
+        guard let displayFrame else { return }
+        for _ in 0..<30 where desktopTransition || preparingAfterTransition { try? await Task.sleep(for: .milliseconds(100)) }
+        let idle = preferences?.openWhenIdle ?? false
+        preferences?.openWhenIdle = false; previewPointer = CGPoint(x: -10000, y: -10000); setExpanded(false)
+        countdown.start(seconds: 60)
+        try? await Task.sleep(for: .milliseconds(250))
+        let startsCompact = presentation == .compact
+        dismissActivities()
+        try? await Task.sleep(for: .milliseconds(250))
+        let hides = presentation == .hidden && activitiesDismissed
+        let notchAnswers = containsPointer(CGPoint(x: displayFrame.midX, y: displayFrame.maxY - 4))
+        showHUD(.init(symbol: "speaker.wave.2.fill", level: 0.5, label: "Volume"), seconds: 0.3)
+        let levelsStillShow = presentation == .compact
+        try? await Task.sleep(for: .milliseconds(500))
+        let hidesAgain = presentation == .hidden
+        clipboard.add(.text("Swipe check"))
+        try? await Task.sleep(for: .milliseconds(250))
+        let newActivityReturns = presentation == .compact && !activitiesDismissed
+        dismissActivities(); setExpanded(true)
+        let openingResets = !activitiesDismissed
+        setExpanded(false); clipboard.clear(); countdown.cancel(); preferences?.openWhenIdle = idle; previewPointer = nil
+        try? await Task.sleep(for: .milliseconds(150))
+        smoke.activityChecks["swipeHidesUntilSomethingNewArrives"] = startsCompact && hides && notchAnswers && levelsStillShow && hidesAgain && newActivityReturns && openingResets
     }
     /// Drives the real island over a pretend covered item, because a test can't move the actual pointer into the menu bar.
     func verifyWingClearance() async {
@@ -268,11 +308,9 @@ extension NotchController {
             let isExpanded = preview != 0 && preview != 9 && (preview < 10 || preview >= 12) && preview != 16 && preview != 19
             feedback = nil
             selectedTab = preview >= 8 ? .timer : (preview >= 4 ? .clipboard : (preview >= 2 ? .files : .music))
-            if preview == 3 {
-                shelf.add([Bundle.main.bundleURL.appendingPathComponent("Contents/Info.plist")])
-            }
+            if preview == 3 { shelf.add(Self.sampleFiles()) }
             if preview == 5 {
-                clipboard.add(.text("Pinned note for the rendering check"))
+                clipboard.add(.text("Pick up flowers on the way home"))
                 clipboard.add(.link(URL(string: "https://developer.apple.com")!))
                 if let icon = NSImage(contentsOf: Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/Brim.icns")),
                    let tiff = icon.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) { clipboard.add(.image(png)) }
@@ -310,6 +348,18 @@ extension NotchController {
         }
         clock.mode = .timer
         setDropTargeted(false); activities.clear()
+        dismissFeedback(); shelf.clear(); clipboard.clear(); countdown.cancel(); selectedTab = .battery; setExpanded(true)
+        previewPointer = surfaceFrame.map { CGPoint(x: $0.midX, y: $0.midY) }
+        try? await Task.sleep(for: .milliseconds(650))
+        if await capturePanel(named: "battery-pane.png", in: directory) { result.append("battery-pane.png") }
+        // The real island with what's really playing, which the layout preview's stand-in player can't show.
+        if media?.playing == true {
+            previewPointer = CGPoint(x: -10000, y: -10000); hover(false); setExpanded(false)
+            selectedTab = .music; countdown.start(seconds: 240)
+            try? await Task.sleep(for: .milliseconds(800))
+            if await capturePanel(named: "dual-live.png", in: directory) { result.append("dual-live.png") }
+            countdown.cancel()
+        }
         // The new install's look: one section, so no tab strip.
         let level = preferences?.level
         dismissFeedback(); shelf.clear(); clipboard.clear(); preferences?.level = .essentials; selectedTab = .music; setExpanded(true)

@@ -31,6 +31,12 @@ extension BrimAppModel {
         // Labs and most sections are off by default; the run still has to exercise and capture them.
         preferences.lidEffectEnabled = true; preferences.scaleEnabled = true
         preferences.level = .everything; apply()
+        // Pictures for the README show this player, not whatever else this Mac happens to be playing.
+        if let source = ProcessInfo.processInfo.environment["BRIM_SMOKE_PLAYER"] {
+            await media.refreshPlayers()
+            if let player = media.players.first(where: { $0.source == source }) { media.selectPlayer(player) }
+            try? await Task.sleep(for: .seconds(2))
+        }
         var rendered: [String] = []
         for appearance in [Appearance.light, .dark] {
             preferences.appearance = appearance
@@ -68,8 +74,11 @@ extension BrimAppModel {
         scaleWindow?.close()
         preferences.appearance = .system
         rendered += await notch.exportPreview(to: URL(fileURLWithPath: output))
+        let shownPlayer = media.source ?? "None"
         rendered += await switcher.exportPreviews(to: URL(fileURLWithPath: output))
         await notch.verifyWingClearance()
+        await notch.verifySwipeDismissal()
+        if let data = IslandMotionPreview.image(), (try? data.write(to: URL(fileURLWithPath: output).appendingPathComponent("island-motion.png"))) != nil { rendered.append("island-motion.png") }
         rendered += await DesktopFoldView.exportPreviews(to: URL(fileURLWithPath: output))
         let fileActionsCheck = CommandLine.arguments.contains("--check-file-actions") ? await notch.verifyFileActions() : [:]
         var mediaCheck: [String: Any] = [:]
@@ -92,6 +101,7 @@ extension BrimAppModel {
             mediaCheck["systemBridgeAvailable"] = snapshot?.available == true
             mediaCheck["hasMediaSession"] = snapshot?.hasMedia == true
             mediaCheck["sourceName"] = snapshot?.sourceName ?? "None"
+            mediaCheck["shownPlayer"] = shownPlayer
             mediaCheck["hasPlaybackRate"] = snapshot?.rate != nil
             mediaCheck["advertisesSeeking"] = snapshot?.canSeek == true
             if let snapshot, let source = snapshot.source, let title = snapshot.title, let position = snapshot.position {

@@ -288,7 +288,6 @@
 "New screenshots wait in the island." = "Nye skærmbilleder venter i Dynamic Island.";
 "Next" = "Næste";
 "Next Calendar Event" = "Næste kalenderbegivenhed";
-"Next Track" = "Næste nummer";
 "Next track in %@" = "Næste nummer i %@";
 "Next track in %@ only" = "Næste nummer kun i %@";
 "Nice work · take %lld minutes" = "Godt arbejde · hold %lld minutters pause";
@@ -366,7 +365,7 @@
 "Open Trackpad Scale" = "Åbn pegefeltsvægt";
 "Open your MacBook" = "Åbn din MacBook";
 "Output: %@" = "Udgang: %@";
-"Over the compact island: scroll up or down to change the volume, swipe two fingers left for the next track or right for the previous one, and Force Click to open the controls." = "Over den lille Dynamic Island: rul op eller ned for at ændre lydstyrken, skub to fingre til venstre for næste nummer eller til højre for det forrige, og brug Force Click for at åbne betjeningen.";
+"Over the compact island: scroll up or down to change the volume and Force Click to open the controls. Swiping an activity away always works." = "Over den lille Dynamic Island: rul op eller ned for at ændre lydstyrken, og brug Force Click for at åbne betjeningen. Du kan altid skubbe en aktivitet væk.";
 "Paste" = "Indsæt";
 "Paths couldn’t be copied." = "Stierne kunne ikke kopieres.";
 "Pause" = "Pause";
@@ -403,7 +402,6 @@
 "Power at a glance, and a word when it matters." = "Strøm med ét blik og en besked, når det betyder noget.";
 "Press T or Set Zero without lifting your finger." = "Tryk på T eller Nulstil uden at løfte fingeren.";
 "Previous" = "Forrige";
-"Previous Track" = "Forrige nummer";
 "Previous track in %@" = "Forrige nummer i %@";
 "Previous track in %@ only" = "Forrige nummer kun i %@";
 "Privacy" = "Anonymitet";
@@ -460,7 +458,7 @@
 "Screen Recording permission is needed for Brim to fold your desktop." = "Brim skal have tilladelse til skærmoptagelse for at folde skrivebordet.";
 "Screenshot" = "Skærmbillede";
 "Screenshots" = "Skærmbilleder";
-"Scroll on the island for volume, swipe to skip tracks." = "Rul på Dynamic Island for lydstyrke, skub for at skifte nummer.";
+"Scroll on the island for volume, Force Click for controls." = "Rul på Dynamic Island for lydstyrke, Force Click for betjening.";
 "Seeking isn’t available in this player." = "Spoling er ikke mulig i denne afspiller.";
 "Select accessible files first." = "Vælg først tilgængelige arkiver.";
 "Select accessible files to copy." = "Vælg tilgængelige arkiver at kopiere.";

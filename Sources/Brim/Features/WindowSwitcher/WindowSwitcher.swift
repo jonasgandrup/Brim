@@ -530,19 +530,36 @@ private struct SwitcherTile: View {
 #if DEBUG
 /// The real panel with sample windows, so the smoke test can show it without Accessibility access or anyone's window titles.
 extension WindowSwitcher {
+    /// A drawn stand-in for a window: a title bar, a sidebar and some content, never anything from the screen.
+    private static func sampleThumbnail(hue: CGFloat) -> NSImage {
+        NSImage(size: NSSize(width: 150, height: 94), flipped: true) { rect in
+            NSColor(white: 0.97, alpha: 1).setFill(); rect.fill()
+            NSColor(white: 0.9, alpha: 1).setFill(); NSRect(x: 0, y: 0, width: rect.width, height: 11).fill()
+            for (index, color) in [NSColor.systemRed, .systemYellow, .systemGreen].enumerated() {
+                color.setFill(); NSBezierPath(ovalIn: NSRect(x: 5 + CGFloat(index) * 6, y: 3.5, width: 4, height: 4)).fill()
+            }
+            NSColor(hue: hue, saturation: 0.1, brightness: 0.93, alpha: 1).setFill(); NSRect(x: 0, y: 11, width: 36, height: rect.height - 11).fill()
+            NSColor(hue: hue, saturation: 0.45, brightness: 0.85, alpha: 1).setFill()
+            NSBezierPath(roundedRect: NSRect(x: 44, y: 19, width: 98, height: 34), xRadius: 3, yRadius: 3).fill()
+            NSColor(white: 0.82, alpha: 1).setFill()
+            for row in 0..<4 { NSBezierPath(roundedRect: NSRect(x: 44, y: 59 + CGFloat(row) * 7, width: row == 3 ? 58 : 98, height: 3), xRadius: 1.5, yRadius: 1.5).fill() }
+            for row in 0..<6 { NSBezierPath(roundedRect: NSRect(x: 5, y: 18 + CGFloat(row) * 8, width: 24, height: 3), xRadius: 1.5, yRadius: 1.5).fill() }
+            return true
+        }
+    }
     func exportPreviews(to directory: URL) async -> [String] {
         guard let screen = NSScreen.main else { return [] }
         let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
         guard !apps.isEmpty else { return [] }
         let element = AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
+        let titles = ["com.apple.finder": "Downloads", "com.spotify.client": "Poker Face", "com.apple.Music": "Poker Face", "com.google.Chrome": "Trip to Copenhagen",
+                      "com.apple.Safari": "Trip to Copenhagen", "com.apple.Notes": "Meeting Notes", "com.apple.Terminal": "brim — zsh", "com.anthropic.claudefordesktop": "Brim"]
         func samples(_ count: Int, previews: Bool) -> [SwitcherWindow] {
             (0..<count).map { index in
                 let app = apps[index % apps.count]
-                let window = SwitcherWindow(element: element, app: app, title: "Sample window \(index + 1)", frame: CGRect(x: 0, y: 0, width: 1440, height: 900), minimized: !previews && index == 2)
-                if previews {
-                    let tint = NSColor(hue: (CGFloat(index) * 0.17).truncatingRemainder(dividingBy: 1), saturation: 0.25, brightness: 0.9, alpha: 1)
-                    window.thumbnail = NSImage(size: NSSize(width: 150, height: 94), flipped: false) { rect in tint.setFill(); rect.fill(); return true }
-                }
+                let title = titles[app.bundleIdentifier ?? ""] ?? app.localizedName ?? "Window"
+                let window = SwitcherWindow(element: element, app: app, title: title, frame: CGRect(x: 0, y: 0, width: 1440, height: 900), minimized: !previews && index == 2)
+                if previews { window.thumbnail = Self.sampleThumbnail(hue: (CGFloat(index) * 0.17 + 0.55).truncatingRemainder(dividingBy: 1)) }
                 return window
             }
         }
@@ -550,6 +567,8 @@ extension WindowSwitcher {
         func capture(_ name: String, _ list: [SwitcherWindow], selected index: Int, searching isSearching: Bool = false, query text: String = "") async {
             windows = list; selected = index; searching = isSearching; query = text; visible = true
             let panel = makePanel(on: screen)
+            // Follows the system when it's in use. Fixed here so the pictures don't depend on the time of day.
+            panel.appearance = NSAppearance(named: .darkAqua)
             self.panel = panel; panel.orderFrontRegardless()
             try? await Task.sleep(for: .milliseconds(350))
             if let data = await SmokeCapture.png(of: panel), (try? data.write(to: directory.appendingPathComponent(name))) != nil { rendered.append(name) }

@@ -96,7 +96,8 @@ final class MediaService {
     var title = String(localized: "Nothing playing")
     var artist = ""
     var playing = false
-    var artwork: NSImage?
+    var artwork: NSImage? { didSet { if artwork !== oldValue { artworkTint = ArtworkTint.rgb(of: artwork) } } }
+    private(set) var artworkTint = ArtworkTint.RGB.standard
     var source: String?
     private var parentSource: String?
     /// Like the iPhone: the app playing already shows its own controls, so the compact island stays quiet until you
@@ -385,7 +386,7 @@ final class MediaService {
         clearPlayback(); message = nil; systemAvailable = false
     }
     func openPlayer() {
-        guard let source, let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: source) else { return }
+        guard let app = parentSource ?? source, let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app) else { return }
         NSWorkspace.shared.openApplication(at: url, configuration: .init())
     }
     func command(_ command: String) {

@@ -29,6 +29,14 @@ struct IslandView: View {
     private var expandedShowsArtwork: Bool {
         controller.expanded && controller.feedback == nil && controller.displayedTab == .music && preferences.mediaEnabled && media.source != nil
     }
+    /// Retracting into the camera stays exact: a bounce there would show the hardware cutout.
+    private var surfaceAnimation: Animation {
+        switch controller.presentation {
+        case .expanded: IslandStyle.open
+        case .compact: IslandStyle.settle
+        case .hidden: .smooth(duration: 0.22)
+        }
+    }
     var body: some View {
         let base = layout.surfaceSize(for: controller.presentation, reveal: controller.surfaceReveal, notice: controller.showsNotice, paneHeight: controller.paneHeight)
         let notice = controller.showsNotice
@@ -57,23 +65,31 @@ struct IslandView: View {
             .overlay(alignment: .topLeading) { morphingArtwork }
         .background { IslandGlass(shape: surface) }
         .clipShape(surface)
+        .background(alignment: .topTrailing) {
+            // Behind the island, so what shows is the droplet pulling away and never anything over the activity.
+            ActivitySplit(progress: controller.showsActivityBubble ? 1 : 0, side: layout.compactSize.height, gap: IslandLayout.bubbleGap)
+                .offset(x: layout.compactSize.height + IslandLayout.bubbleGap)
+                .allowsHitTesting(false)
+        }
         .overlay(alignment: .topTrailing) {
-            if controller.showsActivityBubble {
-                activityBubble
-                    .offset(x: layout.compactSize.height + IslandLayout.bubbleGap)
-                    .transition(.scale(scale: 0.3, anchor: .leading).combined(with: .opacity))
-            }
+            let parted = controller.showsActivityBubble
+            activityBubble
+                .scaleEffect(parted ? 1 : 0.6)
+                .opacity(parted ? 1 : 0)
+                .offset(x: parted ? layout.compactSize.height + IslandLayout.bubbleGap : 0)
+                .allowsHitTesting(parted)
+                .accessibilityHidden(!parted)
         }
         .opacity(layout.hasHardwareNotch ? 1 : controller.surfaceReveal)
         .foregroundStyle(.white).preferredColorScheme(.dark)
         .contentShape(surface)
         .opacity(!layout.hasHardwareNotch && controller.presentation == .hidden ? 0 : 1)
-        .animation(reduceMotion || controller.surfaceAnimationsSuppressed ? nil : .smooth(duration: controller.expanded ? 0.32 : 0.22, extraBounce: controller.expanded ? 0.06 : 0), value: controller.presentation)
+        .animation(reduceMotion || controller.surfaceAnimationsSuppressed ? nil : surfaceAnimation, value: controller.presentation)
         .animation(reduceMotion ? nil : .smooth(duration: 0.28, extraBounce: 0.04), value: controller.showsNotice)
-        .animation(reduceMotion || !controller.expanded ? nil : .smooth(duration: 0.28, extraBounce: 0.04), value: controller.paneHeight)
+        .animation(reduceMotion || !controller.expanded ? nil : IslandStyle.resize, value: controller.paneHeight)
         .animation(reduceMotion ? nil : IslandStyle.quick, value: controller.hud)
         .animation(reduceMotion ? nil : IslandStyle.quick, value: controller.hoverSwell)
-        .animation(reduceMotion ? nil : .smooth(duration: 0.32, extraBounce: 0.1), value: controller.showsActivityBubble)
+        .animation(reduceMotion ? nil : IslandStyle.part, value: controller.showsActivityBubble)
         .transaction { transaction in
             if controller.surfaceAnimationsSuppressed { transaction.disablesAnimations = true; transaction.animation = nil }
         }
@@ -90,13 +106,13 @@ struct IslandView: View {
     private var header: some View {
         HStack(spacing: 0) {
             Button {
-                if dualActivities { controller.openCompactActivity(.music) }
+                if dualActivities { controller.clickCompactActivity(.music) }
                 else if controller.expanded { controller.setExpanded(false) }
-                else { controller.openCompactActivity(controller.compactLeadingTab) }
+                else { controller.clickCompactActivity(controller.compactLeadingTab) }
             } label: {
                 leadingActivity.frame(width: 38, height: layout.headerHeight).contentShape(Rectangle())
             }.buttonStyle(.plain)
-                .accessibilityLabel(dualActivities ? "Open Now Playing" : controller.expanded ? "Collapse island" : "Open \(controller.compactLeadingTab == .timer ? "Clock" : "island")")
+                .accessibilityLabel(!controller.expanded && controller.clickOpensApp(dualActivities ? .music : controller.compactLeadingTab) ? "Open \(media.sourceName)" : dualActivities ? "Open Now Playing" : controller.expanded ? "Collapse island" : "Open \(controller.compactLeadingTab == .timer ? "Clock" : "island")")
             Spacer(minLength: 0)
             if layout.hasHardwareNotch {
                 // Keep all controls outside the actual, physically occluded camera region.
@@ -114,10 +130,10 @@ struct IslandView: View {
                 // No close button: moving away, clicking outside or Escape closes it, as on iPhone.
                 Color.clear.frame(width: 38, height: layout.headerHeight)
             } else {
-                Button { controller.openCompactActivity(dualActivities ? .music : controller.compactTrailingTab) } label: {
+                Button { controller.clickCompactActivity(dualActivities ? .music : controller.compactTrailingTab) } label: {
                     trailingActivity.frame(width: 38, height: layout.headerHeight).contentShape(Rectangle())
                 }.buttonStyle(.plain)
-                    .accessibilityLabel(dualActivities ? "Open Now Playing" : controller.compactTrailingTab == .timer ? "Open timer controls" : "Expand island")
+                    .accessibilityLabel(controller.clickOpensApp(dualActivities ? .music : controller.compactTrailingTab) ? "Open \(media.sourceName)" : dualActivities ? "Open Now Playing" : controller.compactTrailingTab == .timer ? "Open timer controls" : "Expand island")
             }
         }.padding(.horizontal, 8)
         .overlay(alignment: .trailing) {
@@ -171,7 +187,7 @@ struct IslandView: View {
             } else if let level = hud.level { HUDLevel(level: level, tint: hud.tint) }
             else { Circle().fill(hud.tint).frame(width: 7, height: 7) }
         } else if dualActivities {
-            PlaybackActivity(playing: media.playing)
+            PlaybackActivity(playing: media.playing, tint: media.artworkTint)
         } else if controller.countdown.active {
             Text(controller.countdown.state.phase == .finished ? String(localized: "Done") : controller.countdown.label)
                 .font(.system(size: 10, weight: .semibold)).monospacedDigit()
@@ -193,13 +209,13 @@ struct IslandView: View {
         } else if mediaOnIsland {
             if media.sleepTimer.schedule != nil && !media.playing {
                 Image(systemName: "moon.zzz.fill").font(.system(size: 12)).foregroundStyle(.orange)
-            } else { PlaybackActivity(playing: media.playing) }
+            } else { PlaybackActivity(playing: media.playing, tint: media.artworkTint) }
         } else if controller.feedback != nil {
             Image(systemName: controller.feedbackSymbol).font(.system(size: 13)).foregroundStyle(controller.feedbackTint.opacity(0.8))
         }
     }
     private func toggle() {
-        if controller.expanded { controller.setExpanded(false) } else { controller.openInContext() }
+        if controller.expanded { controller.setExpanded(false) } else { controller.clickCompactActivity(controller.compactLeadingTab) }
     }
     @ViewBuilder private var morphingArtwork: some View {
         let expandedArt = expandedShowsArtwork
@@ -329,6 +345,10 @@ struct IslandView: View {
                     }.animation(reduceMotion ? nil : IslandStyle.quick, value: media.title)
                     Spacer(minLength: 0)
                 }
+                // Tapping what's playing goes to it, as in the iPhone's expanded island.
+                .contentShape(Rectangle())
+                .onTapGesture { media.openPlayer() }
+                .accessibilityAction(named: "Open \(media.sourceName)") { media.openPlayer() }
                 if let message = media.message {
                     Text(message).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
                         .frame(height: 17).help(message)
@@ -477,10 +497,11 @@ private struct HUDLevel: View {
 /// Keeps one indicator alive across pause/play so bars settle and grow instead of being replaced.
 private struct PlaybackActivity: View {
     var playing: Bool
+    var tint: ArtworkTint.RGB
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 20, paused: reduceMotion || !playing)) { timeline in
-            PlaybackBars(activity: playing ? 1 : 0, time: reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate)
+            PlaybackBars(activity: playing ? 1 : 0, time: reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate, tint: tint)
                 .animation(reduceMotion ? nil : IslandStyle.standard, value: playing)
         }.frame(width: 21, height: 16).accessibilityLabel(playing ? "Media playing" : "Media paused")
     }
@@ -489,6 +510,7 @@ private struct PlaybackActivity: View {
 private struct PlaybackBars: View, Animatable {
     nonisolated var activity: Double
     var time: Double
+    var tint: ArtworkTint.RGB
     nonisolated var animatableData: Double {
         get { activity }
         set { activity = newValue }
@@ -499,11 +521,63 @@ private struct PlaybackBars: View, Animatable {
                 let wave = (sin(time * 4.5 + Double(index) * 1.8) + 1) * 5
                 let height = 2.5 + activity * (1.5 + wave)
                 let rect = CGRect(x: Double(index) * 4.5, y: (size.height - height) / 2, width: 2.5, height: height)
-                context.fill(Path(roundedRect: rect, cornerRadius: 1.25), with: .color(Color(red: 0.55 - 0.3 * activity, green: 0.55 + 0.3 * activity, blue: 0.55 - 0.2 * activity)))
+                context.fill(Path(roundedRect: rect, cornerRadius: 1.25), with: .color(tint.mixed(fromGray: 0.55, by: activity)))
             }
         }
     }
 }
+
+/// The bubble's way out of the island: a droplet that stretches a neck of black and then lets go, as on iPhone.
+/// Blurring the two shapes together and cutting at half opacity is what makes them flow into each other.
+private struct ActivitySplit: View, Animatable {
+    nonisolated var progress: Double
+    let side: CGFloat
+    let gap: CGFloat
+    nonisolated var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+    var body: some View {
+        Canvas { context, size in
+            guard progress > 0.001 else { return }
+            context.addFilter(.alphaThreshold(min: 0.5, color: .black))
+            context.addFilter(.blur(radius: 3.5))
+            context.drawLayer { layer in
+                // The canvas starts one bubble inside the island, whose rounded end this repeats.
+                layer.fill(Path(roundedRect: CGRect(x: -side, y: 0, width: side * 2, height: side), cornerRadius: side / 2), with: .color(.black))
+                let travel = progress * (side + gap)
+                layer.fill(Path(ellipseIn: CGRect(x: travel, y: 0, width: side, height: side)), with: .color(.black))
+            }
+        }
+        .frame(width: side + gap + side, height: side)
+    }
+}
+
+#if DEBUG
+/// A moving droplet and live colors can't be judged from one screenshot of a settled island, so the smoke test draws them.
+@MainActor enum IslandMotionPreview {
+    static func image() -> Data? {
+        let side: CGFloat = 32, gap = IslandLayout.bubbleGap
+        let content = VStack(alignment: .leading, spacing: 14) {
+            ForEach([0.15, 0.3, 0.45, 0.6, 0.8, 1.0], id: \.self) { progress in
+                RoundedRectangle(cornerRadius: side / 2, style: .continuous).fill(.black).frame(width: 160, height: side)
+                    .background(alignment: .topTrailing) {
+                        ActivitySplit(progress: progress, side: side, gap: gap).offset(x: side + gap)
+                    }
+            }
+            HStack(spacing: 14) {
+                ForEach(Array([NSColor.systemRed, .systemBlue, .systemYellow, .systemPurple, NSColor(white: 0.5, alpha: 1)].enumerated()), id: \.offset) { _, color in
+                    PlaybackBars(activity: 1, time: 1, tint: ArtworkTint.rgb(of: ArtworkTint.swatch(color)))
+                        .frame(width: 24, height: 18).padding(8).background(.black, in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
+        }.padding(16).padding(.trailing, 60).background(.white)
+        let renderer = ImageRenderer(content: content); renderer.scale = 2
+        guard let image = renderer.nsImage, let tiff = image.tiffRepresentation else { return nil }
+        return NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:])
+    }
+}
+#endif
 
 private struct MediaProgress: View {
     @Bindable var media: MediaService

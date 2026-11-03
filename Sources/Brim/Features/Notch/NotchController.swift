@@ -45,6 +45,13 @@ struct IslandLayout {
         let fitted = headerHeight + Self.paneTopGap + paneHeight.rounded(.up) + Self.paneBottomGap
         return CGSize(width: expandedSize.width, height: min(expandedSize.height, fitted))
     }
+    /// Room around the open island for a spring's overshoot, which the panel's edge would otherwise cut off flat.
+    static let overshootRoom: CGFloat = 24
+    func panelFrame(on screen: CGRect) -> CGRect {
+        let open = frame(on: screen, expanded: true)
+        return CGRect(x: open.minX - Self.overshootRoom, y: open.minY - Self.overshootRoom,
+                      width: open.width + Self.overshootRoom * 2, height: open.height + Self.overshootRoom)
+    }
     static let paneTopGap: CGFloat = 4
     static let paneBottomGap: CGFloat = 22
     /// A line of news only needs a line's worth of island, as on iPhone.
@@ -179,16 +186,34 @@ enum DropZone: Equatable {
 }
 
 /// Trackpad gestures on the compact island, in the direction the fingers move whatever the scrolling setting.
+/// A swipe hides what's on the island, as on iPhone, until something it wasn't showing arrives. What was hidden
+/// may come and go without bringing the island back; once nothing is left, the next thing to start shows as usual.
+struct ActivityDismissal: Equatable {
+    private var hidden: Set<String>?
+    var active: Bool { hidden != nil }
+    mutating func dismiss(_ current: Set<String>) { hidden = current }
+    mutating func update(_ current: Set<String>) {
+        guard let hidden else { return }
+        if current.isEmpty || !current.isSubset(of: hidden) { self.hidden = nil }
+    }
+    mutating func reset() { hidden = nil }
+}
+
+/// Like a tap on iPhone, a click goes to the app that's playing, and hovering is the long press that opens the island.
+/// With hover turned off, a click is the only way in, so it keeps opening the island.
+enum IslandClick {
+    static func opensApp(tab: IslandTab, hoverOpensIsland: Bool, hasPlayer: Bool) -> Bool {
+        tab == .music && hoverOpensIsland && hasPlayer
+    }
+}
+
 enum IslandGesture {
     /// Natural scrolling flips the deltas; this undoes that so "up" and "left" mean the fingers.
     static func fingers(dx: CGFloat, dy: CGFloat, inverted: Bool) -> (right: CGFloat, up: CGFloat) {
         inverted ? (dx, -dy) : (-dx, dy)
     }
-    static let skipTravel: CGFloat = 50
-    /// Swiping left goes to the next track, as you'd swipe a card away; right goes back.
-    static func skip(rightTravel: CGFloat) -> String? {
-        rightTravel <= -skipTravel ? "next track" : rightTravel >= skipTravel ? "previous track" : nil
-    }
+    /// How far a sideways swipe travels before it counts, in either direction.
+    static let hideTravel: CGFloat = 50
     static func volume(_ current: Double, up: CGFloat, precise: Bool) -> Double {
         min(1, max(0, current + Double(up) * (precise ? 0.004 : 0.03)))
     }
@@ -280,6 +305,33 @@ final class NotchController {
     var mediaVisible = false
     /// The app in front, so its own Now Playing can step aside. Brim counts too: its windows don't show the player.
     var frontApp: String?
+    private var dismissal = ActivityDismissal()
+    var activitiesDismissed: Bool { dismissal.active }
+    private var activityKinds: Set<String> {
+        var kinds: Set<String> = []
+        if mediaVisible, let source = media?.source { kinds.insert("media:" + source) }
+        if countdown.active || clock.active { kinds.insert("timer") }
+        if transfers.hasRunning || !activities.running.isEmpty { kinds.insert("transfers") }
+        if media?.sleepTimer.schedule != nil { kinds.insert("sleep") }
+        if shelfHasFiles { kinds.insert("files") }
+        if clipboardHasPins { kinds.insert("clipboard") }
+        return kinds
+    }
+    func dismissActivities() {
+        hoverTask?.cancel(); hoverTask = nil
+        hudTask?.cancel(); hud = nil
+        dismissal.dismiss(activityKinds)
+        updateInteraction(scheduleHover: false)
+    }
+    func clickOpensApp(_ tab: IslandTab) -> Bool {
+        IslandClick.opensApp(tab: tab, hoverOpensIsland: preferences?.hoverToExpand == true, hasPlayer: media?.source != nil)
+    }
+    func clickCompactActivity(_ tab: IslandTab) {
+        guard clickOpensApp(tab) else { openCompactActivity(tab); return }
+        guard !presentationMode, !recentlyForceClicked else { return }
+        hoverTask?.cancel(); hoverTask = nil
+        media?.openPlayer()
+    }
     /// What the open island's contents measure. Nil until they've been laid out, which means the full island.
     private(set) var paneHeight: CGFloat?
     private var paneResizedAt: TimeInterval = -.infinity
@@ -419,6 +471,7 @@ final class NotchController {
         if transitioning || presentationMode { return .hidden }
         if expanded { return .expanded }
         if wingsAside { return .hidden }
+        if dismissal.active && hud == nil && feedback == nil && !fileDragActive { return .hidden }
         if fileDragActive || transfers.hasRunning || !activities.running.isEmpty || shelfHasFiles || clipboardHasPins || countdown.active
             || clock.active || media?.sleepTimer.schedule != nil || hud != nil { return .compact }
         return .resolve(expanded: expanded, mediaEnabled: preferences?.mediaEnabled == true,
@@ -545,7 +598,7 @@ final class NotchController {
                 guard let self, !self.transitioning else { return }
                 // Switching ordinary apps must not retract/recreate the camera cover.
                 // Space gestures and the actual switcher own suppression separately.
-                if self.expanded { self.setExpanded(false) }
+                if self.expanded && self.previewPointer == nil { self.setExpanded(false) }
                 self.followActiveDisplayIfNeeded()
             }
         })
@@ -596,7 +649,8 @@ final class NotchController {
         }
     }
     private func clickDismisses(at location: CGPoint) -> Bool {
-        expanded && !shelf.systemUIActive && systemMenuDepth == 0 && !containsPointer(location)
+        // While the smoke test drives the island, a real click somewhere else on this Mac isn't meant for it.
+        expanded && previewPointer == nil && !shelf.systemUIActive && systemMenuDepth == 0 && !containsPointer(location)
     }
     private func observeActivity() {
         let generation = observationGeneration
@@ -629,6 +683,7 @@ final class NotchController {
                 guard let self, self.observingActivity, self.observationGeneration == generation else { return }
                 if let status = self.status { self.receivePower(PowerSample(percent: status.battery, externalPower: status.charging)) }
                 self.syncMediaVisibility()
+                self.dismissal.update(self.activityKinds)
                 // An activity appearing under a still pointer isn't the pointer coming to rest on it.
                 self.updateInteraction(scheduleHover: false)
                 if !self.shelf.systemUIActive && self.expanded && !self.pointerInside { self.collapseAfterDelay() }
@@ -652,7 +707,7 @@ final class NotchController {
     }
     func containsPointer(_ point: CGPoint) -> Bool {
         if presentation == .hidden {
-            guard !desktopTransition, !presentationMode, preferences?.openWhenIdle != false || mediaHiddenForItsApp, let displayFrame else { return false }
+            guard !desktopTransition, !presentationMode, preferences?.openWhenIdle != false || mediaHiddenForItsApp || dismissal.active, let displayFrame else { return false }
             return layout.idleHoverFrame(on: displayFrame).contains(point)
         }
         if let bubble = bubbleFrame, IslandHitRegion.contains(point, frame: bubble, radius: bubble.height / 2, roundedTop: true) { return true }
@@ -720,7 +775,7 @@ final class NotchController {
         transitionPhase = .settled; surfaceReveal = 1
         paneTask?.cancel(); displayedTab = selectedTab; paneOpacity = 1
         mediaExitTask?.cancel(); mediaVisible = false; lastMediaInput = nil
-        wingsAside = false; coveredByWings = nil
+        wingsAside = false; coveredByWings = nil; dismissal.reset()
         dragPollTimer?.invalidate(); dragPollTimer = nil; fileDragActive = false; dropTargeted = false
         collapseTask?.cancel(); hoverTask?.cancel(); feedbackTask?.cancel(); hudTask?.cancel(); hud = nil
         panel?.orderOut(nil); panel = nil; displayFrame = nil
@@ -766,7 +821,7 @@ final class NotchController {
             cutout = max(160, right.minX - left.maxX)
         } else { cutout = 190 }
         layout = IslandLayout(cutoutWidth: cutout, menuBarHeight: max(28, screen.safeAreaInsets.top), hasHardwareNotch: hasNotch)
-        let panel = IslandPanel(contentRect: layout.frame(on: screen.frame, expanded: true), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        let panel = IslandPanel(contentRect: layout.panelFrame(on: screen.frame), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = false
         panel.animationBehavior = .none
         // Status-bar level keeps the narrow activity wings visible above the menu-bar background.
@@ -785,7 +840,7 @@ final class NotchController {
         // SwiftUI's intrinsic minimum must not enlarge the collapsed NSPanel.
         hosting.sizingOptions = []
         panel.contentView = hosting
-        panel.setFrame(layout.frame(on: screen.frame, expanded: true), display: true)
+        panel.setFrame(layout.panelFrame(on: screen.frame), display: true)
         updateInteraction(scheduleHover: false)
     }
     func setExpanded(_ value: Bool) {
@@ -796,7 +851,7 @@ final class NotchController {
         if value { hudTask?.cancel(); hud = nil }
         // A section that was turned off can't be opened; go to what's happening instead.
         if value && !visibleTabs.contains(selectedTab) { selectedTab = contextTab() }
-        if !value { hoverIntent.spend() }
+        if !value { hoverIntent.spend() } else { dismissal.reset() }
         expanded = value
         updateInteraction(scheduleHover: false)
     }
@@ -969,22 +1024,24 @@ final class NotchController {
     /// The click that ends a Force Click mustn't then also count as an ordinary click on the island.
     var recentlyForceClicked: Bool { ProcessInfo.processInfo.systemUptime - forceClickedAt < 0.8 }
     private var gesturesEnabled: Bool { preferences?.islandGestures == true && !expanded && presentation == .compact }
-    /// Over the compact island, scrolling changes the volume and a sideways swipe skips tracks. Returns true when used.
+    /// Over the compact island, a sideways swipe hides what's on it, at every level as on iPhone. Scrolling changes
+    /// the volume, if that's turned on. Returns true when used.
     private func handleScroll(_ event: NSEvent, at location: CGPoint) -> Bool {
-        guard gesturesEnabled, containsPointer(location) else { return false }
+        guard !expanded, presentation == .compact, containsPointer(location) else { return false }
         if event.phase.contains(.began) || event.phase.contains(.mayBegin) { swipeTravel = 0; swipeFired = false }
         // Momentum after the fingers lift would keep changing the volume; the gesture is what the fingers did.
         guard event.momentumPhase.isEmpty else { return true }
         let fingers = IslandGesture.fingers(dx: event.scrollingDeltaX, dy: event.scrollingDeltaY, inverted: event.isDirectionInvertedFromDevice)
         if abs(fingers.right) > abs(fingers.up) {
-            guard event.hasPreciseScrollingDeltas, !swipeFired, let media, media.source != nil else { return true }
+            guard event.hasPreciseScrollingDeltas, !swipeFired else { return true }
             swipeTravel += fingers.right
-            if let command = IslandGesture.skip(rightTravel: swipeTravel) {
+            if abs(swipeTravel) >= IslandGesture.hideTravel {
                 swipeFired = true
-                media.command(command)
                 haptic(.land)
-                showHUD(.init(symbol: command == "next track" ? "forward.fill" : "backward.fill", label: command == "next track" ? String(localized: "Next Track") : String(localized: "Previous Track")), seconds: 0.9)
+                dismissActivities()
             }
+        } else if preferences?.islandGestures != true {
+            return false
         } else if let status, status.volumeSettable, let volume = status.volume, fingers.up != 0 {
             let next = IslandGesture.volume(status.muted ? 0 : volume, up: fingers.up, precise: event.hasPreciseScrollingDeltas)
             status.setVolume(next)
