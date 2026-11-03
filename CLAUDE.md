@@ -8,6 +8,7 @@ extras. The goal is an Apple-like feel: quiet by default, opaque black island, s
 
 - `./test.sh` runs the tests. Plain `swift test` fails with this toolchain (the Testing framework needs extra
   flags that the script adds). Never report tests as failing because `swift test` failed.
+- `scripts/package.sh` builds the download, `dist/Brim-<version>.dmg`. It isn't notarized; `scripts/release.sh` is for a paid Developer ID.
 - `./build.sh debug` builds and signs `dist/Brim.app`. Release: `./build.sh` (or `swift build -c release` to
   just compile). Check both: test harness code lives behind `#if DEBUG`.
 - Signing uses one stable local identity (`scripts/sign-local.sh`, keys in `.sense-signing/`, never committed),
@@ -48,6 +49,8 @@ extras. The goal is an Apple-like feel: quiet by default, opaque black island, s
 - A new install is Essentials, what iPhone does and nothing more. `IslandLevel` isn't saved; it's read back from the
   switches in `levelSwitches`. Add a new extra there unless it reads personal data or needs a permission: those stay
   their own switch, so choosing a level never sets off a run of prompts.
+- "Dynamic Island" is Apple's name: in the app it's the island ("Island" as a title, "øen" in Danish, where "Island" means Iceland).
+  The README may mention Apple's feature only as a comparison.
 - Match the surrounding code: dense, few comments that explain why, Apple-style user-facing copy.
 - Every user-facing string is translatable: SwiftUI literals, `LocalizedStringKey` parameters on our own
   components (`SettingsLabel`, `Footnote`, `IslandEmptyState`, `TimerActionButton`…), or `String(localized:)` in

@@ -2,7 +2,7 @@
 
 <p align="center"><strong>Small touches. A better everyday.</strong></p>
 
-<p align="center">The iPhone's Dynamic Island, made for the notch on your Mac.<br>Quiet until there's something to show.</p>
+<p align="center">Inspired by the iPhone's Dynamic Island, made for the notch on your Mac.<br>Quiet until there's something to show.</p>
 
 <p align="center"><img src="docs/images/hero.png" alt="The island open below the notch, playing Poker Face by Lady Gaga with artwork, a progress bar and playback controls" width="100%"></p>
 
@@ -65,6 +65,23 @@ Hover over the activity and it opens, only as tall as what's inside.
   </tr>
 </table>
 
+## Long tasks, right in the notch
+
+Put `brim run` in front of any terminal command. It shows in the notch while it runs, then ends with a checkmark or a cross, so you can look away from that build.
+
+```sh
+brim run npm run build
+brim run --title "Nightly backup" ./backup.sh
+```
+
+The command runs just as it would otherwise, with the same output and exit code. To set it up once:
+
+```sh
+ln -s /Applications/Brim.app/Contents/Resources/brim ~/.local/bin/brim
+```
+
+Any folder on your `PATH` works in place of `~/.local/bin`.
+
 ## Choose how much it shows
 
 A new install starts with **Essentials**, which does what the iPhone does and nothing more. Move up to **More** or **Everything** when you want the shelf, clipboard, clock and controls.
@@ -96,9 +113,13 @@ Two experiments that lean on your Mac's sensors. Fun, and a little unpredictable
 
 ## Get Brim
 
-There's no download yet, so for now you build it yourself. It takes one command and needs only Apple's free Command Line Tools.
+**[Download Brim](https://github.com/jonasgandrup/Brim/releases/latest)** for a Mac with Apple Silicon and macOS 14 or later. Macs with a notch get the most from it, and other displays can show a floating island if you turn that on.
 
-You need macOS 14 or later, and a Mac with a notch gets the most from it. Displays without a notch can show a floating island if you turn that on.
+1. Open the disk image and drag Brim to Applications.
+2. Open Brim. macOS will say it can't verify the app, because Brim isn't notarized by Apple yet. Close that message.
+3. Go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. You only do this once.
+
+Prefer to build it yourself? You only need Apple's free Command Line Tools:
 
 ```sh
 xcode-select --install

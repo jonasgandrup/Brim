@@ -71,7 +71,7 @@ for name, output in [
 ]:
     on_menu_bar(name, output)
 floating("switcher-previews", "switcher")
-as_is("dynamic-island-dark", "settings", width=1100)
+as_is("island-dark", "settings", width=1100)
 as_is("duo-fold-50", "lid-fold", width=1100)
 as_is("scale", "scale", width=620)
 for file in sorted(OUTPUT.glob("*.png")):
