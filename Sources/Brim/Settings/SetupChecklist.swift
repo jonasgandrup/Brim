@@ -53,7 +53,7 @@ extension BrimAppModel {
         if preferences.notchEnabled && preferences.toolShortcutsEnabled {
             let blocked = toolShortcuts.unavailable
             items.append(SetupItem(id: "shortcuts", title: String(localized: "Keyboard Shortcuts"), state: blocked.isEmpty ? .ready : .attention,
-                detail: blocked.isEmpty ? String(localized: "All island shortcuts are registered.") : String(localized: "Taken by another app: \(blocked.joined(separator: ", ")). Pick other modifiers in Dynamic Island settings."),
+                detail: blocked.isEmpty ? String(localized: "All island shortcuts are registered.") : String(localized: "Taken by another app: \(blocked.joined(separator: ", ")). Pick other modifiers in Island settings."),
                 actionTitle: blocked.isEmpty ? nil : String(localized: "Change…"), action: { [weak self] in self?.openSettings(page: .notch) }))
         }
         if preferences.notchEnabled && preferences.autoHideFocus {

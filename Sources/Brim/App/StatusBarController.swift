@@ -36,7 +36,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             image.isTemplate = true
             button.image = image
             button.imagePosition = .imageOnly
-            button.toolTip = String(localized: "Brim — Dynamic Island and Mac utilities")
+            button.toolTip = String(localized: "Brim — the island and Mac utilities")
             button.setAccessibilityLabel("Brim")
         }
         menu.autoenablesItems = false
@@ -129,7 +129,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             add(String(localized: "Window Switcher Needs Permission…"), action: #selector(openPermissions), symbol: "exclamationmark.triangle")
             menu.addItem(.separator())
         }
-        add(String(localized: "Open Dynamic Island"), action: #selector(openIsland), symbol: "capsule").isEnabled = ready
+        add(String(localized: "Open Island"), action: #selector(openIsland), symbol: "capsule").isEnabled = ready
         let sections = NSMenu()
         sections.autoenablesItems = false
         // The keys match the tools' global shortcuts. Turned-off sections leave the menu too.
@@ -162,7 +162,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
     @objc private func togglePresentation() {
         model.notch.setPresentationMode(!model.notch.manualPresentation)
-        item.button?.toolTip = model.notch.manualPresentation ? String(localized: "Brim — island hidden") : String(localized: "Brim — Dynamic Island and Mac utilities")
+        item.button?.toolTip = model.notch.manualPresentation ? String(localized: "Brim — island hidden") : String(localized: "Brim — the island and Mac utilities")
         rebuildMenu()
     }
     @objc private func openNowPlaying() { model.notch.openTool(.nowPlaying) }

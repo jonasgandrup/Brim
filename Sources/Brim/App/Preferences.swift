@@ -204,14 +204,14 @@ final class Preferences {
 
 enum SettingsPage: String, CaseIterable, Identifiable {
     case welcome = "Welcome"
-    case general = "General", notch = "Dynamic Island", switcher = "Window Switcher"
+    case general = "General", notch = "Island", switcher = "Window Switcher"
     case labs = "Labs", permissions = "Permissions"
     var id: String { rawValue }
     var title: String {
         switch self {
         case .welcome: String(localized: "Welcome to Brim")
         case .general: String(localized: "General")
-        case .notch: String(localized: "Dynamic Island")
+        case .notch: String(localized: "Island")
         case .switcher: String(localized: "Window Switcher")
         case .labs: String(localized: "Labs")
         case .permissions: String(localized: "Permissions")
@@ -252,7 +252,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     }
 }
 
-/// The Dynamic Island page's sub-pages, reached by drilling in, as System Settings does for Control Center.
+/// The Island page's sub-pages, reached by drilling in, as System Settings does for Control Center.
 enum IslandSection: String, CaseIterable, Identifiable {
     case shelf = "Files & Clipboard", notices = "Notices"
     case battery = "Battery", hiding = "Hide Automatically", keyboard = "Keyboard & Shortcuts"

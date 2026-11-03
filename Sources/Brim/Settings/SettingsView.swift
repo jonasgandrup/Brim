@@ -16,7 +16,7 @@ struct SettingsView: View {
             Form {
                 Section {
                     if model.page == .notch, let section = model.islandSection {
-                        Button("Dynamic Island", systemImage: "chevron.left") { model.islandSection = nil }
+                        Button("Island", systemImage: "chevron.left") { model.islandSection = nil }
                             .buttonStyle(.borderless).keyboardShortcut("[", modifiers: .command)
                         SettingsPageHeader(symbol: section.symbol, tint: section.tint, title: .verbatim(section.title), detail: .verbatim(section.subtitle))
                     } else {
@@ -198,13 +198,13 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: Dynamic Island
+    // MARK: Island
 
     @ViewBuilder private var notch: some View {
         Section {
             notchPreview
             Toggle(isOn: binding(\.notchEnabled)) {
-                SettingsLabel(title: "Dynamic Island", detail: "Activities and brief updates around the camera.")
+                SettingsLabel(title: "Island", detail: "Activities and brief updates around the camera.")
             }
         }
         levelSection
@@ -409,11 +409,11 @@ struct SettingsView: View {
                 .background(.black, in: Capsule())
                 .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
             Text("Quiet until there’s something to show.").font(.system(size: 12)).foregroundStyle(.secondary)
-            Button("Open Dynamic Island") { model.notch.openFromMenu() }
+            Button("Open Island") { model.notch.openFromMenu() }
                 .disabled(!preferences.notchEnabled)
         }
         .frame(maxWidth: .infinity).padding(.vertical, 10)
-        .accessibilityElement(children: .contain).accessibilityLabel("Dynamic Island preview")
+        .accessibilityElement(children: .contain).accessibilityLabel("Island preview")
     }
 
     // MARK: Window Switcher

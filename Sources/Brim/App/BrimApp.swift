@@ -91,7 +91,7 @@ final class BrimAppModel {
     }
     var lidSetupStatus: LidSetupStatus { .init(readiness: lidFoldReadiness, capture: lid.captureCheck) }
     var page: SettingsPage = .general { didSet { if page != oldValue { islandSection = nil } } }
-    /// A Dynamic Island sub-page, or nil for the page itself.
+    /// A Island sub-page, or nil for the page itself.
     var islandSection: IslandSection?
     var loginEnabled = SMAppService.mainApp.status == .enabled
     var loginMessage: String?

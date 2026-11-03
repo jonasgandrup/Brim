@@ -97,7 +97,7 @@ struct IslandView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .accessibilityHidden(controller.presentation == .hidden)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Brim Dynamic Island")
+        .accessibilityLabel("Brim island")
         .accessibilityAction(named: controller.expanded ? "Collapse" : "Expand") { controller.setExpanded(!controller.expanded) }
     }
 
@@ -285,7 +285,7 @@ struct IslandView: View {
                     IslandPaneHeader {
                         MediaPlayerControls(media: media)
                         Button { controller.openSettings() } label: { Image(systemName: "gearshape").frame(width: 20, height: 20) }
-                            .help("Dynamic Island settings").accessibilityLabel("Open island settings")
+                            .help("Island settings").accessibilityLabel("Open island settings")
                     }
                     nowPlaying
                 }
