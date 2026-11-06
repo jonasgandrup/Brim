@@ -481,36 +481,123 @@ private struct HUDLevel: View {
     }
 }
 
-/// Keeps one indicator alive across pause/play so bars settle and grow instead of being replaced.
+/// Keeps one indicator alive across pause/play so bars settle and grow instead of being replaced. The motion is
+/// handed to Core Animation, which plays it on its own, as the iPhone's island does: Brim describes each bar's wave
+/// once and isn't woken for every frame.
 private struct PlaybackActivity: View {
     var playing: Bool
     var tint: ArtworkTint.RGB
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 20, paused: reduceMotion || !playing)) { timeline in
-            PlaybackBars(activity: playing ? 1 : 0, time: reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate, tint: tint)
-                .animation(reduceMotion ? nil : IslandStyle.standard, value: playing)
-        }.frame(width: 21, height: 16).accessibilityLabel(playing ? "Media playing" : "Media paused")
+        PlaybackBarsLayer(playing: playing, tint: tint, reduceMotion: reduceMotion)
+            .frame(width: 21, height: 16).accessibilityLabel(playing ? "Media playing" : "Media paused")
     }
 }
 
-private struct PlaybackBars: View, Animatable {
-    nonisolated var activity: Double
+/// The bars' shape, shared by the live layer and the still picture: five bars on one wave, each a little later.
+private enum PlaybackWave {
+    static let count = 5
+    static let speed = 4.5
+    static let spacing = 1.8
+    static let width: CGFloat = 2.5
+    static let gap: CGFloat = 4.5
+    static let rest: CGFloat = 2.5
+    static func height(index: Int, time: Double, activity: Double = 1) -> CGFloat {
+        let wave = (sin(time * speed + Double(index) * spacing) + 1) * 5
+        return rest + CGFloat(activity * (1.5 + wave))
+    }
+}
+
+/// A still picture of the bars, for previews that render an image rather than a live layer.
+private struct PlaybackBars: View {
+    var activity: Double
     var time: Double
     var tint: ArtworkTint.RGB
-    nonisolated var animatableData: Double {
-        get { activity }
-        set { activity = newValue }
-    }
     var body: some View {
         Canvas { context, size in
-            for index in 0..<5 {
-                let wave = (sin(time * 4.5 + Double(index) * 1.8) + 1) * 5
-                let height = 2.5 + activity * (1.5 + wave)
-                let rect = CGRect(x: Double(index) * 4.5, y: (size.height - height) / 2, width: 2.5, height: height)
-                context.fill(Path(roundedRect: rect, cornerRadius: 1.25), with: .color(tint.mixed(fromGray: 0.55, by: activity)))
+            for index in 0..<PlaybackWave.count {
+                let height = PlaybackWave.height(index: index, time: time, activity: activity)
+                let rect = CGRect(x: Double(index) * PlaybackWave.gap, y: (size.height - height) / 2, width: PlaybackWave.width, height: height)
+                context.fill(Path(roundedRect: rect, cornerRadius: PlaybackWave.width / 2), with: .color(tint.mixed(fromGray: 0.55, by: activity)))
             }
         }
+    }
+}
+
+private struct PlaybackBarsLayer: NSViewRepresentable {
+    var playing: Bool
+    var tint: ArtworkTint.RGB
+    var reduceMotion: Bool
+    func makeNSView(context: Context) -> PlaybackBarsView { PlaybackBarsView() }
+    func updateNSView(_ view: PlaybackBarsView, context: Context) {
+        let color = playing ? NSColor(red: tint.red, green: tint.green, blue: tint.blue, alpha: 1) : NSColor(white: 0.55, alpha: 1)
+        view.update(playing: playing, color: color, reduceMotion: reduceMotion)
+    }
+}
+
+/// Five layers whose heights Core Animation moves along the wave forever while playing; pausing settles them into
+/// dots, and playing grows them back into the wave, each in 0.3 seconds.
+final class PlaybackBarsView: NSView {
+    private var bars: [CALayer] = []
+    private var shown: (playing: Bool, reduceMotion: Bool)?
+    private static let settle = 0.3
+    private static var period: Double { 2 * .pi / PlaybackWave.speed }
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        for index in 0..<PlaybackWave.count {
+            let bar = CALayer()
+            bar.cornerRadius = PlaybackWave.width / 2
+            bar.bounds = CGRect(x: 0, y: 0, width: PlaybackWave.width, height: PlaybackWave.rest)
+            bar.position = CGPoint(x: CGFloat(index) * PlaybackWave.gap + PlaybackWave.width / 2, y: 8)
+            layer?.addSublayer(bar); bars.append(bar)
+        }
+    }
+    required init?(coder: NSCoder) { nil }
+    override func layout() {
+        super.layout()
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        for (index, bar) in bars.enumerated() {
+            bar.position = CGPoint(x: CGFloat(index) * PlaybackWave.gap + PlaybackWave.width / 2, y: bounds.midY)
+        }
+        CATransaction.commit()
+    }
+    func update(playing: Bool, color: NSColor, reduceMotion: Bool) {
+        CATransaction.begin(); CATransaction.setAnimationDuration(Self.settle)
+        for bar in bars { bar.backgroundColor = color.cgColor }
+        CATransaction.commit()
+        guard shown.map({ $0.playing != playing || $0.reduceMotion != reduceMotion }) ?? true else { return }
+        let first = shown == nil
+        shown = (playing, reduceMotion)
+        for (index, bar) in bars.enumerated() {
+            let current = bar.presentation()?.bounds.height ?? bar.bounds.height
+            bar.removeAnimation(forKey: "wave")
+            let target: CGFloat
+            if !playing { target = PlaybackWave.rest } else { target = PlaybackWave.height(index: index, time: 0) }
+            setHeight(bar, target, from: first ? nil : current)
+            guard playing, !reduceMotion else { continue }
+            // One cycle of the wave, starting where this bar's growth ends, repeated by Core Animation forever.
+            let loop = CAKeyframeAnimation(keyPath: "bounds.size.height")
+            let samples = 24
+            loop.values = (0...samples).map { PlaybackWave.height(index: index, time: Self.period * Double($0) / Double(samples)) }
+            loop.calculationMode = .cubic
+            loop.duration = Self.period
+            loop.repeatCount = .infinity
+            loop.beginTime = CACurrentMediaTime() + (first ? 0 : Self.settle)
+            loop.fillMode = .forwards
+            loop.isRemovedOnCompletion = false
+            bar.add(loop, forKey: "wave")
+        }
+    }
+    private func setHeight(_ bar: CALayer, _ height: CGFloat, from current: CGFloat?) {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        bar.bounds.size.height = height
+        CATransaction.commit()
+        guard let current, abs(current - height) > 0.1 else { return }
+        let move = CABasicAnimation(keyPath: "bounds.size.height")
+        move.fromValue = current; move.toValue = height
+        move.duration = Self.settle; move.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        bar.add(move, forKey: "settle")
     }
 }
 
