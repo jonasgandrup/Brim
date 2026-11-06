@@ -136,14 +136,6 @@ struct IslandView: View {
                     .accessibilityLabel(controller.clickOpensApp(dualActivities ? .music : controller.compactTrailingTab) ? "Open \(media.sourceName)" : dualActivities ? "Open Now Playing" : controller.compactTrailingTab == .timer ? "Open timer controls" : "Expand island")
             }
         }.padding(.horizontal, 8)
-        .overlay(alignment: .trailing) {
-            if controller.sensorIndicatorVisible && controller.hud == nil {
-                Circle().fill(controller.sensors.camera ? Color.green : .orange).frame(width: 6, height: 6)
-                    .padding(.trailing, 6)
-                    .transition(.scale.combined(with: .opacity))
-                    .accessibilityLabel(controller.sensors.camera ? "Camera in use" : "Microphone in use")
-            }
-        }
         .background(alignment: .top) {
             if layout.hasHardwareNotch {
                 UnevenRoundedRectangle(bottomLeadingRadius: 9, bottomTrailingRadius: 9)

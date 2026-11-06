@@ -787,14 +787,14 @@ import Observation
         #expect(preferences.level == level)
         #expect(Preferences(defaults: defaults).level == level)
     }
-    #expect(preferences.sensorIndicator && preferences.sectionShortcuts && preferences.menuLockMac)
+    #expect(preferences.systemChanges && preferences.sectionShortcuts && preferences.menuLockMac)
     #expect(!preferences.playerAccess && !preferences.liveTransfers && !preferences.calendarPreview && !preferences.screenshotShelf)
     #expect(!preferences.focusFeedback && !preferences.autoHideFocus && !preferences.switcherEnabled)
-    preferences.sensorIndicator = false
+    preferences.systemChanges = false
     #expect(preferences.level == nil)
     // Choosing nothing changes nothing.
     preferences.level = nil
-    #expect(!preferences.sensorIndicator && preferences.showFiles)
+    #expect(!preferences.systemChanges && preferences.showFiles)
 }
 
 @Test func switcherOrdersWindowsFrontToBackAcrossApps() {

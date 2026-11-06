@@ -94,20 +94,6 @@ import AppKit
 
 // MARK: System HUD
 
-@Test func brightnessGateShowsKeyPressesButAbsorbsAutoBrightness() {
-    var gate = BrightnessChangeGate(baseline: 0.5)
-    // Auto-Brightness: small steps seconds apart.
-    #expect(gate.receive(0.51, at: 10) == nil)
-    #expect(gate.receive(0.52, at: 13) == nil)
-    #expect(gate.receive(0.53, at: 16) == nil)
-    // A brightness key: a quick animated burst of small steps.
-    #expect(gate.receive(0.545, at: 20) == nil)
-    #expect(gate.receive(0.56, at: 20.03) == nil)
-    #expect(gate.receive(0.58, at: 20.06) == 0.58)
-    // While shown, every step follows.
-    #expect(gate.receive(0.59, at: 20.09) == 0.59)
-}
-
 // MARK: Bluetooth
 
 @Test func bluetoothReportKeepsConnectedDevicesWithBatteryLevels() throws {

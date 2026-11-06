@@ -57,9 +57,7 @@ final class NotchController {
     let transfers = TransferTracker()
     let activities = ScriptActivities()
     private let moments = SystemMoments()
-    let sensors = SensorActivity()
     let bluetooth = BluetoothBatteries()
-    private let brightness = BrightnessMonitor()
     var powerFeedback = PowerFeedbackTracker()
     var dropTargeted = false
     /// Whether the drag over the island carries files (which can go to the shelf or AirDrop) or clipboard content.
@@ -245,7 +243,6 @@ final class NotchController {
         openFromMenu()
     }
     /// Shows the camera/microphone dot only when the user asked for it.
-    var sensorIndicatorVisible: Bool { preferences?.sensorIndicator == true && sensors.active }
     func openCompactActivity(_ tab: IslandTab) {
         guard !presentationMode, !recentlyForceClicked else { return }
         feedbackTask?.cancel(); feedback = nil
@@ -314,7 +311,6 @@ final class NotchController {
     func start(preferences: Preferences, status: SystemStatus, media: MediaService, onOpenSettings: @escaping () -> Void = {}) {
         self.preferences = preferences; self.status = status; self.media = media; self.onOpenSettings = onOpenSettings
         status.onPowerSample = { [weak self] sample in self?.receivePower(sample) }
-        status.onVolumeChange = { [weak self] volume, muted in self?.receiveVolume(volume, muted: muted) }
         receivePower(PowerSample(percent: status.battery, externalPower: status.charging))
         configureCallbacks()
         // The scrubber needs per-second positions only while it's on screen; compact needs track changes.
@@ -328,8 +324,6 @@ final class NotchController {
         shelf.actions.transfers = transfers
         if preferences.liveTransfers { transfers.start() } else { transfers.stop() }
         if preferences.screenshotShelf && shows(.files) { screenshots.start() } else { screenshots.stop() }
-        if preferences.sensorIndicator { sensors.start() } else { sensors.stop() }
-        if preferences.systemHUD { brightness.start() } else { brightness.stop() }
         if preferences.bluetoothBatteries { bluetooth.start() } else { bluetooth.stop() }
         if preferences.systemChanges { moments.start { [weak self] moment in self?.receive(moment) } } else { moments.stop() }
         configureShelfPersistence(preferences.keepShelf)
@@ -362,10 +356,6 @@ final class NotchController {
             self?.showFeedback(String(localized: "\(event.title) · \(event.relative(at: Date()))"), symbol: "calendar", tint: .red, action: action, seconds: action == nil ? 5 : 8)
         }
         transfers.onFinished = { [weak self] activity in self?.transferFinished(activity) }
-        sensors.onChange = { [weak self] camera, microphone in self?.sensorsChanged(camera: camera, microphone: microphone) }
-        brightness.onChange = { [weak self] level in
-            self?.showHUD(.init(symbol: NotchController.brightnessSymbol(level), level: level, label: String(localized: "Brightness")))
-        }
         bluetooth.onConnected = { [weak self] device in self?.deviceConnected(device) }
         status?.onOutputChange = { [weak self] output in self?.outputChanged(output) }
         activities.onFinish = { [weak self] activity in
@@ -605,7 +595,7 @@ final class NotchController {
     }
     func stop() {
         screenshots.stop(); calendar.stop(); transfers.stop()
-        sensors.stop(); brightness.stop(); bluetooth.stop(); moments.stop(); activities.clear()
+        bluetooth.stop(); moments.stop(); activities.clear()
         toolOpenTask?.cancel(); toolOpenTask = nil; keys.stop()
         idleHideTask?.cancel(); idleHideTask = nil
         shelf.actions.closePreview()

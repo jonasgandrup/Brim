@@ -45,8 +45,6 @@ struct SettingsView: View {
         .onChange(of: preferences.keepShelf) { model.apply() }
         .onChange(of: preferences.calendarPreview) { model.apply() }
         .onChange(of: preferences.liveTransfers) { model.apply() }
-        .onChange(of: preferences.sensorIndicator) { model.apply() }
-        .onChange(of: preferences.systemHUD) { model.apply() }
         .onChange(of: preferences.bluetoothBatteries) { model.apply() }
         .onChange(of: preferences.autoHideFocus) { model.apply() }
         .onChange(of: preferences.autoHideSharing) { model.apply() }
@@ -273,7 +271,7 @@ struct SettingsView: View {
         }
         return switch section {
         case .shelf: count([preferences.keepShelf, preferences.screenshotShelf])
-        case .notices: count([preferences.calendarPreview, preferences.sensorIndicator, preferences.systemHUD, preferences.focusFeedback, preferences.systemChanges])
+        case .notices: count([preferences.calendarPreview, preferences.focusFeedback, preferences.systemChanges])
         case .battery: count([preferences.chargingFeedback, preferences.lowBatteryAlert > 0, preferences.bluetoothBatteries])
         case .hiding: count([preferences.autoHideFocus, preferences.autoHideSharing])
         case .keyboard: preferences.toolShortcutsEnabled ? String(localized: "\(preferences.toolShortcutModifiers.label)0") : String(localized: "Off")
@@ -306,12 +304,6 @@ struct SettingsView: View {
             Toggle(isOn: binding(\.focusFeedback)) {
                 SettingsLabel(title: "Focus", detail: model.autoHide.focusDenied ? focusDenied : "A brief note when a Focus turns on or off.",
                               info: "Brim learns only whether a Focus is on, not which one.")
-            }
-            Toggle(isOn: binding(\.sensorIndicator)) {
-                SettingsLabel(title: "Camera & Microphone", detail: "A dot while any app uses them.", info: "Brim never records anything.")
-            }
-            Toggle(isOn: binding(\.systemHUD)) {
-                SettingsLabel(title: "Volume & Brightness", detail: "Changes appear as a small level.")
             }
             Toggle(isOn: binding(\.systemChanges)) {
                 SettingsLabel(title: "System Changes", detail: "Where sound is playing, Low Power Mode, and going offline.",

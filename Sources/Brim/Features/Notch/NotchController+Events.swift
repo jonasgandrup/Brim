@@ -61,13 +61,6 @@ extension NotchController {
         default: break
         }
     }
-    func receiveVolume(_ volume: Double?, muted: Bool) {
-        guard preferences?.systemHUD == true else { return }
-        let level = muted ? 0 : (volume ?? 0)
-        let symbol = muted || level == 0 ? "speaker.slash.fill" : level < 0.34 ? "speaker.wave.1.fill" : level < 0.67 ? "speaker.wave.2.fill" : "speaker.wave.3.fill"
-        showHUD(.init(symbol: symbol, level: volume == nil ? nil : level, label: muted ? String(localized: "Muted") : String(localized: "Volume")))
-    }
-    static func brightnessSymbol(_ level: Double) -> String { level < 0.5 ? "sun.min.fill" : "sun.max.fill" }
     /// Where sound is going now, as iPhone shows when you pick an AirPlay speaker. Bluetooth headphones get
     /// the accessory card instead, which says more.
     func outputChanged(_ output: AudioOutput) {
@@ -83,11 +76,6 @@ extension NotchController {
         case .offline: showHUD(.init(symbol: "wifi.slash", tint: .orange, label: String(localized: "Offline")), seconds: 3)
         case .online: showHUD(.init(symbol: "wifi", tint: .green, label: String(localized: "Back Online")), seconds: 2)
         }
-    }
-    func sensorsChanged(camera: Bool, microphone: Bool) {
-        guard preferences?.sensorIndicator == true, camera || microphone else { return }
-        let label = camera && microphone ? String(localized: "Camera and microphone in use") : camera ? String(localized: "Camera in use") : String(localized: "Microphone in use")
-        showHUD(.init(symbol: camera ? "video.fill" : "mic.fill", tint: camera ? .green : .orange, label: label), seconds: 2.5)
     }
     func deviceConnected(_ device: BluetoothDevice) {
         guard preferences?.bluetoothBatteries == true, device.level != nil else { return }

@@ -49,7 +49,7 @@ final class Preferences {
         "chargeTarget": 80, "lowBatteryAlert": 20, "lidFoldStyle": "duo",
         "liveTransfers": false, "autoHideFocus": false, "autoHideSharing": false, "calendarPreview": false,
         "toolShortcutModifiers": "ctrlOptCmd", "menuBarStatus": "off",
-        "screenshotShelf": false, "appearance": "system", "sensorIndicator": false, "systemHUD": false,
+        "screenshotShelf": false, "appearance": "system",
         "bluetoothBatteries": true, "keepShelf": true, "haptics": true, "focusFeedback": false, "islandGestures": false, "systemChanges": false,
         "smallNotices": true, "openWhenIdle": false, "showFiles": false, "showClipboard": false, "showClock": false,
         "sectionShortcuts": false, "menuLockMac": false,
@@ -94,9 +94,7 @@ final class Preferences {
         }
     }
     /// A small camera/microphone dot in the island, like iPhone's privacy indicators.
-    var sensorIndicator: Bool { didSet { save(sensorIndicator, "sensorIndicator") } }
     /// Volume and brightness changes appear in the island.
-    var systemHUD: Bool { didSet { save(systemHUD, "systemHUD") } }
     var bluetoothBatteries: Bool { didSet { save(bluetoothBatteries, "bluetoothBatteries") } }
     /// Keep shelf files (as references, never copies) and clipboard pins across relaunches.
     var keepShelf: Bool { didSet { save(keepShelf, "keepShelf") } }
@@ -154,8 +152,6 @@ final class Preferences {
         chargingFeedback = flag("chargingFeedback")
         chargeTarget = Self.clampTarget(defaults.integer(forKey: "chargeTarget"))
         lowBatteryAlert = Self.clampLow(defaults.integer(forKey: "lowBatteryAlert"))
-        sensorIndicator = flag("sensorIndicator")
-        systemHUD = flag("systemHUD")
         bluetoothBatteries = flag("bluetoothBatteries")
         keepShelf = flag("keepShelf")
         haptics = flag("haptics")
@@ -175,7 +171,7 @@ final class Preferences {
         [(\.mediaEnabled, [.essentials, .more, .everything]), (\.smallNotices, [.essentials]),
          (\.showFiles, [.more, .everything]), (\.showClipboard, [.more, .everything]), (\.showClock, [.more, .everything]),
          (\.openWhenIdle, [.more, .everything]), (\.islandGestures, [.more, .everything]),
-         (\.systemHUD, [.more, .everything]), (\.sensorIndicator, [.everything]), (\.systemChanges, [.everything]),
+         (\.systemChanges, [.everything]),
          (\.sectionShortcuts, [.everything]), (\.menuLockMac, [.everything])]
     }
     /// The level the switches currently add up to, or nil for a custom mix.

@@ -129,7 +129,7 @@ extension BrimAppModel {
             "Tool shortcuts unavailable: \(toolShortcuts.unavailable.isEmpty ? "none" : toolShortcuts.unavailable.joined(separator: ", "))",
             "Live transfers: \(yes(preferences.liveTransfers)) · hide on Focus: \(yes(preferences.autoHideFocus)) · hide on sharing: \(yes(preferences.autoHideSharing)) · auto-hidden now: \(notch.autoHideReason ?? "no")",
             "Screenshot shelf: \(yes(preferences.screenshotShelf)) · keep shelf: \(yes(preferences.keepShelf)) · calendar: \(notch.calendar.access)",
-            "Camera/mic indicator: \(yes(preferences.sensorIndicator)) · volume & brightness: \(yes(preferences.systemHUD)) (brightness API: \(yes(BrightnessMonitor.available))) · accessory batteries: \(yes(preferences.bluetoothBatteries)) (\(notch.bluetooth.devices.count) connected)",
+            "Accessory batteries: \(yes(preferences.bluetoothBatteries)) (\(notch.bluetooth.devices.count) connected)",
             "Low battery warning: \(preferences.lowBatteryAlert == 0 ? "off" : "\(preferences.lowBatteryAlert)%") · follow active display: \(yes(preferences.followActiveDisplay)) · Now Playing helper: \(NowPlayingHelper.shared.enabled ? "resident" : "one-shot")"
         ]
         lines.append("Needs attention: " + (setupItems.filter { $0.state == .attention }.map(\.title).joined(separator: ", ").nonEmpty ?? "nothing"))

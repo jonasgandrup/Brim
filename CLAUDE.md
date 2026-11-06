@@ -34,7 +34,7 @@ extras. The goal is an Apple-like feel: quiet by default, opaque black island, s
   `Sense/Clipboard Pins` folder, the `SenseStatusItem` and `SenseSettings` autosave names, and the `sense://` link scheme
   (kept next to `brim://`).
 - No third-party dependencies.
-- Private or undocumented macOS interfaces (MediaRemote, MultitouchSupport, DisplayServices,
+- Private or undocumented macOS interfaces (MediaRemote, MultitouchSupport,
   `_AXUIElementGetWindow`, `SACLockScreenImmediate`) are loaded at runtime with `dlopen`/`dlsym`, isolated in one place, and must fail
   gracefully into an "unavailable" state. Never show invented values: no fake weights, angles or percentages.
 - Anything that reads personal data or needs a permission is opt-in (Downloads, calendar,
@@ -65,5 +65,5 @@ extras. The goal is an Apple-like feel: quiet by default, opaque black island, s
 - `App/`: lifecycle, `BrimAppModel`, preferences, `brim://` commands (`BrimCommand`), menu bar.
 - `Features/Notch/`: `NotchController` (panel, presentation, feedback/HUD) and the island views and tabs.
 - `Features/WindowSwitcher`, `Features/LidEffect`, `Features/TrackpadScale`, `Features/LockScreen`, `Features/Timer`.
-- `Services/`: system readers (battery, audio, brightness, media bridge, transfers, calendar, sensors).
+- `Services/`: system readers (battery, audio, media bridge, transfers, calendar, trackpad).
 - `Settings/`: the System Settings–style window and the setup checklist.
