@@ -61,23 +61,22 @@ enum ClockMode: String, CaseIterable {
     private(set) var stopwatch = StopwatchState()
     /// Monotonic seconds that keep counting while the Mac sleeps (unlike systemUptime).
     nonisolated static var continuousNow: TimeInterval { TimeInterval(clock_gettime_nsec_np(CLOCK_MONOTONIC)) / 1e9 }
-    private(set) var uptime = ClockTools.continuousNow
     var alarmTime = Date().addingTimeInterval(3600)
     var alarmRepeat: AlarmRepeat = .once { didSet { defaults.set(alarmRepeat.rawValue, forKey: "clockAlarmRepeat") } }
     private(set) var alarmDate: Date?
     private(set) var ringing = false
     var notice: String?
     @ObservationIgnored var onAlarm: () -> Void = {}
-    /// Hundredths are only visible while the stopwatch pane is open; otherwise whole seconds suffice.
-    @ObservationIgnored var wantsFineTicks: @MainActor () -> Bool = { false }
-    private var stopwatchTicker: Task<Void, Never>?
     private var alarmTicker: Task<Void, Never>?
     @ObservationIgnored private var clockObservers: [NSObjectProtocol] = []
     private let defaults: UserDefaults
     private let notificationsEnabled: Bool
     private let notificationID = "sense.clock.alarm"
     var active: Bool { stopwatch.running || ringing }
-    var label: String { ringing ? "Alarm" : Self.label(stopwatch.value(at: uptime)) }
+    /// Read when asked; nothing ticks. Views that count up do it themselves from `stopwatchStart`.
+    var label: String { ringing ? "Alarm" : Self.label(stopwatch.value(at: Self.continuousNow)) }
+    /// When a running stopwatch would have started had it never paused, for the system's own timer text.
+    var stopwatchStart: Date? { stopwatch.running ? Date().addingTimeInterval(-stopwatch.value(at: Self.continuousNow)) : nil }
     static func label(_ seconds: TimeInterval, fractions: Bool = false) -> String {
         let whole = Int(max(0, seconds))
         let text = whole >= 3600 ? String(format: "%d:%02d:%02d", whole / 3600, whole / 60 % 60, whole % 60) : String(format: "%d:%02d", whole / 60, whole % 60)
@@ -98,21 +97,11 @@ enum ClockMode: String, CaseIterable {
             })
         }
     }
+    /// Nothing ticks while the stopwatch runs: its views count up on their own.
     func toggleStopwatch() {
-        uptime = Self.continuousNow
-        if stopwatch.running { stopwatch.pause(at: uptime); stopwatchTicker?.cancel(); stopwatchTicker = nil }
-        else {
-            stopwatch.start(at: uptime)
-            stopwatchTicker = Task { [weak self] in
-                while !Task.isCancelled {
-                    guard let self else { return }
-                    self.uptime = Self.continuousNow
-                    try? await Task.sleep(for: .milliseconds(self.wantsFineTicks() && self.mode == .stopwatch ? 50 : 250))
-                }
-            }
-        }
+        if stopwatch.running { stopwatch.pause(at: Self.continuousNow) } else { stopwatch.start(at: Self.continuousNow) }
     }
-    func resetStopwatch() { stopwatchTicker?.cancel(); stopwatchTicker = nil; stopwatch.reset() }
+    func resetStopwatch() { stopwatch.reset() }
     func lap() { stopwatch.lap(at: Self.continuousNow) }
     func arm() {
         guard let next = AlarmSchedule.next(time: alarmTime, after: Date(), repeat: alarmRepeat) else { return }
@@ -176,7 +165,7 @@ enum ClockMode: String, CaseIterable {
     }
     // Preserve a scheduled native notification when the app quits.
     func stop() {
-        stopwatchTicker?.cancel(); alarmTicker?.cancel()
+        alarmTicker?.cancel()
         for observer in clockObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer); NotificationCenter.default.removeObserver(observer) }
         clockObservers.removeAll()
     }
@@ -232,8 +221,11 @@ struct IslandClockView: View {
             case .focus: FocusTimerView(timer: timer)
             case .stopwatch:
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(ClockTools.label(clock.stopwatch.value(at: clock.uptime), fractions: true))
-                        .font(.system(size: 32, weight: .light, design: .rounded)).monospacedDigit().frame(maxWidth: .infinity)
+                    // Hundredths only while this pane is open and the stopwatch runs; the pane isn't laid out otherwise.
+                    TimelineView(.animation(minimumInterval: 1.0 / 20, paused: !clock.stopwatch.running)) { _ in
+                        Text(ClockTools.label(clock.stopwatch.value(at: ClockTools.continuousNow), fractions: true))
+                            .font(.system(size: 32, weight: .light, design: .rounded)).monospacedDigit().frame(maxWidth: .infinity)
+                    }
                     if let lap = clock.stopwatch.laps.first {
                         Text("Lap \(clock.stopwatch.laps.count) · \(ClockTools.label(lap, fractions: true))")
                             .font(.system(size: 10)).foregroundStyle(.secondary).frame(maxWidth: .infinity)

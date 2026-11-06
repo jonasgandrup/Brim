@@ -3,230 +3,6 @@ import AppKit
 import Observation
 import CoreAudio
 
-extension NSWindow {
-    /// The window server's ID, or nil before the window has one. `windowNumber` is negative until a
-    /// window is first shown, and converting that to `CGWindowID` traps.
-    var windowID: CGWindowID? { windowNumber > 0 ? CGWindowID(exactly: windowNumber) : nil }
-}
-
-class FloatingPanel: NSPanel {
-    override var canBecomeKey: Bool { false }
-    override var canBecomeMain: Bool { false }
-}
-
-final class IslandPanel: FloatingPanel {
-    override var canBecomeKey: Bool { true }
-}
-
-enum IslandTab { case music, files, clipboard, timer, transfers }
-
-/// Camera clearance is measured separately from the visible activity on either side.
-struct IslandLayout {
-    var cutoutWidth: CGFloat
-    var menuBarHeight: CGFloat
-    var hasHardwareNotch: Bool
-    var compactSize: CGSize {
-        hasHardwareNotch
-            ? CGSize(width: cutoutWidth + 104, height: menuBarHeight)
-            : CGSize(width: 196, height: 38)
-    }
-    func surfaceSize(for presentation: IslandPresentation, reveal: Double = 1, notice: Bool = false, paneHeight: CGFloat? = nil) -> CGSize {
-        let camera = CGSize(width: cutoutWidth, height: menuBarHeight)
-        let target = presentation == .expanded ? (notice ? noticeSize : fittedSize(paneHeight)) : (presentation == .hidden && hasHardwareNotch ? camera : compactSize)
-        guard hasHardwareNotch else { return target }
-        let progress = min(1, max(0, reveal.isFinite ? reveal : 1))
-        return CGSize(width: camera.width + (target.width - camera.width) * progress,
-                      height: camera.height + (target.height - camera.height) * progress)
-    }
-    var expandedSize: CGSize { CGSize(width: max(408, compactSize.width), height: headerHeight + 202) }
-    /// As tall as its contents, as on iPhone, up to the full island. The panel behind it never resizes.
-    func fittedSize(_ paneHeight: CGFloat?) -> CGSize {
-        guard let paneHeight else { return expandedSize }
-        let fitted = headerHeight + Self.paneTopGap + paneHeight.rounded(.up) + Self.paneBottomGap
-        return CGSize(width: expandedSize.width, height: min(expandedSize.height, fitted))
-    }
-    /// Room around the open island for a spring's overshoot, which the panel's edge would otherwise cut off flat.
-    static let overshootRoom: CGFloat = 24
-    func panelFrame(on screen: CGRect) -> CGRect {
-        let open = frame(on: screen, expanded: true)
-        return CGRect(x: open.minX - Self.overshootRoom, y: open.minY - Self.overshootRoom,
-                      width: open.width + Self.overshootRoom * 2, height: open.height + Self.overshootRoom)
-    }
-    static let paneTopGap: CGFloat = 4
-    static let paneBottomGap: CGFloat = 22
-    /// A line of news only needs a line's worth of island, as on iPhone.
-    var noticeSize: CGSize { CGSize(width: max(340, compactSize.width), height: headerHeight + Self.noticeContentHeight + 18) }
-    static let noticeContentHeight: CGFloat = 44
-    static let bubbleGap: CGFloat = 6
-    var headerHeight: CGFloat { hasHardwareNotch ? menuBarHeight : 38 }
-    func idleHoverFrame(on screen: CGRect) -> CGRect {
-        // Exactly the camera housing: browser tabs and menus sit right beside and below it.
-        let width = hasHardwareNotch ? cutoutWidth : compactSize.width
-        let height = hasHardwareNotch ? headerHeight : compactSize.height
-        return CGRect(x: screen.midX - width / 2, y: screen.maxY - topGap - height, width: width, height: height)
-    }
-    var topGap: CGFloat { hasHardwareNotch ? 0 : 8 }
-    func frame(on screen: CGRect, expanded: Bool, notice: Bool = false, paneHeight: CGFloat? = nil) -> CGRect {
-        let size = expanded ? (notice ? noticeSize : fittedSize(paneHeight)) : compactSize
-        return CGRect(x: screen.midX - size.width / 2, y: screen.maxY - topGap - size.height, width: size.width, height: size.height)
-    }
-}
-
-enum IslandHitRegion {
-    static func contains(_ point: CGPoint, frame: CGRect, radius: CGFloat, roundedTop: Bool) -> Bool {
-        // A pointer thrown at the top of the screen sits on its very edge, which a rectangle doesn't count as inside.
-        let point = CGPoint(x: point.x, y: point.y == frame.maxY ? frame.maxY - 0.5 : point.y)
-        guard frame.contains(point) else { return false }
-        let r = min(radius, min(frame.width, frame.height) / 2)
-        let lower = point.y < frame.minY + r
-        let upper = roundedTop && point.y > frame.maxY - r
-        guard lower || upper else { return true }
-        let centerY = lower ? frame.minY + r : frame.maxY - r
-        let centerX: CGFloat
-        if point.x < frame.minX + r { centerX = frame.minX + r }
-        else if point.x > frame.maxX - r { centerX = frame.maxX - r }
-        else { return true }
-        return pow(point.x - centerX, 2) + pow(point.y - centerY, 2) <= r * r
-    }
-}
-
-/// Tells a pointer resting on the island from one passing through or brushing its edge on the way to a tab.
-/// The rest timer restarts whenever the pointer really moves, and once the island has opened and closed
-/// it takes leaving and coming back to open it again.
-struct HoverIntent {
-    static let dwell = Duration.milliseconds(300)
-    static let stillRadius: CGFloat = 10
-    private var anchor: CGPoint?
-    private var spent = false
-    /// True when the rest timer should start over from this point.
-    mutating func moved(to point: CGPoint) -> Bool {
-        guard !spent else { return false }
-        if let anchor, hypot(point.x - anchor.x, point.y - anchor.y) <= Self.stillRadius { return false }
-        anchor = point
-        return true
-    }
-    mutating func spend() { anchor = nil; spent = true }
-    mutating func left() { anchor = nil; spent = false }
-}
-
-enum IslandPresentation: Equatable {
-    case hidden, compact, expanded
-    static func resolve(expanded: Bool, mediaEnabled: Bool, playing: Bool, hasSource: Bool, hasFeedback: Bool) -> Self {
-        if expanded { return .expanded }
-        return hasFeedback || (mediaEnabled && playing && hasSource) ? .compact : .hidden
-    }
-}
-
-/// Why the island is tucked into the camera: the desktop is sliding or zooming under it (a system gesture,
-/// Mission Control), or Brim's switcher is up. Scrolling and swiping inside apps never count.
-enum IslandAwayReason: Hashable {
-    case desktopMoving, switcher
-}
-
-/// Where the island is in tucking into the camera and growing back out. One value instead of separate flags,
-/// so "tucked" and "preparing" can never both be true.
-enum DesktopTransitionPhase: Equatable {
-    /// Normal operation.
-    case settled
-    /// Retracting into the camera, then out of sight; the window leaves once the island is in.
-    case tucked
-    /// Still tucked; SwiftUI lays out the compact island before it grows back out.
-    case preparing
-    /// Visible again at camera size; the grow-out spring runs once surface animations resume.
-    case revealing
-}
-
-/// A brief compact-only readout, like the iPhone's volume indicator: an icon on one side, a level on the other.
-struct IslandHUD: Equatable {
-    var symbol: String
-    var level: Double?
-    var tint: Color = .white
-    var label: String
-    /// Draws a battery and its percentage instead of the symbol and level.
-    var battery: Int?
-    var charging = false
-    /// What VoiceOver says. A level changes too fast to speak every step, so only its absence earns a word.
-    var announcement: String? {
-        if level != nil { return nil }
-        return battery.map { String(localized: "\(label), \($0)%") } ?? label
-    }
-}
-
-/// Selects the display whose window the user is working in, from on-screen window bounds.
-/// Bounds need no Screen Recording permission; titles and contents are never read.
-enum ActiveDisplay {
-    static func frontWindowBounds(pid: pid_t) -> CGRect? {
-        guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
-        for window in windows {
-            guard (window[kCGWindowOwnerPID as String] as? pid_t) == pid, (window[kCGWindowLayer as String] as? Int) == 0,
-                  let bounds = window[kCGWindowBounds as String] as? NSDictionary,
-                  let rect = CGRect(dictionaryRepresentation: bounds), rect.width > 40, rect.height > 40 else { continue }
-            return rect
-        }
-        return nil
-    }
-    /// Converts a Quartz window rectangle (top-left origin) to AppKit space and picks the display it covers most.
-    static func frame(for windowBounds: CGRect, in frames: [CGRect]) -> CGRect? {
-        guard let primary = frames.first else { return nil }
-        let flipped = CGRect(x: windowBounds.minX, y: primary.maxY - windowBounds.maxY, width: windowBounds.width, height: windowBounds.height)
-        let best = frames.max { $0.intersection(flipped).area < $1.intersection(flipped).area }
-        return best.flatMap { $0.intersects(flipped) ? $0 : nil }
-    }
-    static func current() -> NSScreen? {
-        let screens = NSScreen.screens
-        if let app = NSWorkspace.shared.frontmostApplication, let bounds = frontWindowBounds(pid: app.processIdentifier),
-           let frame = frame(for: bounds, in: screens.map(\.frame)) { return screens.first { $0.frame == frame } }
-        let mouse = NSEvent.mouseLocation
-        return screens.first { $0.frame.contains(mouse) }
-    }
-}
-
-private extension CGRect {
-    var area: CGFloat { isNull ? 0 : width * height }
-}
-
-/// Where a dragged file lands: the shelf (left half) or AirDrop (right half).
-enum DropZone: Equatable {
-    case shelf, airDrop
-    static func at(x: CGFloat, width: CGFloat, airDropAvailable: Bool) -> Self {
-        airDropAvailable && x > width / 2 ? .airDrop : .shelf
-    }
-}
-
-/// Trackpad gestures on the compact island, in the direction the fingers move whatever the scrolling setting.
-/// A swipe hides what's on the island, as on iPhone, until something it wasn't showing arrives. What was hidden
-/// may come and go without bringing the island back; once nothing is left, the next thing to start shows as usual.
-struct ActivityDismissal: Equatable {
-    private var hidden: Set<String>?
-    var active: Bool { hidden != nil }
-    mutating func dismiss(_ current: Set<String>) { hidden = current }
-    mutating func update(_ current: Set<String>) {
-        guard let hidden else { return }
-        if current.isEmpty || !current.isSubset(of: hidden) { self.hidden = nil }
-    }
-    mutating func reset() { hidden = nil }
-}
-
-/// Like a tap on iPhone, a click goes to the app that's playing, and hovering is the long press that opens the island.
-/// With hover turned off, a click is the only way in, so it keeps opening the island.
-enum IslandClick {
-    static func opensApp(tab: IslandTab, hoverOpensIsland: Bool, hasPlayer: Bool) -> Bool {
-        tab == .music && hoverOpensIsland && hasPlayer
-    }
-}
-
-enum IslandGesture {
-    /// Natural scrolling flips the deltas; this undoes that so "up" and "left" mean the fingers.
-    static func fingers(dx: CGFloat, dy: CGFloat, inverted: Bool) -> (right: CGFloat, up: CGFloat) {
-        inverted ? (dx, -dy) : (-dx, dy)
-    }
-    /// How far a sideways swipe travels before it counts, in either direction.
-    static let hideTravel: CGFloat = 50
-    static func volume(_ current: Double, up: CGFloat, precise: Bool) -> Double {
-        min(1, max(0, current + Double(up) * (precise ? 0.004 : 0.03)))
-    }
-}
-
 @MainActor @Observable
 final class NotchController {
     /// Every path that collapses the island ends a keyboard session, so no key stays captured.
@@ -235,7 +11,7 @@ final class NotchController {
             if !expanded { keys.stop() }
             guard expanded != oldValue else { return }
             paneUnmountTask?.cancel()
-            if expanded { if !paneMounted { paneMounted = true } } else {
+            if expanded { if !paneMounted { paneMounted = true; paneMountedAt = ProcessInfo.processInfo.systemUptime } } else {
                 // Keep the content through the closing animation, then let it go.
                 paneUnmountTask = Task { [weak self] in
                     try? await Task.sleep(for: .milliseconds(600))
@@ -249,12 +25,13 @@ final class NotchController {
     /// its live parts (a timer's ring, a clock) every second for nobody.
     private(set) var paneMounted = false
     @ObservationIgnored private var paneUnmountTask: Task<Void, Never>?
+    @ObservationIgnored private var paneMountedAt: TimeInterval = -.infinity
     let shelf = FileShelf()
     var selectedTab: IslandTab = .music { didSet { if oldValue != selectedTab { transitionPane() } } }
     private(set) var displayedTab: IslandTab = .music
     private(set) var paneOpacity = 1.0
     private(set) var surfaceReveal = 1.0
-    private var systemMenuDepth = 0
+    var systemMenuDepth = 0
     private var paneTask: Task<Void, Never>?
     private func transitionPane() {
         paneTask?.cancel()
@@ -283,15 +60,15 @@ final class NotchController {
     let sensors = SensorActivity()
     let bluetooth = BluetoothBatteries()
     private let brightness = BrightnessMonitor()
-    private var powerFeedback = PowerFeedbackTracker()
-    private(set) var dropTargeted = false
+    var powerFeedback = PowerFeedbackTracker()
+    var dropTargeted = false
     /// Whether the drag over the island carries files (which can go to the shelf or AirDrop) or clipboard content.
-    private(set) var dropIsFiles = false
-    private(set) var dropZone = DropZone.shelf
+    var dropIsFiles = false
+    var dropZone = DropZone.shelf
     var airDropAvailable: Bool { NSSharingService(named: .sendViaAirDrop) != nil }
-    private(set) var fileDragActive = false
-    private var dragPollTimer: Timer?
-    private var dragStartChangeCount = 0
+    var fileDragActive = false
+    var dragPollTimer: Timer?
+    var dragStartChangeCount = 0
 
     // MARK: Feedback
 
@@ -299,15 +76,15 @@ final class NotchController {
     var feedbackSymbol = "checkmark.circle"
     var feedbackTint: Color = .green
     /// Optional rich content for the current feedback: a screenshot preview.
-    private(set) var feedbackImage: NSImage?
-    private(set) var feedbackURL: URL?
+    var feedbackImage: NSImage?
+    var feedbackURL: URL?
     /// An accessory that just connected, shown as a card with a battery ring per part, like AirPods on iPhone.
-    private(set) var feedbackDevice: BluetoothDevice?
+    var feedbackDevice: BluetoothDevice?
     /// A single button under the message, such as "Join" for a meeting that's about to start.
-    private(set) var feedbackAction: (title: String, url: URL)?
-    private var feedbackTask: Task<Void, Never>?
-    private(set) var hud: IslandHUD?
-    private var hudTask: Task<Void, Never>?
+    var feedbackAction: (title: String, url: URL)?
+    var feedbackTask: Task<Void, Never>?
+    var hud: IslandHUD?
+    var hudTask: Task<Void, Never>?
 
     private let screenshots = ScreenshotWatcher()
     private(set) var layout = IslandLayout(cutoutWidth: 190, menuBarHeight: 32, hasHardwareNotch: true)
@@ -369,7 +146,9 @@ final class NotchController {
     func receivePaneHeight(_ height: CGFloat) {
         guard paneHeight.map({ abs($0 - height) > 0.5 }) ?? true else { return }
         paneHeight = height
-        if expanded { paneResizedAt = ProcessInfo.processInfo.systemUptime }
+        // Content that has just been laid out for opening is taking its size, not changing it under the pointer.
+        let now = ProcessInfo.processInfo.systemUptime
+        if expanded, now - paneMountedAt > 0.15 { paneResizedAt = now }
     }
     /// True while the pointer is reaching for a menu or status icon under the compact island.
     private(set) var wingsAside = false
@@ -379,13 +158,13 @@ final class NotchController {
     private struct MediaVisibilityInput: Equatable { let enabled: Bool; let playing: Bool; let hasSource: Bool; let stepsAside: Bool }
     private var lastMediaInput: MediaVisibilityInput?
     private var mediaExitTask: Task<Void, Never>?
-    private var onOpenSettings: () -> Void = {}
+    var onOpenSettings: () -> Void = {}
     /// Checked on every mouse move anywhere, so it's only written when it changes: each write redraws the island.
-    private var pointerInside = false
+    var pointerInside = false
     @ObservationIgnored private var hoverIntent = HoverIntent()
     /// Replaces the real pointer location while the smoke test drives the island.
     var previewPointer: CGPoint?
-    private var suspended = false
+    var suspended = false
 #if DEBUG
     var smoke = NotchSmokeChecks()
 #endif
@@ -455,7 +234,7 @@ final class NotchController {
     var shelfHasFiles: Bool { shows(.files) && !shelf.files.isEmpty }
     var clipboardHasPins: Bool { shows(.clipboard) && !clipboard.pins.isEmpty }
     /// What a plain open shows: the activity under the pointer, otherwise whatever is happening now.
-    private func contextTab(at location: CGPoint? = nil) -> IslandTab {
+    func contextTab(at location: CGPoint? = nil) -> IslandTab {
         if let location, bubbleFrame?.contains(location) == true { return .timer }
         return compactLeadingTab
     }
@@ -479,7 +258,7 @@ final class NotchController {
     var tuckedAway: Bool { transitionPhase == .tucked }
     var preparingAfterTransition: Bool { transitionPhase == .preparing }
     /// True while tucked or before growing back out: the island must stay out of the way.
-    private var transitioning: Bool { transitionPhase == .tucked || transitionPhase == .preparing }
+    var transitioning: Bool { transitionPhase == .tucked || transitionPhase == .preparing }
     /// Tucking in animates as usual; coming back is the reveal spring alone.
     var surfaceAnimationsSuppressed: Bool { transitionPhase == .preparing || transitionPhase == .revealing }
     private var awayReasons: Set<IslandAwayReason> = []
@@ -519,6 +298,17 @@ final class NotchController {
     }
     var ignoresMouseEvents: Bool { panel?.ignoresMouseEvents ?? true }
 
+    // State used by the input and events extensions, which can't hold stored properties themselves.
+    var swipeTravel: CGFloat = 0
+    var swipeFired = false
+    var pressureStage = 0
+    var forceClickedAt: TimeInterval = -.infinity
+    /// Opened from the keyboard, the island takes ←, →, Return, Space and Escape until it closes, without
+    /// activating Brim or taking focus from the app you're in.
+    let keys = IslandKeys()
+    private var panelKeyObserver: NSObjectProtocol?
+    var toolOpenTask: Task<Void, Never>?
+
     // MARK: Lifecycle
 
     func start(preferences: Preferences, status: SystemStatus, media: MediaService, onOpenSettings: @escaping () -> Void = {}) {
@@ -548,7 +338,6 @@ final class NotchController {
         updateInteraction(scheduleHover: false)
     }
     private func configureCallbacks() {
-        clock.wantsFineTicks = { [weak self] in self?.expanded == true && self?.displayedTab == .timer }
         clock.onAlarm = { [weak self] in
             guard let self else { return }
             self.selectedTab = .timer
@@ -639,8 +428,9 @@ final class NotchController {
         }
         // Clicks and drags elsewhere still matter (a click outside closes the island; a file drag wakes it). Mouse
         // moves and scrolls in other apps don't: the pointer sensor says when the pointer reaches the island.
-        sensor = PointerSensor { [weak self] point in self?.updateInteraction(at: point) }
-        edge = PointerEdge { [weak self] point in self?.updateInteraction(at: point) }
+        // While the smoke test drives a pretend pointer, the real one doesn't get a say.
+        sensor = PointerSensor { [weak self] point in self?.updateInteraction(at: self?.previewPointer == nil ? point : nil) }
+        edge = PointerEdge { [weak self] point in self?.updateInteraction(at: self?.previewPointer == nil ? point : nil) }
         let mouseEvents: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .leftMouseDragged, .leftMouseUp]
         globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: mouseEvents) { [weak self] event in
             MainActor.assumeIsolated {
@@ -932,7 +722,7 @@ final class NotchController {
             self.setExpanded(true)
         }
     }
-    private func collapseAfterDelay(seconds: Double = 0.06) {
+    func collapseAfterDelay(seconds: Double = 0.06) {
         collapseTask?.cancel()
         collapseTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
@@ -984,354 +774,4 @@ final class NotchController {
         }
     }
 
-    // MARK: Pointer and drags
-
-    private func trackMouseEvent(_ event: NSEvent) {
-        guard systemMenuDepth == 0 else { return }
-        switch event.type {
-        case .leftMouseDown:
-            dragStartChangeCount = NSPasteboard(name: .drag).changeCount
-            startDragPolling()
-            // With nothing on screen the panel lets clicks through, so a click on the bare notch is noticed here.
-            if presentation == .hidden, containsPointer(NSEvent.mouseLocation) { openInContext() }
-        case .leftMouseDragged: startDragPolling()
-        case .leftMouseUp: endFileDrag()
-        default: break
-        }
-        updateInteraction()
-    }
-    private func startDragPolling() {
-        guard dragPollTimer == nil else { return }
-        let timer = Timer(timeInterval: 0.04, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.pollFileDrag() }
-        }
-        dragPollTimer = timer
-        // Native drag sessions run in event-tracking mode; polling must survive that mode.
-        RunLoop.main.add(timer, forMode: .common)
-    }
-    private func pollFileDrag() {
-        guard NSEvent.pressedMouseButtons & 1 != 0 else { endFileDrag(); return }
-        guard shows(.files) else { return }
-        let board = NSPasteboard(name: .drag)
-        guard board.changeCount != dragStartChangeCount,
-              board.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) else { return }
-        if !fileDragActive { fileDragActive = true }
-        updateInteraction(scheduleHover: false)
-        guard let displayFrame else { return }
-        let target = layout.frame(on: displayFrame, expanded: false).insetBy(dx: -22, dy: -14)
-        if target.contains(NSEvent.mouseLocation) { setDropTargeted(true) }
-    }
-    private func endFileDrag() {
-        dragPollTimer?.invalidate(); dragPollTimer = nil
-        fileDragActive = false; dropTargeted = false
-        updateInteraction(scheduleHover: false)
-        if expanded && !pointerInside { collapseAfterDelay() }
-    }
-    func setDropTargeted(_ targeted: Bool, clipboard: Bool = false) {
-        guard !targeted || shows(clipboard ? .clipboard : .files) else { return }
-        if targeted && !dropTargeted { haptic(.open); dropZone = .shelf }
-        if targeted { dropIsFiles = !clipboard }
-        dropTargeted = targeted
-        if targeted { selectedTab = clipboard ? .clipboard : .files; setExpanded(true) }
-        else if !pointerInside { collapseAfterDelay() }
-    }
-    func finishFileDrop(clipboard: Bool = false) {
-        haptic(.land)
-        dropTargeted = false; fileDragActive = false; selectedTab = clipboard ? .clipboard : .files
-        // The shelf stays open only while hovered; retained references survive collapse and Space changes.
-        updateInteraction(scheduleHover: false)
-        if !pointerInside { collapseAfterDelay() }
-    }
-
-    /// Follows a file drag across the expanded island, so the half under the pointer lights up.
-    func updateDropZone(x: CGFloat, width: CGFloat) {
-        let zone = DropZone.at(x: x, width: width, airDropAvailable: dropIsFiles && airDropAvailable)
-        if zone != dropZone { dropZone = zone; haptic(.open) }
-    }
-    /// Files dropped on the AirDrop half wait on the shelf too, then go straight to the AirDrop picker.
-    func airDrop(_ providers: [NSItemProvider]) -> Bool {
-        shelf.accept(providers) { [weak self] urls in
-            guard let self else { return }
-            self.shelf.select(Set(urls.map(\.standardizedFileURL)))
-            self.shelf.actions.airDrop()
-        }
-    }
-
-    // MARK: Gestures
-
-    private var swipeTravel: CGFloat = 0
-    private var swipeFired = false
-    private var pressureStage = 0
-    private var forceClickedAt: TimeInterval = -.infinity
-    /// The click that ends a Force Click mustn't then also count as an ordinary click on the island.
-    var recentlyForceClicked: Bool { ProcessInfo.processInfo.systemUptime - forceClickedAt < 0.8 }
-    private var gesturesEnabled: Bool { preferences?.islandGestures == true && !expanded && presentation == .compact }
-    /// Over the compact island, a sideways swipe hides what's on it, at every level as on iPhone. Scrolling changes
-    /// the volume, if that's turned on. Returns true when used.
-    private func handleScroll(_ event: NSEvent, at location: CGPoint) -> Bool {
-        guard !expanded, presentation == .compact, containsPointer(location) else { return false }
-        if event.phase.contains(.began) || event.phase.contains(.mayBegin) { swipeTravel = 0; swipeFired = false }
-        // Momentum after the fingers lift would keep changing the volume; the gesture is what the fingers did.
-        guard event.momentumPhase.isEmpty else { return true }
-        let fingers = IslandGesture.fingers(dx: event.scrollingDeltaX, dy: event.scrollingDeltaY, inverted: event.isDirectionInvertedFromDevice)
-        if abs(fingers.right) > abs(fingers.up) {
-            guard event.hasPreciseScrollingDeltas, !swipeFired else { return true }
-            swipeTravel += fingers.right
-            if abs(swipeTravel) >= IslandGesture.hideTravel {
-                swipeFired = true
-                haptic(.land)
-                dismissActivities()
-            }
-        } else if preferences?.islandGestures != true {
-            return false
-        } else if let status, status.volumeSettable, let volume = status.volume, fingers.up != 0 {
-            let next = IslandGesture.volume(status.muted ? 0 : volume, up: fingers.up, precise: event.hasPreciseScrollingDeltas)
-            status.setVolume(next)
-            showHUD(.init(symbol: next == 0 ? "speaker.slash.fill" : next < 0.34 ? "speaker.wave.1.fill" : next < 0.67 ? "speaker.wave.2.fill" : "speaker.wave.3.fill",
-                          level: next, label: String(localized: "Volume")))
-        }
-        return true
-    }
-    /// A Force Click on the compact island opens it on what it's showing, like a long press on iPhone.
-    private func receivePressure(_ event: NSEvent) {
-        defer { pressureStage = event.stage }
-        guard event.stage == 2, pressureStage < 2, gesturesEnabled, containsPointer(NSEvent.mouseLocation) else { return }
-        forceClickedAt = ProcessInfo.processInfo.systemUptime
-        feedbackTask?.cancel(); clearFeedback()
-        selectedTab = contextTab()
-        setExpanded(true)
-    }
-
-    // MARK: Opening tools
-
-    private var toolOpenTask: Task<Void, Never>?
-    func openTool(_ tool: ToolShortcuts.Tool, fromKeyboard: Bool = false) {
-        toolOpenTask?.cancel()
-        toolOpenTask = Task { [weak self] in
-            // A shortcut pressed while the island is away opens the tool once it's back.
-            for _ in 0..<100 {
-                guard !Task.isCancelled, let self, self.panel != nil, !self.presentationMode else { return }
-                if !self.transitioning && !self.suspended {
-                    switch tool {
-                    case .island: self.openInContext()
-                    case .nowPlaying: self.selectedTab = .music
-                    case .files: self.selectedTab = .files
-                    case .clipboard: self.selectedTab = .clipboard
-                    case .clock: self.selectedTab = .timer
-                    case .transfers: self.selectedTab = .transfers
-                    }
-                    if tool != .island { self.openFromMenu() }
-                    if fromKeyboard && self.expanded { self.startKeyboardSession() }
-                    return
-                }
-                try? await Task.sleep(for: .milliseconds(50))
-            }
-        }
-    }
-
-    // MARK: Keyboard
-
-    /// Opened from the keyboard, the island takes ←, →, Return, Space and Escape until it closes, without
-    /// activating Brim or taking focus from the app you're in.
-    private let keys = IslandKeys()
-    private var panelKeyObserver: NSObjectProtocol?
-    private func startKeyboardSession() {
-        collapseAfterDelay(seconds: 8)
-        keys.start { [weak self] key in self?.receive(key) }
-    }
-    private func receive(_ key: IslandKeys.Key) {
-        guard expanded else { keys.stop(); return }
-        switch key {
-        case .escape: setExpanded(false); return
-        case .left, .right:
-            let tabs = visibleTabs
-            let index = tabs.firstIndex(of: selectedTab) ?? 0
-            selectedTab = tabs[(index + (key == .right ? 1 : tabs.count - 1)) % tabs.count]
-        case .return, .space:
-            if displayedTab == .music, media?.source != nil { media?.command("playpause") }
-        }
-        collapseAfterDelay(seconds: 8)
-    }
-    func openTimerFromMenu() { selectedTab = .timer; openFromMenu() }
-    func openTransfersFromMenu() { selectedTab = .transfers; openFromMenu() }
-    func openClipboardFromMenu() { selectedTab = .clipboard; openFromMenu() }
-    func openShelfFromMenu() { shelfSelected = true; openFromMenu() }
-    func openFromMenu() { setExpanded(true); collapseAfterDelay(seconds: 5) }
-    func openSettings() { setExpanded(false); onOpenSettings() }
-    func connectTransfers() { preferences?.liveTransfers = true; transfers.start() }
-    func connectMedia() {
-        preferences?.mediaEnabled = true
-        media?.start()
-    }
-    func allowPlayerAccess() {
-        preferences?.playerAccess = true
-        media?.playerAccess = true
-    }
-    func startTimer(minutes: Double) {
-        countdown.start(seconds: minutes * 60)
-        clock.mode = .timer; selectedTab = .timer
-        showHUD(.init(symbol: "timer", tint: .orange, label: String(localized: "Timer started")))
-    }
-    func startFocus() {
-        countdown.startFocus()
-        clock.mode = .focus; selectedTab = .timer
-        showHUD(.init(symbol: "brain.head.profile", tint: .red, label: String(localized: "Focus started")))
-    }
-    func pinClipboard() {
-        if let urls = NSPasteboard.general.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
-            shelf.add(urls); selectedTab = .files
-        } else { clipboard.pin(); selectedTab = .clipboard }
-        openFromMenu()
-    }
-    private func configureShelfPersistence(_ keep: Bool) {
-        guard let defaults = AppEnvironment.persistentDefaults else { return }
-        if keep, shelf.persistence == nil {
-            shelf.restore(from: defaults)
-            shelf.persistence = defaults
-        } else if !keep, shelf.persistence != nil {
-            shelf.persistence = nil
-        }
-        // Clipboard pins follow the same switch; turning it off deletes the saved copies.
-        if keep, clipboard.persistence == nil, let store = ClipboardPinStore.standard {
-            clipboard.restore(from: store)
-            clipboard.persistence = store
-        } else if !keep, clipboard.persistence != nil {
-            clipboard.persistence = nil
-        }
-    }
-
-    // MARK: System events
-
-    private func transferFinished(_ activity: TransferActivity) {
-        switch activity.state {
-        case .finished:
-            let text = switch activity.kind {
-            case .airDropSend: activity.name
-            case .airDropReceive: String(localized: "Received \(activity.name)")
-            case .download: String(localized: "Downloaded \(activity.name)")
-            }
-            haptic(.finish)
-            showFeedback(text, symbol: activity.symbol, tint: .blue, seconds: 3)
-        case .failed(let message):
-            Log.island.notice("Transfer failed: \(message, privacy: .private)")
-            showFeedback(String(localized: "AirDrop didn’t finish"), symbol: "exclamationmark.circle", tint: .orange)
-        case .running: break
-        }
-    }
-    private func receivePower(_ sample: PowerSample) {
-        guard let preferences else { return }
-        let event = powerFeedback.receive(sample, target: preferences.chargeTarget, low: preferences.lowBatteryAlert)
-        guard !AppEnvironment.isSmokeTest, !expanded, !fileDragActive, let event else { return }
-        switch event {
-        case .connected(let percent) where preferences.chargingFeedback:
-            showHUD(.init(symbol: "battery.100percent.bolt", tint: .green, label: String(localized: "Charging"), battery: percent, charging: true), seconds: 3)
-        case .targetReached(let target) where preferences.chargingFeedback:
-            showHUD(.init(symbol: "battery.100percent", tint: .green, label: String(localized: "Target reached"), battery: target), seconds: 3)
-        case .low(let percent):
-            showHUD(.init(symbol: "battery.25percent", tint: .red, label: String(localized: "Battery low"), battery: percent), seconds: 5)
-        default: break
-        }
-    }
-    private func receiveVolume(_ volume: Double?, muted: Bool) {
-        guard preferences?.systemHUD == true else { return }
-        let level = muted ? 0 : (volume ?? 0)
-        let symbol = muted || level == 0 ? "speaker.slash.fill" : level < 0.34 ? "speaker.wave.1.fill" : level < 0.67 ? "speaker.wave.2.fill" : "speaker.wave.3.fill"
-        showHUD(.init(symbol: symbol, level: volume == nil ? nil : level, label: muted ? String(localized: "Muted") : String(localized: "Volume")))
-    }
-    static func brightnessSymbol(_ level: Double) -> String { level < 0.5 ? "sun.min.fill" : "sun.max.fill" }
-    /// Where sound is going now, as iPhone shows when you pick an AirPlay speaker. Bluetooth headphones get
-    /// the accessory card instead, which says more.
-    private func outputChanged(_ output: AudioOutput) {
-        guard preferences?.systemChanges == true, !expanded, feedback == nil else { return }
-        let bluetooth = [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE].contains(output.transport)
-        guard !(bluetooth && preferences?.bluetoothBatteries == true) else { return }
-        showFeedback(String(localized: "Playing on \(output.name)"), symbol: output.symbol, tint: .white, seconds: 2.5)
-    }
-    private func receive(_ moment: SystemMoments.Moment) {
-        guard preferences?.systemChanges == true else { return }
-        switch moment {
-        case .lowPower(let on): showHUD(.init(symbol: on ? "leaf.fill" : "leaf", tint: .yellow, label: on ? String(localized: "Low Power Mode On") : String(localized: "Low Power Mode Off")), seconds: 2)
-        case .offline: showHUD(.init(symbol: "wifi.slash", tint: .orange, label: String(localized: "Offline")), seconds: 3)
-        case .online: showHUD(.init(symbol: "wifi", tint: .green, label: String(localized: "Back Online")), seconds: 2)
-        }
-    }
-    private func sensorsChanged(camera: Bool, microphone: Bool) {
-        guard preferences?.sensorIndicator == true, camera || microphone else { return }
-        let label = camera && microphone ? String(localized: "Camera and microphone in use") : camera ? String(localized: "Camera in use") : String(localized: "Microphone in use")
-        showHUD(.init(symbol: camera ? "video.fill" : "mic.fill", tint: camera ? .green : .orange, label: label), seconds: 2.5)
-    }
-    private func deviceConnected(_ device: BluetoothDevice) {
-        guard preferences?.bluetoothBatteries == true, device.level != nil else { return }
-        haptic(.land)
-        showFeedback(device.name, symbol: device.symbol, tint: .white, device: device, seconds: 4)
-    }
-    /// Shown compact and brief, as on iPhone. Brim learns only that a Focus is on, not which one.
-    func focusChanged(on: Bool) {
-        guard preferences?.focusFeedback == true else { return }
-        showHUD(.init(symbol: on ? "moon.fill" : "moon", tint: .indigo, label: on ? String(localized: "Focus On") : String(localized: "Focus Off")), seconds: 2)
-    }
-    /// A new screenshot goes onto the file shelf and gets a brief preview, like the iPhone's corner thumbnail.
-    func receiveScreenshot(_ url: URL) {
-        guard preferences?.notchEnabled == true, preferences?.screenshotShelf == true, shows(.files) else { return }
-        shelf.add([url]); shelf.select([url.standardizedFileURL])
-        selectedTab = .files
-        haptic(.land)
-        showFeedback(String(localized: "Screenshot"), symbol: "camera.viewfinder", image: ScreenshotWatcher.thumbnail(for: url), url: url, seconds: 4)
-    }
-
-    // MARK: Feedback presentation
-
-    func showFeedback(_ text: String, symbol: String, tint: Color = .green,
-                      image: NSImage? = nil, url: URL? = nil, action: (title: String, url: URL)? = nil, device: BluetoothDevice? = nil, seconds: Double = 3) {
-        guard preferences?.notchEnabled == true else { return }
-        if preferences?.smallNotices == true, image == nil, action == nil, device == nil { showHUD(.init(symbol: symbol, tint: tint, label: text), seconds: seconds); return }
-        feedbackTask?.cancel(); hudTask?.cancel(); hud = nil
-        feedback = text; feedbackSymbol = symbol; feedbackTint = tint
-        feedbackImage = image; feedbackURL = url; feedbackAction = action; feedbackDevice = device
-        setExpanded(true)
-        announce(text)
-        feedbackTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(seconds))
-            guard !Task.isCancelled, let self else { return }
-            self.clearFeedback()
-            if !self.pointerInside { self.setExpanded(false) }
-        }
-    }
-    func dismissFeedback() {
-        feedbackTask?.cancel()
-        clearFeedback()
-        if !pointerInside { setExpanded(false) }
-    }
-    private func clearFeedback() {
-        feedback = nil; feedbackImage = nil; feedbackURL = nil; feedbackAction = nil; feedbackDevice = nil
-    }
-    /// The trackpad only plays this while a finger rests on it, so it's felt, never heard.
-    enum Haptic { case open, land, finish }
-    func haptic(_ kind: Haptic) {
-        guard preferences?.haptics == true, AppEnvironment.allowsAlerts else { return }
-        let pattern: NSHapticFeedbackManager.FeedbackPattern = switch kind {
-        case .open: .alignment
-        case .land: .generic
-        case .finish: .levelChange
-        }
-        NSHapticFeedbackManager.defaultPerformer.perform(pattern, performanceTime: .now)
-    }
-    /// Volume, brightness and privacy changes stay compact: they never open the island or take focus.
-    func showHUD(_ value: IslandHUD, seconds: Double = 1.6) {
-        guard preferences?.notchEnabled == true, !expanded, !presentationMode, !suspended else { return }
-        hudTask?.cancel()
-        hud = value
-        if let text = value.announcement { announce(text) }
-        hudTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(seconds))
-            guard !Task.isCancelled else { return }
-            self?.hud = nil
-        }
-    }
-    /// Notices leave on their own, before VoiceOver would ever reach them, so they're spoken as they arrive.
-    private func announce(_ text: String) {
-        guard AppEnvironment.allowsAlerts else { return }
-        NSAccessibility.post(element: NSApplication.shared, notification: .announcementRequested,
-                             userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
-    }
 }

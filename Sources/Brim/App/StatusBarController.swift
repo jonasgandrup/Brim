@@ -51,12 +51,29 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         withObservationTracking {
             _ = model.preferences.menuBarStatus
             _ = model.status.battery; _ = model.status.charging
-            _ = model.notch.countdown.state; _ = model.notch.countdown.now
-            _ = model.notch.clock.stopwatch; _ = model.notch.clock.uptime; _ = model.notch.clock.ringing
+            _ = model.notch.countdown.state
+            _ = model.notch.clock.stopwatch; _ = model.notch.clock.ringing
         } onChange: { [weak self] in
             Task { @MainActor in self?.updateStatusText(); self?.observeStatus() }
         }
-        updateStatusText()
+        updateStatusText(); syncStatusTicker()
+    }
+    /// A running timer or stopwatch in the menu bar needs a new label each second, and nothing else here does. The
+    /// first tick lands just after the shown second changes, then one a second.
+    private var statusTicker: Timer?
+    private func syncStatusTicker() {
+        let countdown = model.notch.countdown, clock = model.notch.clock
+        let running = countdown.state.phase == .running || (!countdown.active && clock.stopwatch.running)
+        guard model.preferences.menuBarStatus == .activity, running else { statusTicker?.invalidate(); statusTicker = nil; return }
+        guard statusTicker == nil else { return }
+        let seconds = countdown.state.phase == .running ? countdown.remaining : clock.stopwatch.value(at: ClockTools.continuousNow)
+        let partial = seconds - floor(seconds)
+        let untilChange = countdown.state.phase == .running ? partial : 1 - partial
+        let timer = Timer(fire: Date().addingTimeInterval(untilChange + 0.02), interval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateStatusText(); self?.syncStatusTicker() }
+        }
+        timer.tolerance = 0.05
+        RunLoop.main.add(timer, forMode: .common); statusTicker = timer
     }
     private func statusText() -> (text: String, bolt: Bool)? {
         switch model.preferences.menuBarStatus {

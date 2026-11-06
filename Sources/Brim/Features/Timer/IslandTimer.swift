@@ -7,6 +7,8 @@ struct CountdownState: Codable, Equatable {
     private(set) var duration: TimeInterval = 0
     private var deadline: Date?
     private var pausedRemaining: TimeInterval = 0
+    /// When a running timer ends.
+    var end: Date? { deadline }
     func remaining(at now: Date) -> TimeInterval {
         if let deadline { return max(0, deadline.timeIntervalSince(now)) }
         return phase == .paused ? pausedRemaining : 0
@@ -78,7 +80,6 @@ struct FocusCycle: Codable, Equatable {
     var minutes = 5
     private(set) var state = CountdownState()
     private(set) var focus: FocusCycle?
-    private(set) var now = Date()
     /// The island's message for the most recent finish.
     private(set) var finishedTitle = String(localized: "Timer finished")
     @ObservationIgnored var onFinish: () -> Void = {}
@@ -93,11 +94,12 @@ struct FocusCycle: Codable, Equatable {
               let saved = try? JSONDecoder().decode(Saved.self, from: data) else { return }
         minutes = saved.minutes
         guard saved.state.restorable(at: Date()) else { defaults?.removeObject(forKey: Self.storageKey); return }
-        state = saved.state; focus = saved.focus; now = Date()
+        state = saved.state; focus = saved.focus
         if state.phase == .running { runTicker() }
     }
     var active: Bool { state.phase != .idle }
-    var remaining: TimeInterval { state.remaining(at: now) }
+    /// Read when asked; nothing ticks. Views that count down do it themselves from `state.end`.
+    var remaining: TimeInterval { state.remaining(at: Date()) }
     var label: String { Self.label(remaining) }
     static func label(_ remaining: TimeInterval) -> String {
         let seconds = Int(ceil(max(0, remaining)))
@@ -132,11 +134,12 @@ struct FocusCycle: Codable, Equatable {
         if whole % 60 == 0 { return whole == 60 ? String(localized: "1-minute timer") : String(localized: "\(whole / 60)-minute timer") }
         return whole < 60 ? String(localized: "\(whole)-second timer") : String(localized: "\(whole / 60) min \(whole % 60) s timer")
     }
-    var progress: Double { state.duration > 0 ? min(1, max(0, 1 - remaining / state.duration)) : 0 }
+    var progress: Double { progress(at: Date()) }
+    func progress(at date: Date) -> Double { state.duration > 0 ? min(1, max(0, 1 - state.remaining(at: date) / state.duration)) : 0 }
     func start() { focus = nil; start(seconds: Double(minutes) * 60) }
     func start(seconds: TimeInterval) {
         guard seconds.isFinite, seconds > 0, seconds <= 86400 else { return }
-        now = Date(); state.start(seconds: seconds, at: now); runTicker(); save()
+        state.start(seconds: seconds, at: Date()); runTicker(); save()
     }
     func startFocus(_ cycle: FocusCycle = FocusCycle()) {
         focus = cycle
@@ -150,10 +153,10 @@ struct FocusCycle: Codable, Equatable {
     }
     func pause() {
         guard state.phase == .running else { return }
-        now = Date(); state.pause(at: now); ticker?.cancel(); ticker = nil
+        state.pause(at: Date()); ticker?.cancel(); ticker = nil
         if state.phase == .finished { finish() } else { save() }
     }
-    func resume() { guard state.phase == .paused else { return }; now = Date(); state.resume(at: now); runTicker(); save() }
+    func resume() { guard state.phase == .paused else { return }; state.resume(at: Date()); runTicker(); save() }
     func cancel() { ticker?.cancel(); ticker = nil; state.cancel(); focus = nil; save() }
     /// Stops ticking without forgetting the timer, for quitting the app.
     func suspend() { ticker?.cancel(); ticker = nil; save() }
@@ -169,17 +172,16 @@ struct FocusCycle: Codable, Equatable {
         }
         onFinish()
     }
-    /// Wakes once a second, just after the second it shows changes: the label counts whole seconds, and the ring
-    /// steps along with it.
+    /// Nothing ticks while a timer runs: the system counts the views down from its end time, as with a Live Activity.
+    /// This only wakes when it ends, to finish it or move a focus session on (and at most every quarter hour before).
     private func runTicker() {
         ticker?.cancel()
         ticker = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                self.now = Date()
-                if self.remaining <= 0, self.state.update(at: self.now) { self.ticker = nil; self.finish(); return }
-                let partial = self.remaining - floor(self.remaining)
-                try? await Task.sleep(for: .seconds((partial > 0.02 ? partial : 1) + 0.01))
+                if self.state.update(at: Date()) { self.ticker = nil; self.finish(); return }
+                guard self.state.phase == .running else { self.ticker = nil; return }
+                try? await Task.sleep(for: .seconds(min(900, self.remaining) + 0.02))
             }
         }
     }
@@ -247,17 +249,17 @@ struct CountdownReadout: View {
         HStack(spacing: 14) {
             ZStack {
                 Circle().stroke(tint.opacity(0.2), lineWidth: 4)
-                Circle().trim(from: 0, to: timer.progress)
-                    .stroke(tint, style: StrokeStyle(lineWidth: 4, lineCap: .round)).rotationEffect(.degrees(-90))
-                    .animation(IslandStyle.progress, value: timer.progress)
+                CountdownProgress(timer: timer) { progress in
+                    Circle().trim(from: 0, to: progress)
+                        .stroke(tint, style: StrokeStyle(lineWidth: 4, lineCap: .round)).rotationEffect(.degrees(-90))
+                }
                 Image(systemName: timer.state.phase == .finished ? "checkmark" : timer.state.phase == .paused ? "pause.fill" : "timer")
                     .font(.system(size: 13, weight: .semibold)).foregroundStyle(tint)
                     .contentTransition(.symbolEffect(.replace))
             }.frame(width: 44, height: 44)
             VStack(alignment: .leading, spacing: 2) {
-                Text(timer.state.phase == .finished ? String(localized: "Time’s up") : timer.label)
+                CountdownText(timer: timer, finished: String(localized: "Time’s up"))
                     .font(.system(size: 30, weight: .light, design: .rounded)).monospacedDigit()
-                    .contentTransition(.numericText(countsDown: true))
                 Text(timer.subtitle).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -318,5 +320,36 @@ struct FocusTimerView: View {
                 }
             }
         }.foregroundStyle(.white)
+    }
+}
+
+/// The countdown's digits. While running they're the system's own timer text, kept moving from the end time without
+/// the app doing anything each second; paused or finished, they're plain text.
+struct CountdownText: View {
+    let timer: IslandTimer
+    var finished = String(localized: "Done")
+    var body: some View {
+        if timer.state.phase == .running, let end = timer.state.end, end > Date() {
+            Text(timerInterval: Date()...end, countsDown: true)
+        } else {
+            Text(timer.state.phase == .finished ? finished : timer.label)
+        }
+    }
+}
+
+/// A countdown's progress for a ring: redrawn once a second while running and on screen, still otherwise.
+struct CountdownProgress<Content: View>: View {
+    let timer: IslandTimer
+    var live = true
+    @ViewBuilder let content: (Double) -> Content
+    var body: some View {
+        if live, timer.state.phase == .running {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let progress = timer.progress(at: context.date)
+                content(progress).animation(IslandStyle.progress, value: progress)
+            }
+        } else {
+            content(timer.progress)
+        }
     }
 }

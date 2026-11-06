@@ -628,18 +628,25 @@ struct DropZonesView: View {
 private struct CompactCountdown: View {
     let timer: IslandTimer
     var body: some View {
-        Text(timer.state.phase == .finished ? String(localized: "Done") : timer.label)
+        CountdownText(timer: timer)
             .font(.system(size: 10, weight: .semibold)).monospacedDigit()
             .foregroundStyle(timer.focus?.phase == .focus ? Color.red : .orange).minimumScaleFactor(0.6)
-            .contentTransition(.numericText(countsDown: true))
     }
 }
 
+/// Counts up on its own from when the stopwatch started, like the countdown; paused, it's plain text.
 private struct CompactStopwatch: View {
     let clock: ClockTools
     var body: some View {
-        Text(clock.label).font(.system(size: 10, weight: .semibold)).monospacedDigit()
-            .foregroundStyle(.orange).minimumScaleFactor(0.6)
+        Group {
+            if let start = clock.stopwatchStart, !clock.ringing {
+                Text(timerInterval: start...Date.distantFuture, countsDown: false)
+            } else {
+                Text(clock.label)
+            }
+        }
+        .font(.system(size: 10, weight: .semibold)).monospacedDigit()
+        .foregroundStyle(.orange).minimumScaleFactor(0.6)
     }
 }
 
@@ -653,9 +660,10 @@ private struct CountdownRing: View {
     var body: some View {
         ZStack {
             Circle().stroke(tint.opacity(0.25), lineWidth: 2.5)
-            Circle().trim(from: 0, to: 1 - timer.progress)
-                .stroke(tint, style: StrokeStyle(lineWidth: 2.5, lineCap: .round)).rotationEffect(.degrees(-90))
-                .animation(animated ? IslandStyle.progress : nil, value: timer.progress)
+            CountdownProgress(timer: timer, live: animated) { progress in
+                Circle().trim(from: 0, to: 1 - progress)
+                    .stroke(tint, style: StrokeStyle(lineWidth: 2.5, lineCap: .round)).rotationEffect(.degrees(-90))
+            }
             Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).foregroundStyle(tint)
         }
         .accessibilityElement(children: .ignore).accessibilityLabel("Timer, \(timer.label) left")
