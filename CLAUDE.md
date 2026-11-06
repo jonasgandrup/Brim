@@ -8,7 +8,8 @@ extras. The goal is an Apple-like feel: quiet by default, opaque black island, s
 
 - `./test.sh` runs the tests. Plain `swift test` fails with this toolchain (the Testing framework needs extra
   flags that the script adds). Never report tests as failing because `swift test` failed.
-- `scripts/package.sh` builds the download, `dist/Brim-<version>.dmg`. It isn't notarized; `scripts/release.sh` is for a paid Developer ID.
+- `scripts/package.sh` builds the download, `dist/Brim-<version>.dmg`, signed locally and not notarized. With a paid Developer ID,
+  `scripts/release.sh` builds the same image signed for it, notarizes it and staples the ticket.
 - `./build.sh debug` builds and signs `dist/Brim.app`. Release: `./build.sh` (or `swift build -c release` to
   just compile). Check both: test harness code lives behind `#if DEBUG`.
 - Signing uses one stable local identity (`scripts/sign-local.sh`, keys in `.sense-signing/`, never committed),
