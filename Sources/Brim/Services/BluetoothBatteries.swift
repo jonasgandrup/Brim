@@ -62,20 +62,17 @@ enum BluetoothReport {
         let result = await ProcessRunner.run("/usr/sbin/system_profiler", arguments: ["SPBluetoothDataType", "-json"], timeout: 10)
         return result.succeeded ? result.output : nil
     }
-    private var task: Task<Void, Never>?
+    private var started = false
     private var refreshTask: Task<Void, Never>?
     private var known: Set<String>?
-    private var lastRefresh: TimeInterval = -.infinity
     private var listener: AudioObjectPropertyListenerBlock?
 
+    /// Read once at start, then when an audio accessory connects: that's the moment the island shows its levels,
+    /// so nothing runs in between.
     func start() {
-        guard task == nil else { return }
-        task = Task { [weak self] in
-            while !Task.isCancelled {
-                await self?.refresh()
-                try? await Task.sleep(for: .seconds(180))
-            }
-        }
+        guard !started else { return }
+        started = true
+        refreshSoon(after: .zero)
         let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             // Battery levels show up a moment after an accessory connects.
             Task { @MainActor in self?.refreshSoon(after: .seconds(3)) }
@@ -85,17 +82,12 @@ enum BluetoothReport {
         AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, .main, listener)
     }
     func stop() {
-        task?.cancel(); task = nil; refreshTask?.cancel(); refreshTask = nil
+        started = false; refreshTask?.cancel(); refreshTask = nil
         if let listener {
             var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
             AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, .main, listener)
         }
         listener = nil; devices = []; known = nil
-    }
-    /// For the battery pane: refresh if the last reading is more than a few seconds old.
-    func refreshIfStale() {
-        guard task != nil, ProcessInfo.processInfo.systemUptime - lastRefresh > 10 else { return }
-        refreshSoon(after: .zero)
     }
     private func refreshSoon(after delay: Duration) {
         refreshTask?.cancel()
@@ -106,8 +98,7 @@ enum BluetoothReport {
         }
     }
     func refresh() async {
-        lastRefresh = ProcessInfo.processInfo.systemUptime
-        guard let data = await reader(), task != nil || known == nil else { return }
+        guard let data = await reader(), started || known == nil else { return }
         apply(BluetoothReport.parse(data))
     }
     func apply(_ next: [BluetoothDevice]) {

@@ -36,7 +36,7 @@ Hover over the activity and it opens, only as tall as what's inside.
     <td width="50%"><img src="docs/images/files.png" alt="Four files waiting in the island's file shelf"></td>
   </tr>
   <tr>
-    <td><strong>Now Playing</strong><br>Control Spotify, Music, or a video in your browser. Seek, choose where the sound plays, and set a sleep timer.</td>
+    <td><strong>Now Playing</strong><br>Control Spotify, Music, or a video in your browser. Seek, and set a sleep timer.</td>
     <td><strong>Files</strong><br>Drop files on the notch and drag them out anywhere later. They wait while you switch windows or Spaces.</td>
   </tr>
   <tr>
@@ -44,16 +44,8 @@ Hover over the activity and it opens, only as tall as what's inside.
     <td><img src="docs/images/timer.png" alt="A five-minute timer running with Pause and Cancel"></td>
   </tr>
   <tr>
-    <td><strong>Clipboard</strong><br>Pin text, links and images, and click one to copy it again. Clipboard history is optional and stays in memory only.</td>
+    <td><strong>Clipboard</strong><br>Pin text, links and images, and click one to copy it again.</td>
     <td><strong>Clock</strong><br>Timers, focus sessions, a stopwatch and alarms, one click from wherever you are.</td>
-  </tr>
-  <tr>
-    <td><img src="docs/images/battery.png" alt="Battery percentage, time remaining, volume and brightness sliders, battery health and cycle count"></td>
-    <td><img src="docs/images/airpods.png" alt="An AirPods Pro card showing left, right and case battery levels"></td>
-  </tr>
-  <tr>
-    <td><strong>Battery &amp; Controls</strong><br>Battery, time remaining, health, volume and brightness, all in one place.</td>
-    <td><strong>Accessories</strong><br>Connect your AirPods and see every battery level at a glance.</td>
   </tr>
   <tr>
     <td><img src="docs/images/drop-zones.png" alt="Dragging a file over the island, with Files and AirDrop drop zones"></td>
@@ -62,6 +54,14 @@ Hover over the activity and it opens, only as tall as what's inside.
   <tr>
     <td><strong>Drag to AirDrop</strong><br>Drag a file to the notch and choose where it goes: the shelf or AirDrop.</td>
     <td><strong>Your own activities</strong><br>Shortcuts and scripts can show their progress in the notch with a simple <code>brim://</code> link.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/airpods.png" alt="An AirPods Pro card showing left, right and case battery levels"></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td><strong>Accessories</strong><br>Connect your AirPods and see every battery level at a glance, as on iPhone.</td>
+    <td></td>
   </tr>
 </table>
 
@@ -86,7 +86,7 @@ Any folder on your `PATH` works in place of `~/.local/bin`.
 
 A new install starts with **Essentials**, which does what the iPhone does and nothing more. Move up to **More** or **Everything** when you want the shelf, clipboard, clock and controls.
 
-Anything that reads your calendar, downloads, screenshots or clipboard history, or needs a macOS permission, stays its own switch. Choosing a level never sets off a run of prompts.
+Anything that reads your calendar, downloads or screenshots, or needs a macOS permission, stays its own switch. Choosing a level never sets off a run of prompts.
 
 <p align="center"><img src="docs/images/settings.png" alt="Brim's settings window, in the style of System Settings, showing the three levels" width="80%"></p>
 

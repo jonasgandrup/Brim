@@ -189,13 +189,9 @@ struct IslandView: View {
         } else if dualActivities {
             PlaybackActivity(playing: media.playing, tint: media.artworkTint)
         } else if controller.countdown.active {
-            Text(controller.countdown.state.phase == .finished ? String(localized: "Done") : controller.countdown.label)
-                .font(.system(size: 10, weight: .semibold)).monospacedDigit()
-                .foregroundStyle(controller.countdown.focus?.phase == .focus ? Color.red : .orange).minimumScaleFactor(0.6)
-                .contentTransition(.numericText(countsDown: true))
+            CompactCountdown(timer: controller.countdown)
         } else if controller.clock.active {
-            Text(controller.clock.label).font(.system(size: 10, weight: .semibold)).monospacedDigit()
-                .foregroundStyle(.orange).minimumScaleFactor(0.6)
+            CompactStopwatch(clock: controller.clock)
         } else if controller.transfers.hasRunning {
             TransferRing(fraction: TransferScan.combinedFraction(controller.transfers.running))
         } else if !controller.activities.running.isEmpty {
@@ -220,7 +216,7 @@ struct IslandView: View {
     @ViewBuilder private var morphingArtwork: some View {
         let expandedArt = expandedShowsArtwork
         if expandedArt || (!controller.expanded && compactShowsArtwork && controller.presentation != .hidden) {
-            ArtworkTile(image: media.artwork, appIcon: media.sourceIcon, radius: expandedArt ? 12 : 6)
+            ArtworkTile(image: media.artwork, appIcon: media.coverOnItsWay ? nil : media.sourceIcon, radius: expandedArt ? 12 : 6)
                 .matchedGeometryEffect(id: expandedArt ? ArtworkSlot.expanded : ArtworkSlot.compact, in: artworkSpace, isSource: false)
                 .shadow(color: .black.opacity(expandedArt ? 0.45 : 0), radius: 8, y: 3)
                 .opacity(expandedArt ? controller.paneOpacity : controller.surfaceReveal)
@@ -233,19 +229,12 @@ struct IslandView: View {
         let focus = controller.countdown.focus?.phase == .focus
         let tint: Color = focus ? .red : .orange
         return Button { controller.openCompactActivity(.timer) } label: {
-            ZStack {
-                Circle().stroke(tint.opacity(0.25), lineWidth: 2.5)
-                Circle().trim(from: 0, to: 1 - controller.countdown.progress)
-                    .stroke(tint, style: StrokeStyle(lineWidth: 2.5, lineCap: .round)).rotationEffect(.degrees(-90))
-                    .animation(IslandStyle.progress, value: controller.countdown.progress)
-                Image(systemName: focus ? "brain.head.profile" : "timer").font(.system(size: 11, weight: .semibold)).foregroundStyle(tint)
-            }
-            .padding(7)
-            .frame(width: side, height: side)
-            .background(.black, in: Circle())
-            .contentShape(Circle())
-        }.buttonStyle(IslandPressStyle())
-            .accessibilityLabel("Timer, \(controller.countdown.label) left").help("Open timer")
+            CountdownRing(timer: controller.countdown, tint: tint, symbol: focus ? "brain.head.profile" : "timer", animated: controller.showsActivityBubble)
+                .padding(7)
+                .frame(width: side, height: side)
+                .background(.black, in: Circle())
+                .contentShape(Circle())
+        }.buttonStyle(IslandPressStyle()).help("Open timer")
     }
     // MARK: Expanded
 
@@ -253,12 +242,12 @@ struct IslandView: View {
         VStack(spacing: 8) {
             if controller.feedback == nil && controller.visibleTabs.count > 1 {
                 IslandTabBar(selection: $controller.selectedTab,
-                             tabs: IslandTabBar.items(for: controller.visibleTabs, hasBattery: status.battery != nil, downloads: preferences.liveTransfers || controller.transfers.hasRunning))
+                             tabs: IslandTabBar.items(for: controller.visibleTabs, downloads: preferences.liveTransfers || controller.transfers.hasRunning))
             }
             if controller.feedback != nil { feedbackContent }
             else if controller.dropTargeted && controller.dropIsFiles && controller.airDropAvailable {
                 DropZonesView(zone: controller.dropZone).frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
+            } else if controller.paneMounted {
                 selectedPane
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .opacity(controller.paneOpacity)
@@ -271,7 +260,6 @@ struct IslandView: View {
         case .files: FileShelfView(shelf: controller.shelf, dropTargeted: controller.dropTargeted)
         case .clipboard: ClipboardShelfView(shelf: controller.clipboard, pinClipboard: { controller.pinClipboard() })
         case .timer: IslandClockView(clock: controller.clock, timer: controller.countdown, calendar: controller.calendar)
-        case .battery: BatteryPaneView(status: status, bluetooth: preferences.bluetoothBatteries ? controller.bluetooth : nil, brightness: controller.brightnessControl)
         case .transfers:
             TransfersPaneView(transfers: controller.transfers, activities: controller.activities, enabled: preferences.liveTransfers, enable: { controller.connectTransfers() },
                               addToShelf: { url in controller.shelf.add([url]); controller.selectedTab = .files })
@@ -398,15 +386,14 @@ struct IslandTabBar: View {
     @Namespace private var highlight
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
-    /// The controls tab is named for what this Mac has, and the last tab for whether it's holding downloads or only a script's activity.
-    static func items(for tabs: [IslandTab], hasBattery: Bool, downloads: Bool = true) -> [Item] {
+    /// The last tab is named for whether it's holding downloads or only a script's activity.
+    static func items(for tabs: [IslandTab], downloads: Bool = true) -> [Item] {
         tabs.map { tab in
             switch tab {
             case .music: (tab, "play.fill", String(localized: "Now Playing"))
             case .files: (tab, "tray.fill", String(localized: "Files"))
             case .clipboard: (tab, "pin.fill", String(localized: "Clipboard"))
             case .timer: (tab, "clock.fill", String(localized: "Clock"))
-            case .battery: (tab, hasBattery ? "battery.100percent" : "slider.horizontal.3", hasBattery ? String(localized: "Battery & Controls") : String(localized: "Controls"))
             case .transfers: downloads ? (tab, "arrow.down.circle.fill", String(localized: "Downloads & AirDrop")) : (tab, "gauge.with.dots.needle.33percent", String(localized: "Activity"))
             }
         }
@@ -633,5 +620,44 @@ struct DropZonesView: View {
             .strokeBorder(active ? tint.opacity(0.7) : .white.opacity(0.1), style: StrokeStyle(lineWidth: 1.5, dash: active ? [] : [4, 3])))
         .scaleEffect(active ? 1 : 0.97)
         .accessibilityElement(children: .combine).accessibilityAddTraits(active ? .isSelected : [])
+    }
+}
+
+// The parts that change every second are views of their own: a tick then redraws just them, not the whole island.
+
+private struct CompactCountdown: View {
+    let timer: IslandTimer
+    var body: some View {
+        Text(timer.state.phase == .finished ? String(localized: "Done") : timer.label)
+            .font(.system(size: 10, weight: .semibold)).monospacedDigit()
+            .foregroundStyle(timer.focus?.phase == .focus ? Color.red : .orange).minimumScaleFactor(0.6)
+            .contentTransition(.numericText(countsDown: true))
+    }
+}
+
+private struct CompactStopwatch: View {
+    let clock: ClockTools
+    var body: some View {
+        Text(clock.label).font(.system(size: 10, weight: .semibold)).monospacedDigit()
+            .foregroundStyle(.orange).minimumScaleFactor(0.6)
+    }
+}
+
+/// The timer's progress around its symbol, in the second activity's small island. It's always there, faded out until
+/// a second activity parts from the island, so it only animates while it shows.
+private struct CountdownRing: View {
+    let timer: IslandTimer
+    let tint: Color
+    let symbol: String
+    var animated = true
+    var body: some View {
+        ZStack {
+            Circle().stroke(tint.opacity(0.25), lineWidth: 2.5)
+            Circle().trim(from: 0, to: 1 - timer.progress)
+                .stroke(tint, style: StrokeStyle(lineWidth: 2.5, lineCap: .round)).rotationEffect(.degrees(-90))
+                .animation(animated ? IslandStyle.progress : nil, value: timer.progress)
+            Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).foregroundStyle(tint)
+        }
+        .accessibilityElement(children: .ignore).accessibilityLabel("Timer, \(timer.label) left")
     }
 }

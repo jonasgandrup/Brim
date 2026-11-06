@@ -131,16 +131,16 @@ extension BrimAppModel {
             _ = try? await NSWorkspace.shared.openApplication(at: missionControl, configuration: .init())
             try? await Task.sleep(for: .seconds(2))
             for _ in 0..<20 {
-                if !notch.desktopTransition && notch.transitionDiagnostics["panelVisible"] == true { break }
+                if !notch.tuckedAway && notch.transitionDiagnostics["panelVisible"] == true { break }
                 try? await Task.sleep(for: .milliseconds(100))
             }
-            missionControlRestoredIsland = !notch.desktopTransition && notch.transitionDiagnostics["panelVisible"] == true
+            missionControlRestoredIsland = !notch.tuckedAway && notch.transitionDiagnostics["panelVisible"] == true
             notch.shelf.clear()
             try? await Task.sleep(for: .milliseconds(450))
         }
         var spacesCheck: [String: Any] = [:]
         if CommandLine.arguments.contains("--check-spaces") {
-            let before = notch.spaceSlideCount
+            var hid = false
             notch.shelf.add([Bundle.main.bundleURL.appendingPathComponent("Contents/Info.plist")])
             notch.openShelfFromMenu()
             let window = NSWindow(contentRect: NSRect(x: 120, y: 150, width: 720, height: 400), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
@@ -152,6 +152,7 @@ extension BrimAppModel {
             try? await Task.sleep(for: .milliseconds(400))
             window.toggleFullScreen(nil)
             for _ in 0..<50 {
+                if notch.tuckedAway { hid = true }
                 if window.styleMask.contains(.fullScreen) { break }
                 try? await Task.sleep(for: .milliseconds(100))
             }
@@ -161,17 +162,14 @@ extension BrimAppModel {
             if entered {
                 window.toggleFullScreen(nil)
                 for _ in 0..<50 {
+                    if notch.tuckedAway { hid = true }
                     if !window.styleMask.contains(.fullScreen) { break }
                     try? await Task.sleep(for: .milliseconds(100))
                 }
             }
             window.close()
-            for _ in 0..<50 {
-                if !notch.desktopTransition { break }
-                try? await Task.sleep(for: .milliseconds(100))
-            }
-            spacesCheck = ["enteredFullScreen": entered, "observedDesktopSurfaces": notch.spaceSlideCount > before,
-                           "restored": !notch.desktopTransition, "shelfPreserved": !notch.shelf.files.isEmpty]
+            // Like the island on iPhone across apps, it stays put while the desktop moves.
+            spacesCheck = ["enteredFullScreen": entered, "islandStayedPut": !hid && !notch.tuckedAway, "shelfPreserved": !notch.shelf.files.isEmpty]
             notch.shelf.clear()
             try? await Task.sleep(for: .milliseconds(450))
         }
@@ -195,7 +193,7 @@ extension BrimAppModel {
             "islandIdleHoverOpens": notch.smoke.idleHoverOpensIsland,
             "islandHoverAfterTransitions": hoverAfterTransitions,
             "hoverChecks": notch.smoke.hoverCheckDiagnostics,
-            "islandHidesForDesktopTransitions": notch.smoke.desktopTransitionHidesIsland,
+            "switcherTucksIsland": notch.smoke.switcherTucksIsland,
             "islandTransitionState": notch.transitionDiagnostics,
             "spacesCheck": spacesCheck,
             "fileActionsCheck": fileActionsCheck,
@@ -203,11 +201,7 @@ extension BrimAppModel {
             "powerNotificationsActive": status.powerNotificationsActive,
             "chargeTarget": preferences.chargeTarget,
             "missionControlRestoredIsland": missionControlRestoredIsland as Any? ?? NSNull(),
-            "systemSwitcherObserved": notch.smoke.systemSwitcherObserved,
             "scaleForceDeviceAvailable": forceAvailable, "scaleForceFramesObserved": forceSamples,
-            "spaceGestureTrackpadDevices": notch.trackpadDeviceCount,
-            "observedContactGestures": notch.observedContactGestures,
-            "systemSwitcherHidIsland": notch.smoke.systemSwitcherHidIsland,
             "islandNativeSnapshots": notch.smoke.nativeSnapshotCount,
             "lidFoldReadiness": lidFoldReadiness.message,
             "lidSensorStatus": lid.status, "lidAngle": lid.angle as Any? ?? NSNull(),

@@ -124,11 +124,11 @@ extension BrimAppModel {
             "Accessibility: \(yes(permissions.accessibility)) · Screen Recording: \(yes(permissions.screenRecording))",
             "Lid fold: \(yes(preferences.lidEffectEnabled)) (\(preferences.lidFoldStyle.rawValue)) · hinge: \(lid.status) · capture check: \(lid.captureCheck.title)",
             "Now Playing: \(yes(preferences.mediaEnabled)) · system bridge available: \(yes(media.systemAvailable)) · Music/Spotify access: \(yes(preferences.playerAccess))",
-            "Trackpad devices seen: \(notch.trackpadDeviceCount) · scale format recognized: \(yes(!scale.formatUnrecognized))",
+            "Scale format recognized: \(yes(!scale.formatUnrecognized))",
             "Island: \(yes(preferences.notchEnabled)) · switcher: \(yes(preferences.switcherEnabled)) (\(switcher.status))",
             "Tool shortcuts unavailable: \(toolShortcuts.unavailable.isEmpty ? "none" : toolShortcuts.unavailable.joined(separator: ", "))",
             "Live transfers: \(yes(preferences.liveTransfers)) · hide on Focus: \(yes(preferences.autoHideFocus)) · hide on sharing: \(yes(preferences.autoHideSharing)) · auto-hidden now: \(notch.autoHideReason ?? "no")",
-            "Screenshot shelf: \(yes(preferences.screenshotShelf)) · keep shelf: \(yes(preferences.keepShelf)) · clipboard history: \(yes(preferences.clipboardHistory)) · calendar: \(notch.calendar.access)",
+            "Screenshot shelf: \(yes(preferences.screenshotShelf)) · keep shelf: \(yes(preferences.keepShelf)) · calendar: \(notch.calendar.access)",
             "Camera/mic indicator: \(yes(preferences.sensorIndicator)) · volume & brightness: \(yes(preferences.systemHUD)) (brightness API: \(yes(BrightnessMonitor.available))) · accessory batteries: \(yes(preferences.bluetoothBatteries)) (\(notch.bluetooth.devices.count) connected)",
             "Low battery warning: \(preferences.lowBatteryAlert == 0 ? "off" : "\(preferences.lowBatteryAlert)%") · follow active display: \(yes(preferences.followActiveDisplay)) · Now Playing helper: \(NowPlayingHelper.shared.enabled ? "resident" : "one-shot")"
         ]

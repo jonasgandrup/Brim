@@ -70,6 +70,7 @@ enum IslandStyle {
     /// A second activity parting from the island, and the height changing between sections.
     static let part = Animation.spring(duration: 0.5, bounce: 0.28)
     static let resize = Animation.spring(duration: 0.34, bounce: 0.12)
-    /// Progress that should move at an even pace.
+    /// Progress that should move at an even pace. The timer ring steps once a second with a short glide, then rests:
+    /// an animation that never ends would redraw the island at the display's full frame rate the whole time.
     static let progress = Animation.linear(duration: 0.25)
 }

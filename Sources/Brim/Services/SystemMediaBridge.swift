@@ -20,6 +20,7 @@ struct SystemMediaSnapshot: Decodable, Sendable {
     /// The app behind a helper process that publishes media on its behalf.
     var parentSource: String? = nil
     var hasMedia: Bool { available && !(title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) }
+    var isPlaying: Bool { hasMedia && (rate ?? 0) > 0 }
 }
 
 struct MediaTimeline: Sendable {
@@ -47,9 +48,23 @@ enum MediaScriptRunner {
     }
 }
 
+/// A line from the helper: an answer to the oldest waiting read, or one of its own announcements.
+enum NowPlayingHelperLine: Equatable {
+    case reply(String), listening, changed, ignored
+    init(_ line: String) {
+        switch line {
+        case "listening": self = .listening
+        case "changed": self = .changed
+        case "": self = .ignored
+        default: self = .reply(line)
+        }
+    }
+}
+
 /// One long-lived scripting process answers Now Playing reads over stdin/stdout, instead of a new
-/// `osascript` launch per poll. Requests are answered in order. A hung or crashed helper is replaced on
-/// the next read, and a periodic one-shot comparison turns the helper off if it ever disagrees.
+/// `osascript` launch per poll. Requests are answered in order. It also says when playback changes, so Brim
+/// reads then instead of asking every few seconds. A hung or crashed helper is replaced on the next read,
+/// and a periodic one-shot comparison turns the helper off if it ever disagrees.
 final class NowPlayingHelper: @unchecked Sendable {
     static let shared = NowPlayingHelper()
     private let lock = NSLock()
@@ -63,17 +78,28 @@ final class NowPlayingHelper: @unchecked Sendable {
     private var lastVerified: TimeInterval = -.infinity
     /// Bounds memory growth inside the scripting runtime.
     private let recycleAfter = 600
+    private var listening = false
+    private var changeHandler: (@Sendable () -> Void)?
 
     var enabled: Bool { lock.withLock { !disabled } }
+    /// True while a running helper announces changes, so asking every few seconds isn't needed.
+    var announcesChanges: Bool { lock.withLock { listening && !disabled } }
+    /// Called, off the main thread, when the helper sees playback change in any player.
+    var onChange: (@Sendable () -> Void)? {
+        get { lock.withLock { changeHandler } }
+        set { lock.withLock { changeHandler = newValue } }
+    }
     func disable(reason: String) {
         Log.media.error("Now Playing helper disabled: \(reason, privacy: .public)")
         let failed = lock.withLock { disabled = true; return tearDownLocked() }
         failed.forEach { $0.resume(returning: nil) }
     }
-    /// True roughly every 15 seconds: time to compare the helper against a fresh one-shot read.
+    /// True for a new helper's first answer, then every ten minutes: time to compare it against a fresh one-shot
+    /// read. Each one-shot is a whole scripting launch, so this stays rare.
+    static let verificationInterval: TimeInterval = 600
     func dueForVerification(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
         lock.withLock {
-            guard now - lastVerified >= 15 else { return false }
+            guard now - lastVerified >= Self.verificationInterval else { return false }
             lastVerified = now; return true
         }
     }
@@ -119,22 +145,30 @@ final class NowPlayingHelper: @unchecked Sendable {
             Log.media.error("Couldn’t start the Now Playing helper: \(error.localizedDescription, privacy: .public)")
             return nil
         }
-        self.process = process; self.input = stdin.fileHandleForWriting; served = 0; buffer.removeAll()
+        self.process = process; self.input = stdin.fileHandleForWriting; served = 0; buffer.removeAll(); lastVerified = -.infinity
         return input
     }
     private func receive(_ chunk: Data) {
         var replies: [(CheckedContinuation<String?, Never>, String)] = []
+        var changed: (@Sendable () -> Void)?
         lock.withLock {
             buffer.append(chunk)
             while let newline = buffer.firstIndex(of: 0x0A) {
-                let line = buffer[buffer.startIndex..<newline]
+                let line = String(decoding: buffer[buffer.startIndex..<newline], as: UTF8.self)
                 buffer.removeSubrange(buffer.startIndex...newline)
-                guard !pending.isEmpty else { continue }
-                served += 1
-                replies.append((pending.removeFirst().continuation, String(decoding: line, as: UTF8.self)))
+                switch NowPlayingHelperLine(line) {
+                case .listening: listening = true
+                case .changed: changed = changeHandler
+                case .ignored: break
+                case .reply(let text):
+                    guard !pending.isEmpty else { continue }
+                    served += 1
+                    replies.append((pending.removeFirst().continuation, text))
+                }
             }
         }
         replies.forEach { $0.0.resume(returning: $0.1) }
+        changed?()
     }
     private func ended(_ process: Process) {
         let failed: [CheckedContinuation<String?, Never>] = lock.withLock {
@@ -149,7 +183,7 @@ final class NowPlayingHelper: @unchecked Sendable {
         pending.removeAll()
         try? input?.close()
         if let process, process.isRunning { process.terminate() }
-        process = nil; input = nil; buffer.removeAll()
+        process = nil; input = nil; buffer.removeAll(); listening = false
         return waiting
     }
     func stop() { let failed = lock.withLock { tearDownLocked() }; failed.forEach { $0.resume(returning: nil) } }
@@ -253,14 +287,17 @@ enum SystemMediaBridge {
     }
     """#
     static let readScript = bootstrap + "ObjC.import('AppKit');" + playerFunctions + readFunction + "\nfunction run(argv) { return readOnce(argv); }"
-    /// The helper loop: one JSON argument array per input line, one JSON snapshot per output line.
+    /// The helper: one JSON argument array per input line, one JSON snapshot per output line, in order. It also listens
+    /// for MediaRemote's change notifications, which macOS delivers to this Apple tool but not to Brim, and writes
+    /// `changed` once a burst of them settles, so Brim reads when something happens instead of asking every few seconds.
+    /// `listening` on its first line says the notifications are on.
     static let serveScript = bootstrap + "ObjC.import('AppKit');" + playerFunctions + readFunction + #"""
     function run() {
         const input=$.NSFileHandle.fileHandleWithStandardInput, output=$.NSFileHandle.fileHandleWithStandardOutput;
-        let buffer='';
-        while (true) {
-            const data=input.availableData;
-            if (Number(data.length)===0) return '';
+        let buffer='', done=false, changedAt=0, announcedAt=0;
+        function write(text) { output.writeData($(String(text).replace(/\n/g,' ')+'\n').dataUsingEncoding($.NSUTF8StringEncoding)); }
+        function answer(data) {
+            if (!data || Number(data.length)===0) { done=true; return; }
             buffer+=ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data,$.NSUTF8StringEncoding));
             let index;
             while ((index=buffer.indexOf('\n'))>=0) {
@@ -269,9 +306,36 @@ enum SystemMediaBridge {
                 $.NSRunLoop.currentRunLoop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(0.01));
                 let reply;
                 try { reply=readOnce(JSON.parse(line)); } catch(_) { reply=JSON.stringify({available:false}); }
-                output.writeData($(String(reply).replace(/\n/g,' ')+'\n').dataUsingEncoding($.NSUTF8StringEncoding));
+                write(reply);
             }
         }
+        ObjC.registerSubclass({name:'BrimNowPlayingHelper', methods:{'received:':{types:['void',['id']], implementation:function(note) {
+            const name=String(ObjC.unwrap(note.name));
+            if (name==='NSFileHandleReadCompletionNotification') {
+                answer(note.userInfo.objectForKey('NSFileHandleNotificationDataItem'));
+                if (!done) input.readInBackgroundAndNotify;
+            } else if (!changedAt && /NowPlaying|IsPlaying|PlaybackState|ActivePlayer/.test(name)) {
+                changedAt=Date.now();
+            }
+        }}}});
+        $.NSNotificationCenter.defaultCenter.addObserverSelectorNameObject($.BrimNowPlayingHelper.alloc.init,'received:',$(),$());
+        try {
+            if (frameworkReady()) {
+                ObjC.bindFunction('MRMediaRemoteRegisterForNowPlayingNotifications',['void',['id']]);
+                $.MRMediaRemoteRegisterForNowPlayingNotifications($.NSOperationQueue.mainQueue.underlyingQueue);
+                write('listening');
+            }
+        } catch(_) {}
+        input.readInBackgroundAndNotify;
+        // A change arrives as a burst of notifications: say so once it settles, and at most every 0.3 seconds.
+        while (!done) {
+            const now=Date.now();
+            const wait=changedAt ? Math.max(10, changedAt+150-now, announcedAt+300-now) : 3600000;
+            $.NSRunLoop.currentRunLoop.runModeBeforeDate($.NSDefaultRunLoopMode,$.NSDate.dateWithTimeIntervalSinceNow(wait/1000));
+            const later=Date.now();
+            if (changedAt && later-changedAt>=150 && later-announcedAt>=300) { write('changed'); changedAt=0; announcedAt=later; }
+        }
+        return '';
     }
     """#
     static let commandScript = bootstrap + "ObjC.import('AppKit');" + playerFunctions + #"""
@@ -346,11 +410,12 @@ enum SystemMediaBridge {
         let helper = NowPlayingHelper.shared
         guard helper.enabled else { return await oneShotSnapshot(arguments) }
         guard let fromHelper = decode(await helper.read(arguments)) else { return await oneShotSnapshot(arguments) }
-        if helper.dueForVerification(), let fresh = await oneShotSnapshot(arguments), !agrees(fromHelper, fresh) {
-            helper.disable(reason: "a long-lived read disagreed with a fresh one")
-            return fresh
-        }
-        return fromHelper
+        guard helper.dueForVerification(), let fresh = await oneShotSnapshot(arguments), !agrees(fromHelper, fresh) else { return fromHelper }
+        // Playback can change between the two reads. Only a helper that still disagrees after asking again is wrong;
+        // turning it off sends every later poll through a scripting launch of its own.
+        let again = decode(await helper.read(arguments))
+        if again.map({ !agrees($0, fresh) }) ?? true { helper.disable(reason: "a long-lived read disagreed with a fresh one") }
+        return fresh
     }
     /// The parts that would make the island show the wrong thing. Position naturally drifts between reads.
     static func agrees(_ a: SystemMediaSnapshot, _ b: SystemMediaSnapshot) -> Bool {

@@ -28,11 +28,11 @@ import SwiftUI
     func start() {
         guard !listening else { return }
         listening = true
-        available = TrackpadSpaceGestureMonitor.shared.startForce { [weak self] in self?.receive($0) }
+        available = MultitouchMonitor.shared.startForce { [weak self] in self?.receive($0) }
     }
     func stop() {
         guard listening else { return }
-        TrackpadSpaceGestureMonitor.shared.stopForce(); listening = false
+        MultitouchMonitor.shared.stopForce(); listening = false
         rawGrams = nil; baseline = nil; touchID = nil
     }
     func receive(_ sample: NativeForceSample) {

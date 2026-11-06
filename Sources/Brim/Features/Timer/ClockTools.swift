@@ -72,6 +72,7 @@ enum ClockMode: String, CaseIterable {
     @ObservationIgnored var wantsFineTicks: @MainActor () -> Bool = { false }
     private var stopwatchTicker: Task<Void, Never>?
     private var alarmTicker: Task<Void, Never>?
+    @ObservationIgnored private var clockObservers: [NSObjectProtocol] = []
     private let defaults: UserDefaults
     private let notificationsEnabled: Bool
     private let notificationID = "sense.clock.alarm"
@@ -89,6 +90,13 @@ enum ClockMode: String, CaseIterable {
         if let saved = self.defaults.object(forKey: "clockAlarmDate") as? Date, saved > Date() {
             alarmDate = saved; alarmTime = saved; runAlarmTicker()
         } else { self.defaults.removeObject(forKey: "clockAlarmDate") }
+        // Waking up or a changed clock can move the alarm closer: look again at once.
+        for (center, name) in [(NSWorkspace.shared.notificationCenter, NSWorkspace.didWakeNotification),
+                               (NotificationCenter.default, Notification.Name.NSSystemClockDidChange)] {
+            clockObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { if self?.alarmDate != nil { self?.runAlarmTicker() } }
+            })
+        }
     }
     func toggleStopwatch() {
         uptime = Self.continuousNow
@@ -149,21 +157,29 @@ enum ClockMode: String, CaseIterable {
         alarmDate = nil; defaults.removeObject(forKey: "clockAlarmDate"); ringing = true; mode = .alarm
         onAlarm()
     }
+    /// Waits for the alarm rather than watching the clock: it wakes at the alarm time, and at most every quarter hour
+    /// before that in case the Mac's clock moved. Once ringing, it chimes every four seconds until stopped.
     private func runAlarmTicker() {
         alarmTicker?.cancel()
         alarmTicker = Task { [weak self] in
-            var soundTick = 0
             while !Task.isCancelled {
                 guard let self else { return }
                 self.checkAlarm(at: Date())
-                if self.ringing, self.notificationsEnabled, soundTick % 4 == 0 { NSSound(named: "Glass")?.play() }
-                soundTick += 1
-                try? await Task.sleep(for: .seconds(1))
+                if self.ringing {
+                    if self.notificationsEnabled { NSSound(named: "Glass")?.play() }
+                    try? await Task.sleep(for: .seconds(4))
+                } else if let date = self.alarmDate {
+                    try? await Task.sleep(for: .seconds(min(900, max(0.05, date.timeIntervalSinceNow))))
+                } else { self.alarmTicker = nil; return }
             }
         }
     }
     // Preserve a scheduled native notification when the app quits.
-    func stop() { stopwatchTicker?.cancel(); alarmTicker?.cancel() }
+    func stop() {
+        stopwatchTicker?.cancel(); alarmTicker?.cancel()
+        for observer in clockObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer); NotificationCenter.default.removeObserver(observer) }
+        clockObservers.removeAll()
+    }
 }
 
 struct IslandClockView: View {

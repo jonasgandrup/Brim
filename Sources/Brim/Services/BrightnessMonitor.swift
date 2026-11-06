@@ -89,20 +89,3 @@ struct BrightnessChangeGate {
         return level
     }
 }
-
-/// The brightness slider's state. Reads the panel when the pane opens and after each change.
-@MainActor @Observable final class BrightnessControl {
-    private(set) var level: Double?
-    private(set) var available = BrightnessMonitor.canSet
-    func refresh() {
-        available = BrightnessMonitor.canSet
-        let next = available ? BrightnessMonitor.currentLevel() : nil
-        if next != level { level = next }
-    }
-    func set(_ value: Double) {
-        guard available, BrightnessMonitor.setLevel(value) else { return }
-        level = min(1, max(0, value))
-    }
-    /// Keys or Auto-Brightness changed it elsewhere.
-    func receive(_ value: Double) { if available, value != level { level = value } }
-}

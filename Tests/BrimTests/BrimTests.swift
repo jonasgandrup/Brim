@@ -5,6 +5,7 @@ import CoreAudio
 import Foundation
 import AppKit
 import Testing
+import Observation
 @testable import Brim
 
 @Test func calibrationRequiresRealPositiveDelta() {
@@ -68,7 +69,7 @@ import Testing
     #expect(!preferences.playerAccess)
     #expect(preferences.toolShortcutsEnabled && !preferences.sectionShortcuts)
     #expect(preferences.level == .essentials)
-    #expect(!preferences.showFiles && !preferences.showClipboard && !preferences.showClock && !preferences.showControls)
+    #expect(!preferences.showFiles && !preferences.showClipboard && !preferences.showClock)
     #expect(preferences.smallNotices && !preferences.openWhenIdle && !preferences.islandGestures && !preferences.menuLockMac)
     preferences.notchEnabled = false; preferences.shortcut = .option
     let restored = Preferences(defaults: defaults)
@@ -339,62 +340,6 @@ import Testing
     #expect(!IslandHitRegion.contains(CGPoint(x: 1, y: 238), frame: frame, radius: 34, roundedTop: true))
 }
 
-@Test func desktopOverlayDetectionIgnoresOrdinaryDockAndWallpaper() {
-    let dock = DesktopOverlay(layer: 20, bounds: CGRect(x: 300, y: 900, width: 1000, height: 80))
-    let wallpaper = DesktopOverlay(layer: -1, bounds: CGRect(x: 0, y: 0, width: 1728, height: 1117))
-    let missionControl = DesktopOverlay(layer: 18, bounds: CGRect(x: 0, y: 0, width: 1728, height: 1117))
-    let switcher = DesktopOverlay(layer: 20, bounds: CGRect(x: 300, y: 400, width: 800, height: 200))
-    let dockBackdrop = DesktopOverlay(layer: 20, bounds: CGRect(x: 0, y: 0, width: 1728, height: 1117), fillsDisplay: true)
-    #expect(!DesktopOverlayDetection.containsSwitcher([dock, wallpaper, dockBackdrop]))
-    #expect(DesktopOverlayDetection.containsSwitcher([dock, missionControl]))
-    #expect(DesktopOverlayDetection.containsSwitcher([switcher]))
-}
-
-@Test func spaceSlideStaysHiddenWithOneStillSurfaceUntilCompletion() {
-    var tracker = SpaceSlideTracker()
-    var active = tracker.update(surfaces: [10], at: 0)
-    #expect(!active)
-    active = tracker.update(surfaces: [11], at: 0.1)
-    #expect(active)
-    active = tracker.update(surfaces: [11], at: 3)
-    #expect(active)
-    tracker.spaceDidChange(at: 3.1)
-    active = tracker.update(surfaces: [11], at: 3.3)
-    #expect(active)
-    active = tracker.update(surfaces: [11], at: 3.8)
-    #expect(!active)
-    active = tracker.update(surfaces: [11, 12], at: 4)
-    #expect(active)
-    active = tracker.update(surfaces: [11], at: 4.2)
-    #expect(active)
-    active = tracker.update(surfaces: [11], at: 4.9)
-    #expect(!active)
-}
-
-@Test func desktopSurfaceTrackingRecoversFromStaleSystemSurfaces() {
-    var tracker = SpaceSlideTracker()
-    let samples: [(Set<UInt32>, Double, Bool)] = [
-        ([], 0, false), ([1], 0.1, true), ([1], 3, true), ([1], 12.5, false),
-        ([1, 2], 13, true), ([1, 2], 25.1, false)
-    ]
-    for (surfaces, time, expected) in samples {
-        let active = tracker.update(surfaces: surfaces, at: time)
-        #expect(active == expected)
-    }
-}
-
-@Test func missionControlBackdropIsNotLeftLatchedAsASpaceSlide() {
-    var tracker = SpaceSlideTracker()
-    var active = tracker.update(surfaces: [1], at: 0)
-    #expect(!active)
-    active = tracker.update(surfaces: [1, 2, 3], at: 1, overviewActive: true)
-    #expect(!active) // Mission Control itself owns hiding while present.
-    active = tracker.update(surfaces: [4], at: 2)
-    #expect(active)
-    active = tracker.update(surfaces: [4], at: 2.7)
-    #expect(!active)
-}
-
 @Test func lidFoldSetupIdentifiesTheActualBlocker() {
     #expect(LidFoldReadiness.resolve(enabled: true, screenRecording: false, reduceMotion: false, angle: 99) == .permissionNeeded)
     #expect(LidFoldReadiness.resolve(enabled: false, screenRecording: true, reduceMotion: false, angle: 99) == .disabled)
@@ -404,76 +349,42 @@ import Testing
     #expect(LidFoldReadiness.resolve(enabled: true, screenRecording: true, reduceMotion: false, angle: 99) == .ready)
 }
 
-@Test func completedSpaceDoesNotWaitForPersistentDockBackgroundsToDisappear() {
-    var tracker = SpaceSlideTracker()
-    var active = tracker.update(surfaces: [1], at: 0)
-    #expect(!active)
-    active = tracker.update(surfaces: [2, 3], at: 1)
-    #expect(active)
-    tracker.spaceDidChange(at: 1.1)
-    active = tracker.update(surfaces: [2, 3], at: 1.8)
-    #expect(!active)
+@Test func desktopSettlesRightAfterTheSpaceChangesOrAfterAShortWaitWithout() {
+    // A swipe that lands on another desktop: the Space notification ends it, before or after the fingers lift.
+    #expect(!DesktopSettle.settled(began: 10, lifted: 10.3, spaceChanged: 10.5, now: 10.55, overviewOpen: false))
+    #expect(DesktopSettle.settled(began: 10, lifted: 10.3, spaceChanged: 10.5, now: 10.63, overviewOpen: false))
+    #expect(DesktopSettle.settled(began: 10, lifted: 10.6, spaceChanged: 10.4, now: 10.73, overviewOpen: false))
+    // A cancelled swipe or a tap: nothing arrives, so a short wait stands in. An old Space change doesn't count.
+    #expect(!DesktopSettle.settled(began: 10, lifted: 10.2, spaceChanged: 9, now: 10.5, overviewOpen: false))
+    #expect(DesktopSettle.settled(began: 10, lifted: 10.2, spaceChanged: 9, now: 10.91, overviewOpen: false))
+    #expect(DesktopSettle.settled(began: 10, lifted: 10.2, spaceChanged: nil, now: 10.91, overviewOpen: false))
+    // Mission Control holds it for as long as it's open.
+    #expect(!DesktopSettle.settled(began: 10, lifted: 10.2, spaceChanged: nil, now: 30, overviewOpen: true))
 }
 
-@Test func movingSpaceSurfaceKeepsIslandHiddenEvenWhenItsIDDoesNotChange() {
-    var tracker = SpaceSlideTracker()
-    let original = CGRect(x: 0, y: 0, width: 1728, height: 1117)
-    var active = tracker.update(surfaces: [1], at: 0, geometry: [1: original])
-    #expect(!active)
-    active = tracker.update(surfaces: [1], at: 0.1, geometry: [1: original.offsetBy(dx: 100, dy: 0)])
-    #expect(active)
-    tracker.spaceDidChange(at: 0.2)
-    active = tracker.update(surfaces: [1], at: 0.8, geometry: [1: original.offsetBy(dx: 700, dy: 0)])
-    #expect(active)
-    active = tracker.update(surfaces: [1], at: 1.2, geometry: [1: original.offsetBy(dx: 1000, dy: 0)])
-    #expect(active)
-    active = tracker.update(surfaces: [1], at: 1.6, geometry: [1: original])
-    #expect(active)
-    active = tracker.update(surfaces: [1], at: 2.1, geometry: [1: original])
-    #expect(active)
-    active = tracker.update(surfaces: [1], at: 2.3, geometry: [1: original])
-    #expect(!active)
+@Test func systemDesktopGesturesTakeThreeFingersUnlessThreeFingerDragIsOn() {
+    #expect(SystemGestureFingers.minimum(threeFingerHorizontal: nil, threeFingerVertical: nil, threeFingerDrag: false) == 3)
+    #expect(SystemGestureFingers.minimum(threeFingerHorizontal: 2, threeFingerVertical: 0, threeFingerDrag: false) == 3)
+    #expect(SystemGestureFingers.minimum(threeFingerHorizontal: 0, threeFingerVertical: 0, threeFingerDrag: false) == 4)
+    #expect(SystemGestureFingers.minimum(threeFingerHorizontal: 2, threeFingerVertical: 2, threeFingerDrag: true) == 4)
 }
 
-@Test func overlappingDesktopNotificationsCannotRestoreTheIslandEarly() {
-    var gate = DesktopRestoreGate()
-    gate.extend(at: 10, delay: 0.9)
-    gate.extend(at: 10.1, delay: 0.18)
-    #expect(abs(gate.remaining(at: 10.3) - 0.6) < 0.0001)
-    gate.extend(at: 10.8, delay: 0.3)
-    #expect(abs(gate.remaining(at: 10.9) - 0.2) < 0.0001)
-    #expect(gate.remaining(at: 11.2) == 0)
-    gate.reset()
-    #expect(gate.remaining(at: 0) == 0)
-}
-
-@Test func threeFingerSpaceGestureStaysLatchedUntilEveryFingerIsReleased() {
-    var contacts = SpaceContactLatch()
+@Test func desktopGestureStaysLatchedUntilEveryFingerIsReleased() {
+    var contacts = GestureContactLatch(fingers: 3)
     contacts.receive(device: 1, count: 2)
     #expect(!contacts.active)
     contacts.receive(device: 1, count: 3)
-    #expect(contacts.active)
-    contacts.receive(device: 1, count: 2)
     #expect(contacts.active)
     contacts.receive(device: 1, count: 1)
     #expect(contacts.active)
     contacts.receive(device: 2, count: 0)
     #expect(contacts.active)
-    contacts.receive(device: 1, count: 0)
-    #expect(!contacts.active)
-}
-
-@Test func simultaneousSpaceGesturesReleaseIndependentlyAndIgnoreInvalidFrames() {
-    var contacts = SpaceContactLatch()
-    contacts.receive(device: 1, count: 3)
-    contacts.receive(device: 2, count: 4)
-    contacts.receive(device: 1, count: 0)
-    #expect(contacts.active)
-    contacts.receive(device: 2, count: -1)
     contacts.receive(device: 2, count: 100)
-    #expect(contacts.active)
-    contacts.receive(device: 2, count: 0)
+    contacts.receive(device: 1, count: 0)
     #expect(!contacts.active)
+    var fourFingers = GestureContactLatch(fingers: 4)
+    fourFingers.receive(device: 1, count: 3)
+    #expect(!fourFingers.active)
 }
 
 @Test func stopwatchUsesElapsedTimeAndPreservesPausedLaps() {
@@ -637,21 +548,9 @@ import Testing
     }
 }
 
-@Test func batteryDetailsReportOnlyWhatTheMacProvides() {
-    let registry: [String: Any] = ["CycleCount": 214, "DesignCapacity": 6000, "NominalChargeCapacity": 5460,
-                                   "FullyCharged": false, "AdapterDetails": ["Watts": 67]]
-    let details = BatteryDetails(registry: registry, charging: true, minutesToEmpty: -1, minutesToFull: 72)
-    #expect(details.cycleCount == 214 && details.healthPercent == 91 && details.adapterWatts == 67)
-    #expect(details.minutesToEmpty == nil)
-    #expect(details.summary(level: 80, externalPower: true) == "Charging · 1 h 12 min until full")
-    #expect(BatteryDetails().healthPercent == nil)
-    #expect(BatteryDetails().summary(level: nil, externalPower: false) == "No battery")
-    #expect(BatteryDetails(minutesToEmpty: 45).summary(level: 40, externalPower: false) == "On battery · 45 min remaining")
-    #expect(BatteryDetails(registry: ["FullyCharged": true]).summary(level: 100, externalPower: true) == "Fully charged")
-}
-
-@Test func menuAndShortcutsIncludeBattery() {
-    #expect(ToolShortcuts.Tool.allCases.map(\.title).contains("Battery"))
+@Test func everySectionShortcutHasItsOwnKey() {
+    // The battery has no section of its own: macOS shows it in the menu bar and Control Center.
+    #expect(!ToolShortcuts.Tool.allCases.map(\.title).contains("Battery"))
     #expect(Set(ToolShortcuts.Tool.allCases.map(\.keyCode)).count == ToolShortcuts.Tool.allCases.count)
 }
 
@@ -709,24 +608,6 @@ import Testing
     let weekdays = try #require(AlarmSchedule.next(time: eight, after: friday, repeat: .weekdays, calendar: calendar))
     #expect(calendar.component(.weekday, from: daily) == 7)      // Saturday
     #expect(calendar.component(.weekday, from: weekdays) == 2)   // Monday
-}
-
-@Test @MainActor func clipboardHistorySkipsConcealedCopiesAndPasswordManagers() {
-    let shelf = ClipboardShelf()
-    let board = NSPasteboard(name: NSPasteboard.Name("BrimTests.\(UUID().uuidString)"))
-    board.clearContents(); board.setString("hello world", forType: .string)
-    shelf.recordCopy(from: board, frontmost: "com.apple.TextEdit")
-    shelf.recordCopy(from: board, frontmost: "com.1password.1password")
-    #expect(shelf.history.count == 1)
-    board.clearContents(); board.declareTypes([.string, NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")], owner: nil)
-    board.setString("hunter2", forType: .string)
-    shelf.recordCopy(from: board, frontmost: "com.apple.TextEdit")
-    #expect(shelf.history.count == 1)
-    board.clearContents(); board.setString("https://example.com", forType: .string)
-    shelf.recordCopy(from: board, frontmost: nil)
-    #expect(shelf.history.first?.symbol == "link")
-    shelf.historyFilter = "hello"
-    #expect(shelf.filteredHistory.count == 1)
 }
 
 @Test func partialDownloadNamesMapToTheirFinalFiles() {
@@ -810,10 +691,9 @@ import Testing
 }
 
 @Test @MainActor func islandTabsShowTransfersOnlyWhenUseful() {
-    let off = IslandTabBar.items(for: NotchController().visibleTabs, hasBattery: true)
-    #expect(!off.map(\.tab).contains(.transfers) && off.count == 5)
-    #expect(IslandTabBar.items(for: [.music, .transfers], hasBattery: true).map(\.tab).last == .transfers)
-    #expect(IslandTabBar.items(for: [.battery], hasBattery: false).first { $0.tab == .battery }?.title == "Controls")
+    let off = IslandTabBar.items(for: NotchController().visibleTabs)
+    #expect(!off.map(\.tab).contains(.transfers) && off.count == 4)
+    #expect(IslandTabBar.items(for: [.music, .transfers]).map(\.tab).last == .transfers)
 }
 
 @Test func soundOutputsUseTheirDeviceSymbol() {
@@ -888,7 +768,7 @@ import Testing
     #expect(controller.visibleTabs == [.music, .files])
     #expect(preferences.level == nil)
     preferences.level = .more
-    #expect(controller.visibleTabs == [.music, .files, .clipboard, .timer, .battery])
+    #expect(controller.visibleTabs == [.music, .files, .clipboard, .timer])
     preferences.level = .essentials
     #expect(controller.visibleTabs == [.music])
     // Files stay put but don't keep the compact island up.
@@ -909,7 +789,7 @@ import Testing
     }
     #expect(preferences.sensorIndicator && preferences.sectionShortcuts && preferences.menuLockMac)
     #expect(!preferences.playerAccess && !preferences.liveTransfers && !preferences.calendarPreview && !preferences.screenshotShelf)
-    #expect(!preferences.clipboardHistory && !preferences.focusFeedback && !preferences.autoHideFocus && !preferences.switcherEnabled)
+    #expect(!preferences.focusFeedback && !preferences.autoHideFocus && !preferences.switcherEnabled)
     preferences.sensorIndicator = false
     #expect(preferences.level == nil)
     // Choosing nothing changes nothing.
@@ -969,7 +849,7 @@ import Testing
     #expect(!SettingsPage.sidebar.map(\.rawValue).contains("Lock Screen"))
     #expect(Set(IslandSection.allCases.map(\.symbol)).count == IslandSection.allCases.count)
     let controller = NotchController()
-    #expect(controller.visibleTabs == [.music, .files, .clipboard, .timer, .battery])
+    #expect(controller.visibleTabs == [.music, .files, .clipboard, .timer])
     #expect(!controller.showsActivityBubble && controller.bubbleFrame == nil)
 }
 
@@ -1032,4 +912,23 @@ import Testing
     moments.receive(connected: true)
     #expect(heard == [.offline, .online])
     moments.stop()
+}
+
+private final class RedrawCount: @unchecked Sendable { var value = 0 }
+
+@Test @MainActor func aPointerMovingElsewhereDoesNotRedrawTheIsland() {
+    let controller = NotchController()
+    let redraws = RedrawCount()
+    withObservationTracking { _ = controller.hoverSwell } onChange: { redraws.value += 1 }
+    // Every mouse move anywhere reports "not on the island"; only a real change may reach SwiftUI.
+    controller.hover(false); controller.hover(false); controller.hover(false)
+    #expect(redraws.value == 0)
+}
+
+@Test func aPointerThrownAtTheTopOfTheScreenIsOnTheIsland() {
+    // The island's top is the screen's top edge, where a pointer pushed up against the notch comes to rest.
+    let frame = CGRect(x: 660, y: 942, width: 408, height: 175)
+    #expect(IslandHitRegion.contains(CGPoint(x: 864, y: 1117), frame: frame, radius: 34, roundedTop: false))
+    #expect(!IslandHitRegion.contains(CGPoint(x: 864, y: 1118), frame: frame, radius: 34, roundedTop: false))
+    #expect(!IslandHitRegion.contains(CGPoint(x: 1100, y: 1117), frame: frame, radius: 34, roundedTop: false))
 }

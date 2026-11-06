@@ -44,8 +44,13 @@ final class SystemStatus {
     private var powerSource: CFRunLoopSource?
     var powerNotificationsActive: Bool { powerSource != nil }
     private var timer: Timer?
+    private var started = false
+    private var lowPowerObserver: NSObjectProtocol?
+    /// macOS says when the battery, the charger or Low Power Mode changes, so nothing is read in between. Only if
+    /// the power notifications aren't available is the battery checked every 15 seconds instead.
     func start() {
-        guard timer == nil else { return }
+        guard !started else { return }
+        started = true
         refresh(); watchDefaultDevice()
         if let source = IOPSNotificationCreateRunLoopSource({ context in
             guard let context else { return }
@@ -53,6 +58,10 @@ final class SystemStatus {
         }, Unmanaged.passUnretained(self).toOpaque())?.takeRetainedValue() {
             powerSource = source; CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         }
+        lowPowerObserver = NotificationCenter.default.addObserver(forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
+        guard powerSource == nil else { return }
         let timer = Timer(timeInterval: 15, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
         }
@@ -60,13 +69,16 @@ final class SystemStatus {
         RunLoop.main.add(timer, forMode: .common); self.timer = timer
     }
     func stop() {
+        started = false
         timer?.invalidate(); timer = nil
+        if let lowPowerObserver { NotificationCenter.default.removeObserver(lowPowerObserver) }
+        lowPowerObserver = nil
         unwatchVolume(); unwatchDefaultDevice()
         if let powerSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), powerSource, .commonModes) }
         powerSource = nil; onPowerSample = { _ in }; onVolumeChange = { _, _ in }; onOutputChange = { _ in }
     }
     func refresh() {
-        var level: Int?, onPower = false, isCharging = false, toEmpty: Int?, toFull: Int?
+        var level: Int?, onPower = false, isCharging = false
         if let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
            let sources = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] {
             for source in sources {
@@ -76,16 +88,13 @@ final class SystemStatus {
                 level = Int(Double(current) / Double(maximum) * 100)
                 onPower = (details[kIOPSPowerSourceStateKey] as? String) == kIOPSACPowerValue
                 isCharging = (details[kIOPSIsChargingKey] as? Bool) ?? false
-                toEmpty = details[kIOPSTimeToEmptyKey] as? Int
-                toFull = details[kIOPSTimeToFullChargeKey] as? Int
                 break
             }
         }
         // Assign once so observers never see a momentary "no battery".
         if battery != level { battery = level }
         if charging != onPower { charging = onPower }
-        let next = BatteryDetails(registry: level == nil ? nil : BatteryDetails.readRegistry(), charging: isCharging,
-                                  minutesToEmpty: toEmpty, minutesToFull: toFull, lowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled)
+        let next = BatteryDetails(charging: isCharging, lowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled)
         if details != next { details = next }
         onPowerSample(PowerSample(percent: level, externalPower: onPower))
         refreshVolume()
@@ -165,17 +174,6 @@ final class SystemStatus {
             wrote = write(device, address(kAudioDevicePropertyVolumeScalar, scope: kAudioDevicePropertyScopeOutput, element: element), scalar) || wrote
         }
         if wrote, muted, scalar > 0 { _ = write(device, address(kAudioDevicePropertyMute, scope: kAudioDevicePropertyScopeOutput), UInt32(0)) }
-        refreshVolume()
-    }
-    func setMuted(_ mute: Bool) {
-        guard outputID != 0 else { return }
-        _ = write(outputID, address(kAudioDevicePropertyMute, scope: kAudioDevicePropertyScopeOutput), UInt32(mute ? 1 : 0))
-        refreshVolume()
-    }
-    /// Makes a device the system's sound output, as choosing it in Control Center does.
-    func selectOutput(_ device: AudioDeviceID) {
-        guard device != outputID, outputs.contains(where: { $0.id == device }) else { return }
-        _ = write(AudioObjectID(kAudioObjectSystemObject), address(kAudioHardwarePropertyDefaultOutputDevice), device)
         refreshVolume()
     }
     private func refreshOutputs() {

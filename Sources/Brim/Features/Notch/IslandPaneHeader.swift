@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The row above each island section: its actions on the right. The tab bar already names the section, so a
-/// title appears only when it says something the tab can't, such as "Recent" while the clipboard shows history.
+/// title appears only when it says something the tab can't.
 struct IslandPaneHeader<Actions: View>: View {
     var title: LocalizedStringKey? = nil
     var symbol: String? = nil

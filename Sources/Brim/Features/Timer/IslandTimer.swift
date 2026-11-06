@@ -169,6 +169,8 @@ struct FocusCycle: Codable, Equatable {
         }
         onFinish()
     }
+    /// Wakes once a second, just after the second it shows changes: the label counts whole seconds, and the ring
+    /// steps along with it.
     private func runTicker() {
         ticker?.cancel()
         ticker = Task { [weak self] in
@@ -176,7 +178,8 @@ struct FocusCycle: Codable, Equatable {
                 guard let self else { return }
                 self.now = Date()
                 if self.remaining <= 0, self.state.update(at: self.now) { self.ticker = nil; self.finish(); return }
-                try? await Task.sleep(for: .milliseconds(250))
+                let partial = self.remaining - floor(self.remaining)
+                try? await Task.sleep(for: .seconds((partial > 0.02 ? partial : 1) + 0.01))
             }
         }
     }

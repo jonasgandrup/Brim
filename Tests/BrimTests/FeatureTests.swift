@@ -143,7 +143,9 @@ import AppKit
 
 @Test func linksParseIntoCommands() throws {
     func command(_ text: String) -> BrimCommand? { URL(string: text).flatMap(BrimCommand.init(url:)) }
-    #expect(command("brim://open?tool=battery") == .open(.battery))
+    #expect(command("brim://open?tool=files") == .open(.files))
+    // The battery tab is gone; macOS shows the battery itself.
+    #expect(command("brim://open?tool=battery") == nil)
     #expect(command("brim://open") == .open(nil))
     #expect(command("brim://timer/start?minutes=2.5") == .startTimer(minutes: 2.5))
     #expect(command("brim://timer/start") == .startTimer(minutes: 5))

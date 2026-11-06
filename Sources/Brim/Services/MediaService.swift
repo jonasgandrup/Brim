@@ -1,95 +1,5 @@
 import AppKit
 
-private struct PlayerSnapshot: Sendable {
-    let source: String
-    let title: String
-    let artist: String
-    let playing: Bool
-    let artwork: Data?
-}
-
-private enum PlayerAutomation {
-    // Child process keeps Apple Event waits off the UI thread. Only fixed commands are accepted.
-    nonisolated static func run(_ script: String) async -> (String, Bool) {
-        await MediaScriptRunner.run(script, timeout: 15)
-    }
-    nonisolated static func command(_ request: MediaPlaybackRequest) async -> MediaCommandResult {
-        let source = request.item.source
-        guard ["com.apple.Music", "com.spotify.client"].contains(source) else { return .unsupported }
-        // This adapter is used only when its own snapshot supplied the card.
-        // Arguments keep media titles out of AppleScript source interpolation.
-        let script = """
-        on run argv
-            if application id "\(source)" is not running then return "unavailable"
-            tell application id "\(source)"
-                if name of current track is not (item 1 of argv) then return "item-changed"
-                \(request.action.appleScript)
-            end tell
-            return "submitted"
-        end run
-        """
-        let (result, success) = await MediaScriptRunner.run(script, arguments: [request.item.title], timeout: 15)
-        return success ? MediaCommandResult(rawValue: result) ?? .failed : .failed
-    }
-    nonisolated static func snapshot(runningPlayers: Set<String>) async -> PlayerSnapshot? {
-        let artworkFile = FileManager.default.temporaryDirectory.appendingPathComponent("brim-art-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: artworkFile) }
-        let spotifyPlaying = """
-        if application id "com.spotify.client" is running then
-            tell application id "com.spotify.client"
-                if player state is playing then
-                    return "com.spotify.client" & sep & name of current track & sep & artist of current track & sep & "playing" & sep & artwork url of current track
-                end if
-            end tell
-        end if
-        """
-        let music = """
-        if application id "com.apple.Music" is running then
-            tell application id "com.apple.Music"
-                if player state is not stopped then
-                    set trackName to name of current track
-                    set trackArtist to artist of current track
-                    set trackState to player state as text
-                    try
-                        set coverData to raw data of artwork 1 of current track
-                        set coverFile to open for access POSIX file "\(artworkFile.path)" with write permission
-                        set eof coverFile to 0
-                        write coverData to coverFile
-                        close access coverFile
-                    end try
-                    return "com.apple.Music" & sep & trackName & sep & trackArtist & sep & trackState & sep & "local"
-                end if
-            end tell
-        end if
-        """
-        let spotifyPaused = """
-        if application id "com.spotify.client" is running then
-            tell application id "com.spotify.client"
-                if player state is paused then
-                    return "com.spotify.client" & sep & name of current track & sep & artist of current track & sep & "paused" & sep & artwork url of current track
-                end if
-            end tell
-        end if
-        """
-        let hasSpotify = runningPlayers.contains("com.spotify.client")
-        let hasMusic = runningPlayers.contains("com.apple.Music")
-        let script = ["set sep to ASCII character 31", hasSpotify ? spotifyPlaying : "", hasMusic ? music : "", hasSpotify ? spotifyPaused : "", "return \"\""].joined(separator: "\n")
-        let (result, success) = await run(script)
-        guard success, !Task.isCancelled else { return nil }
-        let fields = result.components(separatedBy: "\u{1f}")
-        guard fields.count == 5 else { return PlayerSnapshot(source: "", title: String(localized: "Nothing playing"), artist: "Music & Spotify", playing: false, artwork: nil) }
-        var artwork: Data?
-        if fields[4] == "local" { artwork = try? Data(contentsOf: artworkFile) }
-        else if let url = URL(string: fields[4]), url.scheme == "https" {
-            // Artwork URL is supplied by Spotify. This is the app's only network request.
-            var request = URLRequest(url: url); request.timeoutInterval = 5
-            if let (data, response) = try? await URLSession.shared.data(for: request),
-               let response = response as? HTTPURLResponse, response.statusCode == 200, data.count < 10_000_000 { artwork = data }
-        }
-        return PlayerSnapshot(source: fields[0], title: fields[1], artist: fields[2], playing: fields[3].lowercased() == "playing", artwork: artwork)
-    }
-}
-
 /// System-wide compatibility feed with native Music/Spotify automation fallbacks.
 @MainActor @Observable
 final class MediaService {
@@ -98,6 +8,8 @@ final class MediaService {
     var playing = false
     var artwork: NSImage? { didSet { if artwork !== oldValue { artworkTint = ArtworkTint.rgb(of: artwork) } } }
     private(set) var artworkTint = ArtworkTint.RGB.standard
+    /// The new track's cover is still coming. The tile stays empty meanwhile; the app icon is for players with no covers.
+    private(set) var coverOnItsWay = false
     var source: String?
     private var parentSource: String?
     /// Like the iPhone: the app playing already shows its own controls, so the compact island stays quiet until you
@@ -120,7 +32,8 @@ final class MediaService {
     /// Music or Spotify is playing without artwork, which only they can supply.
     var offersArtworkAccess: Bool { !playerAccess && artwork == nil && source.map { ["com.apple.Music", "com.spotify.client"].contains($0) } == true }
     let sleepTimer = MediaSleepTimer()
-    /// True while the playback scrubber is visible. Otherwise playback is checked every two seconds.
+    /// True while the playback scrubber is visible. Only used when the helper isn't announcing changes: then playback
+    /// is checked every second for the scrubber, and every two seconds otherwise.
     @ObservationIgnored var wantsFrequentUpdates: () -> Bool = { true }
     private(set) var players: [MediaPlayer] = []
     private(set) var pinnedPlayer: MediaPlayer?
@@ -128,7 +41,7 @@ final class MediaService {
     private var selectionRevision = 0
     private var discoveryTime: TimeInterval = -.infinity
     private let defaults: UserDefaults?
-    private var artworkCache: [String: NSImage] = [:]
+    @ObservationIgnored private var covers = MediaCoverCache()
     @ObservationIgnored var playerReader: @Sendable (MediaPlayer) async -> SystemMediaSnapshot? = { await SystemMediaBridge.snapshot(for: $0) }
     @ObservationIgnored var playersReader: @MainActor () async -> [MediaPlayer] = { await MediaPlayerDiscovery.players() }
     init(defaults: UserDefaults? = nil) {
@@ -155,7 +68,7 @@ final class MediaService {
     func selectPlayer(_ player: MediaPlayer?) {
         guard !commandPending else { return }
         seekTask?.cancel()
-        pinnedPlayer = player; selectionRevision += 1
+        pinnedPlayer = player; selectionRevision += 1; chooser.forget()
         defaults?.set(player?.source, forKey: "mediaPinnedSource"); defaults?.set(player?.name, forKey: "mediaPinnedName")
         updateTask?.cancel(); refreshing = false; selectionLoading = true
         cancelScrub(); refresh()
@@ -182,11 +95,9 @@ final class MediaService {
         let item = MediaItemIdentity(source: player.source, title: title, identifier: snapshot.identifier ?? "", playerPath: path)
         return await playbackTransport(.init(item: item, action: .pause), true)
     }
-    private func coverKey(source: String, title: String, identifier: String) -> String { source + "\n" + title + "\n" + identifier }
     private func rememberCover(_ image: NSImage) {
         guard let source else { return }
-        if artworkCache.count >= 24 { artworkCache.removeAll(keepingCapacity: true) }
-        artworkCache[coverKey(source: source, title: title, identifier: identifier)] = image
+        covers.remember(image, source: source, title: title, identifier: identifier)
     }
     private(set) var seekSupported = false
     private(set) var scrubPosition: Double?
@@ -239,7 +150,7 @@ final class MediaService {
                 // Keep the thumb at the requested position while the player publishes its update.
                 try? await Task.sleep(for: .milliseconds(350))
                 guard !Task.isCancelled else { return }
-                let snapshot = if let player = self.pinnedPlayer { await self.playerReader(player) } else { await self.snapshotReader() }
+                let snapshot = if let player = self.pinnedPlayer ?? self.chooser.shownPlayer(in: self.players) { await self.playerReader(player) } else { await self.snapshotReader() }
                 guard !Task.isCancelled, self.generation == currentGeneration, self.itemIdentity == request.item else { return }
                 self.cancelScrub()
                 if let snapshot { self.apply(snapshot) }
@@ -262,18 +173,37 @@ final class MediaService {
         guard pollTask == nil else { return }
         for name in ["com.apple.Music.playerInfo", "com.spotify.client.PlaybackStateChanged"] {
             observers.append(DistributedNotificationCenter.default().addObserver(forName: .init(name), object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.refresh() }
+                // The player announced a change itself, so what's on the island is worth reading again.
+                Task { @MainActor in self?.playbackChanged() }
             })
         }
+        NowPlayingHelper.shared.onChange = { [weak self] in Task { @MainActor in self?.playbackChanged() } }
         refresh()
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
-                // Position is extrapolated locally; this catches changes apps do not announce.
-                // Reads go to a resident helper, so a one-second cadence costs a few milliseconds.
-                try? await Task.sleep(for: .seconds(self?.playing == true ? (self?.wantsFrequentUpdates() == true ? 1 : 2) : 3))
+                // The helper says when anything changes, and the position moves on locally, so this is only a safety
+                // net. Without the helper's announcements, playback is asked about every few seconds instead.
+                let announced = NowPlayingHelper.shared.announcesChanges
+                try? await Task.sleep(for: .seconds(announced ? 30 : self?.playing == true ? (self?.wantsFrequentUpdates() == true ? 1 : 2) : 3))
                 guard !Task.isCancelled else { return }
+                // Nobody sees the island with the display asleep; the first read after waking catches up.
+                if CGDisplayIsAsleep(CGMainDisplayID()) != 0 { continue }
                 self?.refresh()
             }
+        }
+    }
+    private var changeTask: Task<Void, Never>?
+    /// Something changed: read now, or as soon as the read or command already under way is done.
+    private func playbackChanged() {
+        chooser.checkShownAgain = true
+        guard changeTask == nil else { return }
+        changeTask = Task { [weak self] in
+            for _ in 0..<30 {
+                guard let self, !Task.isCancelled else { return }
+                if !self.refreshing && !self.commandPending { self.changeTask = nil; self.refresh(); return }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            self?.changeTask = nil
         }
     }
     func refresh() {
@@ -282,12 +212,14 @@ final class MediaService {
         let currentGeneration = generation
         let selection = selectionRevision
         let chosen = pinnedPlayer
-        let runningPlayers = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
         updateTask = Task { [weak self] in
             guard let self else { return }
             if ProcessInfo.processInfo.systemUptime - self.discoveryTime >= 5 { await self.refreshPlayers() }
             let selected = chosen.flatMap { choice in self.players.first { $0.source == choice.source } ?? choice }
-            let system = if let selected { await self.playerReader(selected) } else { await self.snapshotReader() }
+            var system = if let selected { await self.playerReader(selected) } else { await self.snapshotReader() }
+            if selected == nil, let main = system, main.changing != true {
+                system = await self.chooser.choose(main: main, players: self.players, isBrowser: self.isBrowser, read: self.playerReader)
+            }
             guard !Task.isCancelled, self.generation == currentGeneration, self.selectionRevision == selection else { return }
             self.selectionLoading = false
             self.systemAvailable = system?.available == true
@@ -295,7 +227,7 @@ final class MediaService {
             if let system, system.hasMedia {
                 self.apply(system)
                 self.refreshing = false
-                self.loadArtworkIfNeeded(runningPlayers: runningPlayers)
+                self.loadArtworkIfNeeded()
                 return
             }
             if let chosen {
@@ -308,7 +240,7 @@ final class MediaService {
                 self.message = self.systemAvailable ? nil : String(localized: "Now Playing isn’t available.")
                 return
             }
-            let native = await PlayerAutomation.snapshot(runningPlayers: runningPlayers)
+            let native = await PlayerAutomation.snapshot(runningPlayers: PlayerAutomation.runningPlayers())
             guard !Task.isCancelled, self.generation == currentGeneration, self.selectionRevision == selection else { return }
             self.refreshing = false
             guard let native else {
@@ -322,6 +254,11 @@ final class MediaService {
             self.artwork = native.artwork.flatMap { NSImage(data: $0) }; self.message = nil
         }
     }
+    // MARK: What the island shows
+
+    private let chooser = NowPlayingChooser()
+    @ObservationIgnored var isBrowser: @MainActor (String?) -> Bool = { BrowserApps.contains($0) }
+
     func apply(_ snapshot: SystemMediaSnapshot) {
         guard snapshot.hasMedia else { clearPlayback(); return }
         let nextSource = snapshot.source ?? "system.nowplaying"
@@ -332,10 +269,13 @@ final class MediaService {
             seekTask?.cancel(); invalidateScrub()
         }
         let coverChanged = nextSource != source || nextTitle != title || nextIdentifier != identifier
+        let hadCover = artwork != nil && nextSource == source
         currentProcessID = snapshot.processID ?? 0
         identifier = nextIdentifier; playerPath = nextPath; seekSupported = snapshot.canSeek == true
         if !seekSupported { invalidateScrub() }
-        if coverChanged { artwork = artworkCache[coverKey(source: nextSource, title: nextTitle, identifier: nextIdentifier)]; artworkTask?.cancel(); artworkKey = "" }
+        if coverChanged { artwork = covers.cover(source: nextSource, title: nextTitle, identifier: nextIdentifier); artworkTask?.cancel(); artworkKey = "" }
+        // A player that had a cover for the last track will have one for this: an empty tile waits for it, not the app icon.
+        coverOnItsWay = coverChanged ? artwork == nil && hadCover : false
         systemTransport = true; title = nextTitle; artist = snapshot.artist ?? ""
         playing = (snapshot.rate ?? 0) > 0
         setSource(nextSource, name: [snapshot.sourceName, players.first(where: { $0.source == nextSource })?.name].compactMap { $0 }.first(where: { !$0.isEmpty }) ?? String(localized: "Media"), parent: snapshot.parentSource)
@@ -355,7 +295,7 @@ final class MediaService {
         parentSource = parent
         source = bundle; sourceName = name
     }
-    private func loadArtworkIfNeeded(runningPlayers: Set<String>) {
+    private func loadArtworkIfNeeded() {
         guard playerAccess, artwork == nil, let source, ["com.apple.Music", "com.spotify.client"].contains(source) else { return }
         let key = source + "\n" + title
         guard key != artworkKey else { return }
@@ -363,7 +303,7 @@ final class MediaService {
         let expectedTitle = title
         let currentGeneration = generation
         artworkTask = Task { [weak self] in
-            let result = await PlayerAutomation.snapshot(runningPlayers: runningPlayers.intersection([source]))
+            let result = await PlayerAutomation.snapshot(runningPlayers: PlayerAutomation.runningPlayers().intersection([source]))
             guard !Task.isCancelled, let self, self.generation == currentGeneration, self.source == source, self.title == expectedTitle,
                   result?.title == expectedTitle, result?.source == source else { return }
             if let data = result?.artwork, let image = NSImage(data: data) { self.artwork = image; self.rememberCover(image) }
@@ -372,7 +312,7 @@ final class MediaService {
     private func clearPlayback() {
         title = String(localized: "Nothing playing"); artist = ""; setSource(nil, name: String(localized: "Now Playing"))
         seekTask?.cancel(); cancelScrub(); seekSupported = false; identifier = ""; playerPath = ""
-        artwork = nil; timeline = nil; playing = false; systemTransport = false; artworkKey = ""
+        artwork = nil; coverOnItsWay = false; timeline = nil; playing = false; systemTransport = false; artworkKey = ""
         artworkTask?.cancel()
     }
     func stop() {
@@ -381,8 +321,9 @@ final class MediaService {
         updateTask?.cancel(); updateTask = nil; refreshing = false
         pollTask?.cancel(); pollTask = nil; artworkTask?.cancel(); commandTask?.cancel()
         observers.forEach { DistributedNotificationCenter.default().removeObserver($0) }; observers.removeAll()
-        NowPlayingHelper.shared.stop()
-        commandPending = false
+        changeTask?.cancel(); changeTask = nil
+        NowPlayingHelper.shared.onChange = nil; NowPlayingHelper.shared.stop()
+        commandPending = false; chooser.forget()
         clearPlayback(); message = nil; systemAvailable = false
     }
     func openPlayer() {
@@ -399,6 +340,8 @@ final class MediaService {
         default: return
         }
         let request = MediaPlaybackRequest(item: item, action: action)
+        // A paused player on the island isn't read again on its own; this click is worth a look.
+        chooser.checkShownAgain = true
         let usesSystem = systemTransport
         let currentGeneration = generation
         let transport = playbackTransport

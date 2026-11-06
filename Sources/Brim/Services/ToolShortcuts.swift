@@ -27,13 +27,13 @@ enum ShortcutModifiers: String, CaseIterable, Identifiable {
 /// Registered with macOS, so these do not require an Accessibility event tap.
 @MainActor @Observable final class ToolShortcuts {
     enum Tool: UInt32, CaseIterable {
-        case nowPlaying = 1, files, clipboard, clock, battery, transfers, island
+        case nowPlaying = 1, files, clipboard, clock, transfers, island
         var title: String {
-            switch self { case .island: String(localized: "Island"); case .nowPlaying: String(localized: "Now Playing"); case .files: String(localized: "Files"); case .clipboard: String(localized: "Clipboard"); case .clock: String(localized: "Clock"); case .battery: String(localized: "Battery"); case .transfers: String(localized: "Downloads & AirDrop") }
+            switch self { case .island: String(localized: "Island"); case .nowPlaying: String(localized: "Now Playing"); case .files: String(localized: "Files"); case .clipboard: String(localized: "Clipboard"); case .clock: String(localized: "Clock"); case .transfers: String(localized: "Downloads & AirDrop") }
         }
         var keyCode: UInt32 {
             switch self { case .island: UInt32(kVK_ANSI_0); case .nowPlaying: UInt32(kVK_ANSI_1); case .files: UInt32(kVK_ANSI_2)
-            case .clipboard: UInt32(kVK_ANSI_3); case .clock: UInt32(kVK_ANSI_4); case .battery: UInt32(kVK_ANSI_5); case .transfers: UInt32(kVK_ANSI_6) }
+            case .clipboard: UInt32(kVK_ANSI_3); case .clock: UInt32(kVK_ANSI_4); case .transfers: UInt32(kVK_ANSI_5) }
         }
     }
     private(set) var unavailable: [String] = []

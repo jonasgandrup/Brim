@@ -48,7 +48,6 @@
 "Actions for selected files" = "Handlinger for valgte arkiver";
 "Activities and brief updates around the camera." = "Aktiviteter og korte opdateringer omkring kameraet.";
 "Activity" = "Aktivitet";
-"Adapter" = "Strømforsyning";
 "Add to Files" = "Føj til Arkiver";
 "AirDrop didn’t finish" = "AirDrop blev ikke fuldført";
 "AirDrop isn’t available for these files." = "AirDrop er ikke tilgængelig for disse arkiver.";
@@ -71,7 +70,6 @@
 "Battery" = "Batteri";
 "Battery %lld percent" = "Batteri %lld procent";
 "Battery %lld percent, charging" = "Batteri %lld procent, oplader";
-"Battery & Controls" = "Batteri og betjening";
 "Battery low" = "Lavt batteri";
 "Battery Target" = "Batterimål";
 "Break’s over · time to focus" = "Pausen er slut · tid til fokus";
@@ -89,12 +87,10 @@
 "Cancel Alarm" = "Annuller alarm";
 "Cancel sleep timer" = "Annuller sovetimer";
 "Case" = "Etui";
-"Case %lld%%" = "Etui %lld %%";
 "Changes appear as a small level." = "Ændringer vises som et lille niveau.";
 "Change…" = "Skift…";
 "Charging" = "Oplader";
 "Charging Feedback" = "Besked om opladning";
-"Charging · %@ until full" = "Oplader · %@ til fuld";
 "Checking desktop access…" = "Kontrollerer adgang til skrivebordet…";
 "Checking hinge sensor…" = "Kontrollerer hængselsensor…";
 "Checking that Brim can capture the built-in display." = "Kontrollerer, at Brim kan optage den indbyggede skærm.";
@@ -108,8 +104,6 @@
 "Clear" = "Ryd";
 "Click or drag to seek" = "Klik eller træk for at spole";
 "Clipboard" = "Udklipsholder";
-"Clipboard History" = "Historik for udklipsholder";
-"Clipboard view" = "Visning af udklipsholder";
 "Clock" = "Ur";
 "Close the lid slowly to see it. macOS still controls sleep and locking." = "Luk låget langsomt for at se den. macOS styrer stadig dvale og låsning.";
 "Close the lid slowly to see the fold. Opening it reverses the effect." = "Luk låget langsomt for at se folden. Åbn det igen for at vende effekten.";
@@ -122,7 +116,6 @@
 "Compressing 1 file…" = "Komprimerer 1 arkiv…";
 "Compress…" = "Komprimer…";
 "Continue" = "Fortsæt";
-"Controls" = "Betjening";
 "Convert to HEIC" = "Konverter til HEIC";
 "Convert to JPEG" = "Konverter til JPEG";
 "Convert to PNG" = "Konverter til PNG";
@@ -154,7 +147,6 @@
 "Created %lld files" = "%lld arkiver oprettet";
 "Created 1 file" = "1 arkiv oprettet";
 "Cut" = "Klip";
-"Cycles" = "Cyklusser";
 "Daily" = "Dagligt";
 "Dark" = "Mørk";
 "Desktop capture failed. Check the setup status above." = "Optagelsen af skrivebordet mislykkedes. Se konfigurationsstatus ovenfor.";
@@ -192,10 +184,8 @@
 "File actions" = "Arkivhandlinger";
 "Files" = "Arkiver";
 "Files & Folders…" = "Arkiver og mapper…";
-"Files are remembered by location, never copied. Clipboard pins are saved on this Mac; turning this off deletes them. History is never saved." = "Arkiver huskes ud fra deres placering og kopieres aldrig. Fastgjorte emner fra udklipsholderen gemmes på denne Mac; slår du dette fra, slettes de. Historikken gemmes aldrig.";
 "Files couldn’t be copied." = "Arkiverne kunne ikke kopieres.";
 "Files still arriving in Downloads, and AirDrops you send from Files." = "Arkiver, der stadig hentes til Overførsler, og AirDrops, du sender fra Arkiver.";
-"Filter recent copies" = "Filtrer seneste kopier";
 "Finished" = "Færdig";
 "Focus" = "Fokus";
 "Focus Session" = "Fokussession";
@@ -211,7 +201,6 @@
 "Fold" = "Fold";
 "Follow the Active Display" = "Følg den aktive skærm";
 "Found with Spotlight, so only indexed folders are seen." = "Findes med Spotlight, så kun indekserede mapper ses.";
-"Fully charged" = "Fuldt opladet";
 "g" = "g";
 "General" = "Generelt";
 "Gestures" = "Bevægelser";
@@ -219,7 +208,6 @@
 "Grant only what you use. Battery, volume, the scale and the camera/microphone indicator need no permissions. Brim never captures from your camera or microphone." = "Giv kun adgang til det, du bruger. Batteri, lydstyrke, vægten og kamera-/mikrofonindikatoren kræver ingen tilladelser. Brim optager aldrig fra dit kamera eller din mikrofon.";
 "Half Size" = "Halv størrelse";
 "Haptic Feedback" = "Haptisk feedback";
-"Health" = "Tilstand";
 "Held reading · set zero for a new measurement" = "Fastholdt måling · nulstil for en ny måling";
 "Hidden right now: %@." = "Skjult lige nu: %@.";
 "Hide Automatically" = "Skjul automatisk";
@@ -253,7 +241,6 @@
 "Lap" = "Omgang";
 "Lap %lld · %@" = "Omgang %1$lld · %2$@";
 "Left" = "Venstre";
-"Left %lld%%" = "Venstre %lld %%";
 "Left and right panels swing shut." = "Venstre og højre panel svinger i.";
 "Lid Fold" = "Lågfold";
 "Light" = "Lys";
@@ -264,7 +251,6 @@
 "Long Break" = "Lang pause";
 "Longest Side %lld px" = "Længste side %lld px";
 "Low Battery Warning" = "Advarsel om lavt batteri";
-"Low Power Mode" = "Strømsparetilstand";
 "Low Power Mode Off" = "Strømsparetilstand fra";
 "Low Power Mode On" = "Strømsparetilstand til";
 "macOS asks once for access to your Downloads folder." = "macOS beder én gang om adgang til mappen Overførsler.";
@@ -280,7 +266,6 @@
 "Move between windows, not just apps." = "Skift mellem vinduer, ikke kun apps.";
 "Moves to the display you’re working on." = "Flytter til den skærm, du arbejder på.";
 "Music and Spotify fallback controls and artwork, when Now Playing is on." = "Betjening og albumbilleder fra Musik og Spotify som reserve, når Spiller nu er slået til.";
-"Mute" = "Slå lyd fra";
 "Muted" = "Lyd fra";
 "Needed for the lid fold and window previews. Already on in System Settings? Allow clears the old approval so you can give it again." = "Kræves til lågfold og vinduesminiaturer. Er det allerede slået til i Systemindstillinger? Tillad rydder den gamle godkendelse, så du kan give den igen.";
 "Needed to switch windows. Already on in System Settings? Allow clears the old approval so you can give it again." = "Kræves for at skifte vindue. Er det allerede slået til i Systemindstillinger? Tillad rydder den gamle godkendelse, så du kan give den igen.";
@@ -291,14 +276,11 @@
 "Next track in %@ only" = "Næste nummer kun i %@";
 "Nice work · take %lld minutes" = "Godt arbejde · hold %lld minutters pause";
 "No accounts. No cloud. Your settings and calibration stay on this Mac." = "Ingen konti. Ingen sky. Dine indstillinger og din kalibrering bliver på denne Mac.";
-"No battery" = "Intet batteri";
 "No media session is available." = "Der er ingen mediesession.";
 "No media session yet. Play something, or check Automation access for Music and Spotify." = "Ingen mediesession endnu. Afspil noget, eller kontroller adgangen under Automatisering for Musik og Spotify.";
 "No new accessible files were added." = "Der blev ikke tilføjet nye tilgængelige arkiver.";
-"No sound output" = "Ingen lydudgang";
 "No Downloads or AirDrops" = "Ingen overførsler eller AirDrops";
 "Not needed" = "Ikke nødvendig";
-"Nothing Copied Yet" = "Intet kopieret endnu";
 "Nothing could be copied there." = "Intet kunne kopieres dertil.";
 "Nothing playing" = "Intet spiller";
 "Nothing was created." = "Intet blev oprettet.";
@@ -314,7 +296,6 @@
 "Adds files, clipboard, clock and quick controls, all a hover away." = "Tilføjer arkiver, udklipsholder, ur og hurtige betjeningsknapper, kun et hold med markøren væk.";
 "Adds every other extra, like the camera dot, system notices and more shortcuts." = "Tilføjer alt det andet ekstra, som kameraprikken, systembeskeder og flere genveje.";
 "Your own mix. Choose a level to start over." = "Din egen blanding. Vælg et niveau for at starte forfra.";
-"Anything that reads your calendar, downloads, screenshots or clipboard history, or needs a macOS permission, stays a separate switch." = "Alt, der læser din kalender, overførsler, skærmbilleder eller udklipshistorik, eller kræver en tilladelse i macOS, har sin egen kontakt.";
 "Open When Nothing’s Happening" = "Åbn, når der ikke sker noget";
 "Point at the camera for the time and battery." = "Peg på kameraet for at se tid og batteri.";
 "Keep Notices Small" = "Hold beskeder små";
@@ -340,8 +321,6 @@
 "Off" = "Fra";
 "Offline" = "Offline";
 "On" = "Til";
-"On battery" = "På batteri";
-"On battery · %@ remaining" = "På batteri · %@ tilbage";
 "Once" = "Én gang";
 "Once per discharge." = "Én gang pr. afladning.";
 "One-time alarm · a sleeping Mac rings on wake" = "Engangsalarm · en Mac, der sover, ringer, når den vågner";
@@ -363,8 +342,6 @@
 "Open timer controls" = "Åbn timerbetjening";
 "Open Trackpad Scale" = "Åbn pegefeltsvægt";
 "Open your MacBook" = "Åbn din MacBook";
-"Output: %@" = "Udgang: %@";
-"Over the compact island: scroll up or down to change the volume and Force Click to open the controls. Swiping an activity away always works." = "Over den lille ø: rul op eller ned for at ændre lydstyrken, og brug Force Click for at åbne betjeningen. Du kan altid skubbe en aktivitet væk.";
 "Paste" = "Indsæt";
 "Paths couldn’t be copied." = "Stierne kunne ikke kopieres.";
 "Pause" = "Pause";
@@ -380,10 +357,8 @@
 "Pauses %@ at end of track" = "Sætter %@ på pause, når nummeret slutter";
 "Pauses %@ in %@" = "Sætter %1$@ på pause om %2$@";
 "Permissions" = "Tilladelser";
-"Pin" = "Fastgør";
 "Pin Clipboard" = "Fastgør udklipsholder";
 "Pin Text, Links and Images" = "Fastgør tekst, links og billeder";
-"Pinned" = "Fastgjort";
 "Place a small object beside your finger." = "Placer en lille genstand ved siden af din finger.";
 "Play %@" = "Afspil %@";
 "Play %@ only" = "Afspil kun i %@";
@@ -393,7 +368,6 @@
 "Player picker" = "Afspillervælger";
 "Player pinned · choose Automatic to follow macOS" = "Afspiller fastgjort · vælg Automatisk for at følge macOS";
 "Playing on %@" = "Afspiller på %@";
-"Plugged in · not charging" = "Tilsluttet · oplader ikke";
 "Rest the pointer on the island to open it. A click always works." = "Lad markøren hvile på øen for at åbne den. Et klik virker altid.";
 "Show in the Island" = "Vis på øen";
 "Sections you turn off leave the island and the menu. A timer that’s already running stays until it ends." = "Sektioner, du slår fra, forsvinder fra øen og menuen. En timer, der allerede kører, bliver, til den slutter.";
@@ -413,9 +387,6 @@
 "Ready" = "Klar";
 "Ready when your Mac is." = "Klar, når din Mac er.";
 "Received %@" = "%@ modtaget";
-"Recent" = "Seneste";
-"Recent text and links stay in memory only. Password managers are skipped." = "Seneste tekst og links gemmes kun i hukommelsen. Adgangskodeadministratorer springes over.";
-"Recent text and links, kept in memory." = "Seneste tekst og links, gemt i hukommelsen.";
 "Refresh players" = "Opdater afspillere";
 "Release to Keep Files Here" = "Slip for at gemme arkiverne her";
 "Remove a pin to make room. Clipboard holds 20 pins." = "Fjern en fastgørelse for at gøre plads. Udklipsholderen kan rumme 20 emner.";
@@ -448,7 +419,6 @@
 "Reveal in Finder" = "Vis i Finder";
 "Review…" = "Gennemse…";
 "Right" = "Højre";
-"Right %lld%%" = "Højre %lld %%";
 "Round complete · take %lld minutes" = "Runden er fuldført · hold %lld minutters pause";
 "Running" = "Kører";
 "Scale" = "Vægt";
@@ -457,7 +427,6 @@
 "Screen Recording permission is needed for Brim to fold your desktop." = "Brim skal have tilladelse til skærmoptagelse for at folde skrivebordet.";
 "Screenshot" = "Skærmbillede";
 "Screenshots" = "Skærmbilleder";
-"Scroll on the island for volume, Force Click for controls." = "Rul på øen for lydstyrke, Force Click for betjening.";
 "Seeking isn’t available in this player." = "Spoling er ikke mulig i denne afspiller.";
 "Select accessible files first." = "Vælg først tilgængelige arkiver.";
 "Select accessible files to copy." = "Vælg tilgængelige arkiver at kopiere.";
@@ -506,10 +475,7 @@
 "Shrink" = "Krymp";
 "Skip Break" = "Spring pause over";
 "Skip to Break" = "Gå til pause";
-"Skips password managers. Nothing is saved to disk." = "Springer adgangskodeadministratorer over. Intet gemmes på disken.";
 "Snooze 5 min" = "Udsæt 5 min";
-"Sound Output" = "Lydudgang";
-"Sound output" = "Lydudgang";
 "Start" = "Start";
 "Start %@" = "Start %@";
 "Start Focus Session" = "Start fokussession";
@@ -559,7 +525,6 @@
 "Turn on Brim in macOS settings. If it’s already on, choose Restart Brim above to finish setup." = "Slå Brim til i macOS-indstillingerne. Hvis den allerede er slået til, så vælg Genstart Brim ovenfor for at afslutte konfigurationen.";
 "Type to search" = "Skriv for at søge";
 "Undo" = "Fortryd";
-"Unmute" = "Slå lyd til";
 "Untitled" = "Uden navn";
 "Untitled media" = "Medie uden navn";
 "Use a brim:// link with the Open URLs action: message, activity (with progress=0 to 1), activity/end, open, timer/start, focus/start, clipboard/pin, presentation and shelf/add." = "Brug et brim://-link med handlingen Åbn URL’er: message, activity (med progress=0 til 1), activity/end, open, timer/start, focus/start, clipboard/pin, presentation og shelf/add.";
@@ -569,7 +534,6 @@
 "Version %@" = "Version %@";
 "Volume" = "Lydstyrke";
 "Volume & Brightness" = "Lydstyrke og lysstyrke";
-"Volume is set on the device" = "Lydstyrken indstilles på enheden";
 "Waiting for a compatible hinge sensor. Check the sensor status above." = "Venter på en kompatibel hængselsensor. Se sensorstatus ovenfor.";
 "Waiting for your answer." = "Venter på dit svar.";
 "Watch Downloads and AirDrops" = "Følg overførsler og AirDrops";
@@ -597,3 +561,7 @@
 "Copy %@" = "Kopier %@";
 "Clock Tools" = "Urværktøjer";
 "In Files, ⌘-click selects several, Space previews them and dragging a selected file takes the whole selection." = "I Arkiver vælger ⌘-klik flere, mellemrum viser dem, og når du trækker en valgt fil, følger hele valget med.";
+"Anything that reads your calendar, downloads or screenshots, or needs a macOS permission, stays a separate switch." = "Alt, der læser din kalender, overførsler eller skærmbilleder, eller kræver en tilladelse i macOS, har sin egen kontakt.";
+"Files are remembered by location, never copied. Clipboard pins are saved on this Mac; turning this off deletes them." = "Arkiver huskes ud fra deres placering og kopieres aldrig. Fastgjorte emner fra udklipsholderen gemmes på denne Mac; slår du dette fra, slettes de.";
+"Over the compact island: scroll up or down to change the volume and Force Click to open it. Swiping an activity away always works." = "Over den lille ø: rul op eller ned for at ændre lydstyrken, og brug Force Click for at åbne den. Du kan altid skubbe en aktivitet væk.";
+"Scroll on the island for volume, Force Click to open it." = "Rul på øen for lydstyrke, Force Click for at åbne den.";

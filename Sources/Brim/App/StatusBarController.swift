@@ -138,8 +138,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             (.files, String(localized: "Files"), #selector(openFileShelf), "tray", "2"),
             (.clipboard, String(localized: "Clipboard"), #selector(openClipboard), "pin", "3"),
             (.timer, String(localized: "Clock"), #selector(openTimer), "timer", "4"),
-            (.battery, String(localized: "Battery"), #selector(openBattery), "battery.100", "5"),
-            (.transfers, String(localized: "Downloads & AirDrop"), #selector(openTransfers), "arrow.down.circle", "6")
+            (.transfers, String(localized: "Downloads & AirDrop"), #selector(openTransfers), "arrow.down.circle", "5")
         ] where notch.shows(tab) {
             let keyed = model.preferences.toolShortcutsEnabled && model.preferences.sectionShortcuts
             let entry = NSMenuItem(title: title, action: action, keyEquivalent: keyed ? key : "")
@@ -169,7 +168,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     @objc private func openTimer() { model.notch.openTimerFromMenu() }
     @objc private func openPermissions() { model.permissions.refresh(); model.openSettings(page: .permissions) }
     @objc private func openTransfers() { model.notch.openTransfersFromMenu() }
-    @objc private func openBattery() { model.notch.openBatteryFromMenu() }
     @objc private func openClipboard() { model.notch.openClipboardFromMenu() }
     @objc private func openSettings() { model.openSettings() }
     @objc private func openFileShelf() { model.notch.openShelfFromMenu() }

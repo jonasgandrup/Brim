@@ -48,10 +48,10 @@ final class Preferences {
         "followActiveDisplay": false, "shortcut": "command", "includeMinimized": true, "chargingFeedback": true,
         "chargeTarget": 80, "lowBatteryAlert": 20, "lidFoldStyle": "duo",
         "liveTransfers": false, "autoHideFocus": false, "autoHideSharing": false, "calendarPreview": false,
-        "clipboardHistory": false, "toolShortcutModifiers": "ctrlOptCmd", "menuBarStatus": "off",
+        "toolShortcutModifiers": "ctrlOptCmd", "menuBarStatus": "off",
         "screenshotShelf": false, "appearance": "system", "sensorIndicator": false, "systemHUD": false,
         "bluetoothBatteries": true, "keepShelf": true, "haptics": true, "focusFeedback": false, "islandGestures": false, "systemChanges": false,
-        "smallNotices": true, "openWhenIdle": false, "showFiles": false, "showClipboard": false, "showClock": false, "showControls": false,
+        "smallNotices": true, "openWhenIdle": false, "showFiles": false, "showClipboard": false, "showClock": false,
         "sectionShortcuts": false, "menuLockMac": false,
     ]
     var toolShortcutsEnabled: Bool { didSet { save(toolShortcutsEnabled, "toolShortcutsEnabled") } }
@@ -63,7 +63,6 @@ final class Preferences {
     var scaleEnabled: Bool { didSet { save(scaleEnabled, "scaleEnabled") } }
     var lidEffectEnabled: Bool { didSet { save(lidEffectEnabled, "lidEffectEnabled") } }
     var lidFoldStyle: LidFoldStyle { didSet { save(lidFoldStyle.rawValue, "lidFoldStyle") } }
-    var clipboardHistory: Bool { didSet { save(clipboardHistory, "clipboardHistory") } }
     var calendarPreview: Bool { didSet { save(calendarPreview, "calendarPreview") } }
     var liveTransfers: Bool { didSet { save(liveTransfers, "liveTransfers") } }
     var autoHideFocus: Bool { didSet { save(autoHideFocus, "autoHideFocus") } }
@@ -118,7 +117,6 @@ final class Preferences {
     var showFiles: Bool { didSet { save(showFiles, "showFiles") } }
     var showClipboard: Bool { didSet { save(showClipboard, "showClipboard") } }
     var showClock: Bool { didSet { save(showClock, "showClock") } }
-    var showControls: Bool { didSet { save(showControls, "showControls") } }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -140,7 +138,6 @@ final class Preferences {
         scaleEnabled = flag("scaleEnabled")
         lidEffectEnabled = flag("lidEffectEnabled")
         lidFoldStyle = choice("lidFoldStyle", LidFoldStyle.duo)
-        clipboardHistory = flag("clipboardHistory")
         calendarPreview = flag("calendarPreview")
         liveTransfers = flag("liveTransfers")
         autoHideFocus = flag("autoHideFocus")
@@ -171,14 +168,13 @@ final class Preferences {
         showFiles = flag("showFiles")
         showClipboard = flag("showClipboard")
         showClock = flag("showClock")
-        showControls = flag("showControls")
     }
     /// What each level turns on. Anything that reads personal data or makes macOS ask for a permission isn't here:
     /// those stay their own switches, so choosing a level never sets off a run of prompts.
     private var levelSwitches: [(key: ReferenceWritableKeyPath<Preferences, Bool>, on: Set<IslandLevel>)] {
         [(\.mediaEnabled, [.essentials, .more, .everything]), (\.smallNotices, [.essentials]),
          (\.showFiles, [.more, .everything]), (\.showClipboard, [.more, .everything]), (\.showClock, [.more, .everything]),
-         (\.showControls, [.more, .everything]), (\.openWhenIdle, [.more, .everything]), (\.islandGestures, [.more, .everything]),
+         (\.openWhenIdle, [.more, .everything]), (\.islandGestures, [.more, .everything]),
          (\.systemHUD, [.more, .everything]), (\.sensorIndicator, [.everything]), (\.systemChanges, [.everything]),
          (\.sectionShortcuts, [.everything]), (\.menuLockMac, [.everything])]
     }

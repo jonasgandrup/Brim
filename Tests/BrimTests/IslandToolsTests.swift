@@ -264,3 +264,20 @@ private func runBrimCommand(_ arguments: [String]) throws -> (status: Int32, lin
     #expect(BatteryTint.color(level: 20, charging: false, lowPower: false) == .red)
     #expect(BatteryTint.color(level: 21, charging: false, lowPower: false) == .white)
 }
+
+@Test @MainActor func anAlarmRingsAtItsTimeWithoutWatchingTheClock() async {
+    let suite = "BrimAlarmTest-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let clock = ClockTools(defaults: defaults, notificationsEnabled: false)
+    var rang = 0
+    clock.onAlarm = { rang += 1 }
+    clock.arm(at: Date().addingTimeInterval(0.3))
+    try? await Task.sleep(for: .milliseconds(150))
+    #expect(!clock.ringing && rang == 0)
+    try? await Task.sleep(for: .milliseconds(400))
+    #expect(clock.ringing && rang == 1)
+    clock.stopAlarm()
+    #expect(!clock.ringing)
+    clock.stop()
+}

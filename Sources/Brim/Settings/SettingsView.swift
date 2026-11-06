@@ -43,7 +43,6 @@ struct SettingsView: View {
         .onChange(of: preferences.playerAccess) { model.apply() }
         .onChange(of: preferences.screenshotShelf) { model.apply() }
         .onChange(of: preferences.keepShelf) { model.apply() }
-        .onChange(of: preferences.clipboardHistory) { model.apply() }
         .onChange(of: preferences.calendarPreview) { model.apply() }
         .onChange(of: preferences.liveTransfers) { model.apply() }
         .onChange(of: preferences.sensorIndicator) { model.apply() }
@@ -60,7 +59,6 @@ struct SettingsView: View {
         .onChange(of: preferences.showFiles) { model.apply() }
         .onChange(of: preferences.showClipboard) { model.apply() }
         .onChange(of: preferences.showClock) { model.apply() }
-        .onChange(of: preferences.showControls) { model.apply() }
         .onChange(of: preferences.shortcut) { model.switcher.stop(); model.apply() }
     }
 
@@ -147,7 +145,7 @@ struct SettingsView: View {
                     .font(.system(size: 12)).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             }.frame(maxWidth: .infinity).padding(.vertical, 4)
         } header: { Text("How Much to Show") } footer: {
-            Footnote(text: "Anything that reads your calendar, downloads, screenshots or clipboard history, or needs a macOS permission, stays a separate switch.")
+            Footnote(text: "Anything that reads your calendar, downloads or screenshots, or needs a macOS permission, stays a separate switch.")
         }
     }
     private func welcomeToggle(_ symbol: String, _ tint: Color, _ title: LocalizedStringKey, _ detail: LocalizedStringKey, _ isOn: Binding<Bool>) -> some View {
@@ -214,7 +212,6 @@ struct SettingsView: View {
             sectionToggle("tray.fill", .teal, "Files", binding(\.showFiles))
             sectionToggle("pin.fill", .yellow, "Clipboard", binding(\.showClipboard))
             sectionToggle("clock.fill", .orange, "Clock", binding(\.showClock))
-            sectionToggle("battery.100percent", .green, "Battery & Controls", binding(\.showControls))
             sectionToggle("arrow.down.circle.fill", .blue, "Downloads & AirDrop", binding(\.liveTransfers),
                           detail: model.notch.transfers.accessProblem.map(LocalizedStringKey.verbatim), info: "macOS asks once for access to your Downloads folder.")
         } header: { Text("Show in the Island") } footer: {
@@ -234,8 +231,8 @@ struct SettingsView: View {
                 SettingsLabel(title: "Keep Notices Small", detail: "Short notices stay around the camera instead of opening the island.")
             }.disabled(!preferences.notchEnabled)
             Toggle(isOn: binding(\.islandGestures)) {
-                SettingsLabel(title: "Gestures", detail: "Scroll on the island for volume, Force Click for controls.",
-                              info: "Over the compact island: scroll up or down to change the volume and Force Click to open the controls. Swiping an activity away always works.")
+                SettingsLabel(title: "Gestures", detail: "Scroll on the island for volume, Force Click to open it.",
+                              info: "Over the compact island: scroll up or down to change the volume and Force Click to open it. Swiping an activity away always works.")
             }.disabled(!preferences.notchEnabled)
             Toggle(isOn: binding(\.haptics)) {
                 SettingsLabel(title: "Haptic Feedback", detail: "A soft tap at moments worth feeling.",
@@ -275,7 +272,7 @@ struct SettingsView: View {
             return on == 0 ? String(localized: "Off") : on == flags.count && flags.count == 1 ? String(localized: "On") : String(localized: "\(on) on")
         }
         return switch section {
-        case .shelf: count([preferences.keepShelf, preferences.screenshotShelf, preferences.clipboardHistory])
+        case .shelf: count([preferences.keepShelf, preferences.screenshotShelf])
         case .notices: count([preferences.calendarPreview, preferences.sensorIndicator, preferences.systemHUD, preferences.focusFeedback, preferences.systemChanges])
         case .battery: count([preferences.chargingFeedback, preferences.lowBatteryAlert > 0, preferences.bluetoothBatteries])
         case .hiding: count([preferences.autoHideFocus, preferences.autoHideSharing])
@@ -292,13 +289,10 @@ struct SettingsView: View {
             }
             Toggle(isOn: binding(\.keepShelf)) {
                 SettingsLabel(title: "Keep After Quitting", detail: "Files and clipboard pins stay put.",
-                              info: "Files are remembered by location, never copied. Clipboard pins are saved on this Mac; turning this off deletes them. History is never saved.")
+                              info: "Files are remembered by location, never copied. Clipboard pins are saved on this Mac; turning this off deletes them.")
             }
             Toggle(isOn: binding(\.screenshotShelf)) {
                 SettingsLabel(title: "Screenshots", detail: "New screenshots wait in the island.", info: "Found with Spotlight, so only indexed folders are seen.")
-            }
-            Toggle(isOn: binding(\.clipboardHistory)) {
-                SettingsLabel(title: "Clipboard History", detail: "Recent text and links, kept in memory.", info: "Skips password managers. Nothing is saved to disk.")
             }
         } footer: {
             Footnote(text: "In Files, ⌘-click selects several, Space previews them and dragging a selected file takes the whole selection.")

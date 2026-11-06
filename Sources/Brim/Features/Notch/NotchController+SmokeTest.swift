@@ -13,15 +13,13 @@ struct NotchSmokeChecks {
     var nativeSnapshotCount = 0
     var activityChecks: [String: Bool] = [:]
     var hoverCheckDiagnostics: [[String: Bool]] = []
-    var desktopTransitionHidesIsland = false
-    var systemSwitcherObserved = false
-    var systemSwitcherHidIsland = false
+    var switcherTucksIsland = false
 }
 
 extension NotchController {
     func verifyIdleHover() async -> Bool {
         for _ in 0..<40 {
-            if !desktopTransition { break }
+            if !tuckedAway { break }
             try? await Task.sleep(for: .milliseconds(50))
         }
         setExpanded(false)
@@ -38,7 +36,7 @@ extension NotchController {
         }
         try? await Task.sleep(for: HoverIntent.dwell + .milliseconds(150))
         let opened = expanded && panel?.isVisible == true && panel?.alphaValue == 1
-        check["opened"] = opened; check["transitionAfterHover"] = desktopTransition
+        check["opened"] = opened; check["transitionAfterHover"] = tuckedAway
         smoke.hoverCheckDiagnostics.append(check)
         previewPointer = nil
         hover(false); setExpanded(false)
@@ -126,10 +124,10 @@ extension NotchController {
     }
     func exportMediaPreview(_ snapshot: SystemMediaSnapshot, to directory: URL, layoutPreview: Bool = false) async -> String? {
         for _ in 0..<50 {
-            if !desktopTransition { break }
+            if !tuckedAway { break }
             try? await Task.sleep(for: .milliseconds(100))
         }
-        guard !desktopTransition, snapshot.hasMedia, let panel, let status, let originalView = panel.contentView else { return nil }
+        guard !tuckedAway, snapshot.hasMedia, let panel, let status, let originalView = panel.contentView else { return nil }
         let suite = "Brim.MediaPreview.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suite) else { return nil }
         let previewPreferences = Preferences(defaults: defaults); previewPreferences.mediaEnabled = true
@@ -155,15 +153,15 @@ extension NotchController {
         let name = layoutPreview ? "player-sleep-layout-preview.png" : "now-playing-live.png"
         var captured = false
         for _ in 0..<4 {
-            if desktopTransition || preparingAfterTransition {
+            if tuckedAway || preparingAfterTransition {
                 try? await Task.sleep(for: .milliseconds(500)); continue
             }
             selectedTab = .music; setExpanded(true)
             previewPointer = surfaceFrame.map { CGPoint(x: $0.midX, y: $0.midY) }
             try? await Task.sleep(for: .milliseconds(500))
-            guard expanded, displayedTab == .music, paneOpacity == 1, surfaceReveal == 1, !desktopTransition else { continue }
+            guard expanded, displayedTab == .music, paneOpacity == 1, surfaceReveal == 1, !tuckedAway else { continue }
             let exported = await capturePanel(named: name, in: directory)
-            if exported && expanded && !desktopTransition && surfaceReveal == 1 { captured = true; break }
+            if exported && expanded && !tuckedAway && surfaceReveal == 1 { captured = true; break }
         }
         if !captured { try? FileManager.default.removeItem(at: directory.appendingPathComponent(name)) }
         if layoutPreview {
@@ -195,7 +193,7 @@ extension NotchController {
             hover(true); openFromMenu(); openTool(.nowPlaying)
             try? await Task.sleep(for: .milliseconds(100))
             smoke.activityChecks["presentationBlocksHoverAndShortcuts"] = !panel.isVisible && panel.ignoresMouseEvents && presentation == .hidden && !expanded
-            hideForDesktopTransition(settleDelay: .milliseconds(100))
+            setAway(.desktopMoving, true); setAway(.desktopMoving, false, settle: .milliseconds(100))
             try? await Task.sleep(for: .milliseconds(350))
             smoke.activityChecks["presentationStaysHiddenAfterSpaceChange"] = !panel.isVisible && presentation == .hidden
             smoke.activityChecks["timerContinuesDuringPresentation"] = countdown.state.phase == .running && countdown.remaining > 0
@@ -238,7 +236,7 @@ extension NotchController {
     /// A real swipe can't be sent from here, so this starts just after it: hiding, what brings the island back, and the way in.
     func verifySwipeDismissal() async {
         guard let displayFrame else { return }
-        for _ in 0..<30 where desktopTransition || preparingAfterTransition { try? await Task.sleep(for: .milliseconds(100)) }
+        for _ in 0..<30 where tuckedAway || preparingAfterTransition { try? await Task.sleep(for: .milliseconds(100)) }
         let idle = preferences?.openWhenIdle ?? false
         preferences?.openWhenIdle = false; previewPointer = CGPoint(x: -10000, y: -10000); setExpanded(false)
         countdown.start(seconds: 60)
@@ -264,7 +262,7 @@ extension NotchController {
     /// Drives the real island over a pretend covered item, because a test can't move the actual pointer into the menu bar.
     func verifyWingClearance() async {
         guard layout.hasHardwareNotch, let displayFrame, let panel else { return }
-        for _ in 0..<30 where desktopTransition || preparingAfterTransition { try? await Task.sleep(for: .milliseconds(100)) }
+        for _ in 0..<30 where tuckedAway || preparingAfterTransition { try? await Task.sleep(for: .milliseconds(100)) }
         let frame = layout.frame(on: displayFrame, expanded: false)
         let wings = MenuBarClearance.wings(of: frame, cutoutWidth: layout.cutoutWidth)
         guard let left = wings.first, let right = wings.last else { return }
@@ -348,10 +346,7 @@ extension NotchController {
         }
         clock.mode = .timer
         setDropTargeted(false); activities.clear()
-        dismissFeedback(); shelf.clear(); clipboard.clear(); countdown.cancel(); selectedTab = .battery; setExpanded(true)
-        previewPointer = surfaceFrame.map { CGPoint(x: $0.midX, y: $0.midY) }
-        try? await Task.sleep(for: .milliseconds(650))
-        if await capturePanel(named: "battery-pane.png", in: directory) { result.append("battery-pane.png") }
+        dismissFeedback(); shelf.clear(); clipboard.clear(); countdown.cancel()
         // The real island with what's really playing, which the layout preview's stand-in player can't show.
         if media?.playing == true {
             previewPointer = CGPoint(x: -10000, y: -10000); hover(false); setExpanded(false)
@@ -370,12 +365,11 @@ extension NotchController {
         dismissFeedback(); countdown.cancel(); clipboard.clear(); shelf.add([Bundle.main.bundleURL.appendingPathComponent("Contents/Info.plist")]); selectedTab = .files; previewPointer = nil
         setSwitcherOverlayActive(true)
         try? await Task.sleep(for: .milliseconds(420))
-        let stayedHidden = desktopTransition && !panel.isVisible && panel.alphaValue == 0
-        setSwitcherOverlayActive(false)
-        hideForDesktopTransition(settleDelay: .milliseconds(120))
-        smoke.desktopTransitionHidesIsland = stayedHidden && presentation == .hidden && panel.ignoresMouseEvents && !panel.isVisible
+        let stayedHidden = tuckedAway && !panel.isVisible
+        setAway(.desktopMoving, true); setSwitcherOverlayActive(false); setAway(.desktopMoving, false, settle: .milliseconds(120))
+        smoke.switcherTucksIsland = stayedHidden && presentation == .hidden && panel.ignoresMouseEvents && !panel.isVisible
         try? await Task.sleep(for: .milliseconds(450))
-        smoke.desktopTransitionHidesIsland = smoke.desktopTransitionHidesIsland && !desktopTransition && panel.isVisible
+        smoke.switcherTucksIsland = smoke.switcherTucksIsland && !tuckedAway && panel.isVisible
         shelf.clear(); shelfSelected = false
         for _ in 0..<3 {
             setExpanded(false)

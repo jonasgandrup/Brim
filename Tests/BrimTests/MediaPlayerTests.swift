@@ -272,3 +272,126 @@ private actor TimerCommands {
     #expect(media.source == playerB.source)
     media.stop()
 }
+
+// MARK: Following what's playing
+
+/// macOS's Now Playing app, every player's own state, and which players were asked directly.
+private actor PlaybackFeed {
+    var main: SystemMediaSnapshot
+    var rates: [String: Double]
+    private(set) var asked: [String] = []
+    init(main: SystemMediaSnapshot, rates: [String: Double]) { self.main = main; self.rates = rates }
+    func set(main: SystemMediaSnapshot) { self.main = main }
+    func set(_ player: MediaPlayer, rate: Double) { rates[player.source] = rate }
+    func read(_ player: MediaPlayer) -> SystemMediaSnapshot? {
+        asked.append(player.source)
+        return rates[player.source].map { session(player, rate: $0) }
+    }
+    func clearAsked() { asked = [] }
+}
+
+@MainActor private func following(_ feed: PlaybackFeed) -> MediaService {
+    let media = MediaService()
+    media.playersReader = { [playerA, playerB] }
+    media.snapshotReader = { await feed.main }
+    media.playerReader = { await feed.read($0) }
+    media.playbackTransport = { _, _ in .submitted }
+    return media
+}
+
+@Test func theIslandShowsWhatYouAreListeningTo() {
+    let spotify = NowPlayingCandidate(source: "spotify", playing: true, app: true)
+    let video = NowPlayingCandidate(source: "chrome", playing: true, app: false)
+    let pausedVideo = NowPlayingCandidate(source: "chrome", playing: false, app: false)
+    let music = NowPlayingCandidate(source: "music", playing: true, app: true)
+    // A video starting in a browser doesn't push music off the island, playing or paused.
+    #expect(NowPlayingCandidate.pick(main: video, shown: spotify) == .shown)
+    #expect(NowPlayingCandidate.pick(main: pausedVideo, shown: spotify) == .shown)
+    // Music outranks a video that was showing; between two apps the newest wins.
+    #expect(NowPlayingCandidate.pick(main: spotify, shown: video) == .main)
+    #expect(NowPlayingCandidate.pick(main: music, shown: spotify) == .main)
+    // Everything paused: what was showing stays, rather than swapping to another paused player.
+    var pausedSpotify = spotify; pausedSpotify.playing = false
+    #expect(NowPlayingCandidate.pick(main: pausedVideo, shown: pausedSpotify) == .shown)
+    // Something playing beats anything paused.
+    #expect(NowPlayingCandidate.pick(main: video, shown: pausedSpotify) == .main)
+    #expect(NowPlayingCandidate.pick(main: video, shown: nil) == .main)
+}
+
+@Test @MainActor func aVideoPausingInTheBrowserLeavesTheMusicOnTheIsland() async {
+    // Spotify (B) is playing; a YouTube video (A, in a browser) takes macOS's Now Playing and then pauses.
+    let feed = PlaybackFeed(main: session(playerB, rate: 1), rates: [playerA.source: 1, playerB.source: 1])
+    let media = following(feed)
+    media.isBrowser = { $0 == playerA.source }
+    media.refresh(); await settled(media)
+    #expect(media.source == playerB.source)
+    await feed.set(main: session(playerA, rate: 1))
+    media.refresh(); await settled(media)
+    #expect(media.source == playerB.source); #expect(media.playing)
+    await feed.set(main: session(playerA, rate: 0)); await feed.set(playerA, rate: 0)
+    media.refresh(); await settled(media)
+    #expect(media.source == playerB.source); #expect(media.playing)
+    media.stop()
+}
+
+@Test @MainActor func musicAlreadyPlayingUnderAVideoIsFoundOnce() async {
+    let feed = PlaybackFeed(main: session(playerA, rate: 1), rates: [playerA.source: 1, playerB.source: 1])
+    let media = following(feed)
+    media.isBrowser = { $0 == playerA.source }
+    media.refresh(); await settled(media)
+    #expect(media.source == playerB.source)
+    media.stop()
+}
+
+@Test @MainActor func pausingWhatsShowingNeverSwapsToAnotherPausedPlayer() async {
+    // Spotify (B) is on the island; pausing it makes macOS hand Now Playing to a video that was already paused.
+    let feed = PlaybackFeed(main: session(playerB, rate: 1), rates: [playerA.source: 0, playerB.source: 1])
+    let media = following(feed)
+    media.isBrowser = { $0 == playerA.source }
+    media.refresh(); await settled(media)
+    await feed.set(playerB, rate: 0); await feed.set(main: session(playerA, rate: 0))
+    media.command("playpause"); await settled(media)
+    try? await Task.sleep(for: .milliseconds(300)); await settled(media)
+    #expect(media.source == playerB.source); #expect(!media.playing)
+    // Held as it was: nothing more is read while everything sits paused.
+    await feed.clearAsked()
+    for _ in 0..<3 { media.refresh(); await settled(media) }
+    #expect(await feed.asked.isEmpty); #expect(media.source == playerB.source)
+    media.stop()
+}
+
+@Test @MainActor func nothingExtraIsReadWhileEverythingSitsPaused() async {
+    let feed = PlaybackFeed(main: session(playerA, rate: 0), rates: [playerA.source: 0, playerB.source: 0])
+    let media = following(feed)
+    media.refresh(); await settled(media)
+    #expect(media.source == playerA.source); #expect(!media.playing)
+    await feed.clearAsked()
+    for _ in 0..<3 { media.refresh(); await settled(media) }
+    #expect(await feed.asked.isEmpty)
+    media.stop()
+}
+
+@Test @MainActor func aNewTrackWaitsForItsCoverInsteadOfFlashingTheAppIcon() {
+    let media = MediaService()
+    let image = NSImage(size: NSSize(width: 8, height: 8))
+    image.lockFocus(); NSColor.red.setFill(); NSRect(x: 0, y: 0, width: 8, height: 8).fill(); image.unlockFocus()
+    var first = session(playerA)
+    first.artwork = image.tiffRepresentation?.base64EncodedString()
+    media.apply(first)
+    media.apply(session(playerA, title: "Next track"))
+    #expect(media.artwork == nil); #expect(media.coverOnItsWay)
+    // No cover by the next reading: this player has none for it, so the app icon is right.
+    media.apply(session(playerA, title: "Next track"))
+    #expect(!media.coverOnItsWay)
+    // A player that never had a cover shows its icon straight away.
+    media.apply(session(playerB)); #expect(!media.coverOnItsWay)
+    media.stop()
+}
+
+@Test func helperAnnouncementsAreToldApartFromAnswers() {
+    #expect(NowPlayingHelperLine("listening") == .listening)
+    #expect(NowPlayingHelperLine("changed") == .changed)
+    // The script's own empty return value when it ends isn't an answer to anything.
+    #expect(NowPlayingHelperLine("") == .ignored)
+    #expect(NowPlayingHelperLine(#"{"available":true}"#) == .reply(#"{"available":true}"#))
+}

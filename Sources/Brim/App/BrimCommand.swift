@@ -2,7 +2,7 @@ import Foundation
 
 /// `brim://` links, so Shortcuts (Open URLs), scripts and other apps can drive the island.
 ///
-///     brim://open?tool=music|files|clipboard|clock|battery|transfers
+///     brim://open?tool=music|files|clipboard|clock|transfers
 ///     brim://timer/start?minutes=10      brim://timer/cancel
 ///     brim://focus/start                 brim://clipboard/pin
 ///     brim://presentation?enabled=on|off|toggle
@@ -91,7 +91,6 @@ enum BrimCommand: Equatable {
         case "files", "shelf": .files
         case "clipboard": .clipboard
         case "clock", "timer": .clock
-        case "battery": .battery
         case "island", "now": .island
         case "transfers", "downloads": .transfers
         default: nil
