@@ -890,8 +890,6 @@ import Observation
     // Natural scrolling (inverted) and classic scrolling report opposite deltas for the same finger movement.
     #expect(IslandGesture.fingers(dx: -10, dy: -5, inverted: true) == (right: -10, up: 5))
     #expect(IslandGesture.fingers(dx: 10, dy: 5, inverted: false) == (right: -10, up: 5))
-    #expect(IslandGesture.volume(0.99, up: 100, precise: true) == 1)
-    #expect(IslandGesture.volume(0.5, up: -1, precise: false) == 0.47)
     #expect(DropZone.at(x: 300, width: 408, airDropAvailable: true) == .airDrop)
     #expect(DropZone.at(x: 100, width: 408, airDropAvailable: true) == .shelf)
     #expect(DropZone.at(x: 300, width: 408, airDropAvailable: false) == .shelf)

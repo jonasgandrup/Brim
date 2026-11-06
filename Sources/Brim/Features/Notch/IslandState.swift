@@ -50,17 +50,13 @@ enum DesktopTransitionPhase: Equatable {
 /// A brief compact-only readout, like the iPhone's volume indicator: an icon on one side, a level on the other.
 struct IslandHUD: Equatable {
     var symbol: String
-    var level: Double?
     var tint: Color = .white
     var label: String
-    /// Draws a battery and its percentage instead of the symbol and level.
+    /// Draws a battery and its percentage instead of the symbol.
     var battery: Int?
     var charging = false
-    /// What VoiceOver says. A level changes too fast to speak every step, so only its absence earns a word.
-    var announcement: String? {
-        if level != nil { return nil }
-        return battery.map { String(localized: "\(label), \($0)%") } ?? label
-    }
+    /// What VoiceOver says.
+    var announcement: String { battery.map { String(localized: "\(label), \($0)%") } ?? label }
 }
 
 /// Trackpad gestures on the compact island, in the direction the fingers move whatever the scrolling setting.
@@ -92,7 +88,4 @@ enum IslandGesture {
     }
     /// How far a sideways swipe travels before it counts, in either direction.
     static let hideTravel: CGFloat = 50
-    static func volume(_ current: Double, up: CGFloat, precise: Bool) -> Double {
-        min(1, max(0, current + Double(up) * (precise ? 0.004 : 0.03)))
-    }
 }

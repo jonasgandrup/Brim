@@ -176,7 +176,7 @@ struct IslandView: View {
         if let hud = controller.hud {
             if let battery = hud.battery {
                 Text("\(battery)%").font(.system(size: 12, weight: .semibold, design: .rounded)).monospacedDigit().foregroundStyle(hud.tint).minimumScaleFactor(0.7)
-            } else if let level = hud.level { HUDLevel(level: level, tint: hud.tint) }
+            }
             else { Circle().fill(hud.tint).frame(width: 7, height: 7) }
         } else if dualActivities {
             PlaybackActivity(playing: media.playing, tint: media.artworkTint)
@@ -456,20 +456,6 @@ private struct CountBadge: View {
         Text("\(count)").font(.system(size: 10, weight: .bold)).monospacedDigit()
             .padding(.horizontal, 5).frame(minWidth: 17, minHeight: 17)
             .background(IslandStyle.raisedFill, in: Capsule())
-    }
-}
-
-/// The compact HUD's level: a short capsule that fills like the system volume slider.
-private struct HUDLevel: View {
-    let level: Double
-    let tint: Color
-    var body: some View {
-        Capsule().fill(.white.opacity(0.22)).frame(width: 30, height: 5)
-            .overlay(alignment: .leading) {
-                Capsule().fill(tint).frame(width: max(5, 30 * min(1, max(0, level))), height: 5)
-            }
-            .animation(IslandStyle.quick, value: level)
-            .accessibilityElement().accessibilityLabel("\(Int((level * 100).rounded())) percent")
     }
 }
 

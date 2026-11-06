@@ -28,14 +28,10 @@ struct AudioOutput: Identifiable, Equatable, Sendable {
 final class SystemStatus {
     var battery: Int?
     var charging = false
-    var volume: Double?
-    var muted = false
     private(set) var details = BatteryDetails()
-    /// Every device that can play sound, for the island's output picker.
+    /// Every device that can play sound, to name the one sound moves to.
     private(set) var outputs: [AudioOutput] = []
     private(set) var outputID = AudioDeviceID(0)
-    /// False for outputs whose volume is fixed by the device (some HDMI and USB DACs).
-    private(set) var volumeSettable = false
     @ObservationIgnored var onPowerSample: (PowerSample) -> Void = { _ in }
     /// The system's sound output moved to another device (AirPlay, headphones, a display), not at startup.
     @ObservationIgnored var onOutputChange: (AudioOutput) -> Void = { _ in }
@@ -71,7 +67,7 @@ final class SystemStatus {
         timer?.invalidate(); timer = nil
         if let lowPowerObserver { NotificationCenter.default.removeObserver(lowPowerObserver) }
         lowPowerObserver = nil
-        unwatchVolume(); unwatchDefaultDevice()
+        unwatchDefaultDevice()
         if let powerSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), powerSource, .commonModes) }
         powerSource = nil; onPowerSample = { _ in }; onOutputChange = { _ in }
     }
@@ -95,10 +91,7 @@ final class SystemStatus {
         let next = BatteryDetails(charging: isCharging, lowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled)
         if details != next { details = next }
         onPowerSample(PowerSample(percent: level, externalPower: onPower))
-        refreshVolume()
     }
-    private var volumeDevice = AudioDeviceID(0)
-    private var volumeListener: AudioObjectPropertyListenerBlock?
     private func address(_ selector: AudioObjectPropertySelector, scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal, element: AudioObjectPropertyElement = kAudioObjectPropertyElementMain) -> AudioObjectPropertyAddress {
         AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: element)
     }
@@ -108,69 +101,16 @@ final class SystemStatus {
         var size = UInt32(MemoryLayout<T>.size)
         return AudioObjectGetPropertyData(device, &address, 0, nil, &size, &value) == noErr
     }
-    private func refreshVolume() {
+    /// Which device plays sound now. When it moves to another (AirPlay, headphones, a display), the island says so.
+    private func refreshOutput() {
         var device = AudioDeviceID(0)
         guard read(AudioObjectID(kAudioObjectSystemObject), address(kAudioHardwarePropertyDefaultOutputDevice), as: &device), device != 0 else {
-            volume = nil; muted = false; outputID = 0; volumeSettable = false; return
+            outputID = 0; return
         }
-        if device != volumeDevice { watchVolume(of: device) }
-        if outputID != device {
-            let previous = outputID
-            outputID = device
-            if previous != 0, let output = outputs.first(where: { $0.id == device }) { onOutputChange(output) }
-        }
-        let settable = volumeElements(device).contains { element in
-            var a = address(kAudioDevicePropertyVolumeScalar, scope: kAudioDevicePropertyScopeOutput, element: element)
-            var flag: DarwinBoolean = false
-            return AudioObjectHasProperty(device, &a) && AudioObjectIsPropertySettable(device, &a, &flag) == noErr && flag.boolValue
-        }
-        if volumeSettable != settable { volumeSettable = settable }
-        // Many HDMI/USB outputs have no master volume; average the first two channels instead.
-        var levels: [Double] = []
-        for element in [kAudioObjectPropertyElementMain, 1, 2] as [AudioObjectPropertyElement] {
-            var scalar = Float32(0)
-            if read(device, address(kAudioDevicePropertyVolumeScalar, scope: kAudioDevicePropertyScopeOutput, element: element), as: &scalar) {
-                levels.append(Double(scalar))
-                if element == kAudioObjectPropertyElementMain { break }
-            }
-        }
-        let next = levels.isEmpty ? nil : levels.reduce(0, +) / Double(levels.count)
-        var mute: UInt32 = 0
-        let isMuted = read(device, address(kAudioDevicePropertyMute, scope: kAudioDevicePropertyScopeOutput), as: &mute) && mute != 0
-        if volume != next { volume = next }
-        if muted != isMuted { muted = isMuted }
-    }
-    private func write<T>(_ device: AudioObjectID, _ address: AudioObjectPropertyAddress, _ value: T) -> Bool {
-        var address = address
-        var settable: DarwinBoolean = false
-        guard AudioObjectHasProperty(device, &address),
-              AudioObjectIsPropertySettable(device, &address, &settable) == noErr, settable.boolValue else { return false }
-        var value = value
-        return AudioObjectSetPropertyData(device, &address, 0, nil, UInt32(MemoryLayout<T>.size), &value) == noErr
-    }
-    /// The elements that carry volume: the master if the device has one, otherwise the first two channels.
-    private func volumeElements(_ device: AudioDeviceID) -> [AudioObjectPropertyElement] {
-        var master = address(kAudioDevicePropertyVolumeScalar, scope: kAudioDevicePropertyScopeOutput)
-        var settable: DarwinBoolean = false
-        if AudioObjectHasProperty(device, &master), AudioObjectIsPropertySettable(device, &master, &settable) == noErr, settable.boolValue {
-            return [kAudioObjectPropertyElementMain]
-        }
-        return [1, 2]
-    }
-
-    // MARK: Quick controls
-
-    /// Sets the current output's volume. Raising it from zero unmutes, as the volume keys do.
-    func setVolume(_ level: Double) {
-        let device = outputID
-        guard device != 0, level.isFinite else { return }
-        let scalar = Float32(min(1, max(0, level)))
-        var wrote = false
-        for element in volumeElements(device) {
-            wrote = write(device, address(kAudioDevicePropertyVolumeScalar, scope: kAudioDevicePropertyScopeOutput, element: element), scalar) || wrote
-        }
-        if wrote, muted, scalar > 0 { _ = write(device, address(kAudioDevicePropertyMute, scope: kAudioDevicePropertyScopeOutput), UInt32(0)) }
-        refreshVolume()
+        guard outputID != device else { return }
+        let previous = outputID
+        outputID = device
+        if previous != 0, let output = outputs.first(where: { $0.id == device }) { onOutputChange(output) }
     }
     private func refreshOutputs() {
         let system = AudioObjectID(kAudioObjectSystemObject)
@@ -196,43 +136,18 @@ final class SystemStatus {
         }
         if next != outputs { outputs = next }
     }
-    /// Listen for volume/mute changes on the current output device, and for the device itself changing.
-    private func watchVolume(of device: AudioDeviceID) {
-        unwatchVolume()
-        volumeDevice = device
-        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            Task { @MainActor in self?.refreshVolume() }
-        }
-        volumeListener = listener
-        for element in [kAudioObjectPropertyElementMain, 1, 2] as [AudioObjectPropertyElement] {
-            var a = address(kAudioDevicePropertyVolumeScalar, scope: kAudioDevicePropertyScopeOutput, element: element)
-            AudioObjectAddPropertyListenerBlock(device, &a, .main, listener)
-        }
-        var mute = address(kAudioDevicePropertyMute, scope: kAudioDevicePropertyScopeOutput)
-        AudioObjectAddPropertyListenerBlock(device, &mute, .main, listener)
-    }
-    private func unwatchVolume() {
-        guard let listener = volumeListener, volumeDevice != 0 else { return }
-        for element in [kAudioObjectPropertyElementMain, 1, 2] as [AudioObjectPropertyElement] {
-            var a = address(kAudioDevicePropertyVolumeScalar, scope: kAudioDevicePropertyScopeOutput, element: element)
-            AudioObjectRemovePropertyListenerBlock(volumeDevice, &a, .main, listener)
-        }
-        var mute = address(kAudioDevicePropertyMute, scope: kAudioDevicePropertyScopeOutput)
-        AudioObjectRemovePropertyListenerBlock(volumeDevice, &mute, .main, listener)
-        volumeListener = nil; volumeDevice = 0
-    }
     private var deviceListener: AudioObjectPropertyListenerBlock?
     private func watchDefaultDevice() {
         guard deviceListener == nil else { return }
         let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            Task { @MainActor in self?.refreshOutputs(); self?.refreshVolume() }
+            Task { @MainActor in self?.refreshOutputs(); self?.refreshOutput() }
         }
         deviceListener = listener
         var a = address(kAudioHardwarePropertyDefaultOutputDevice)
         AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &a, .main, listener)
         var devices = address(kAudioHardwarePropertyDevices)
         AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &devices, .main, listener)
-        refreshOutputs()
+        refreshOutputs(); refreshOutput()
     }
     private func unwatchDefaultDevice() {
         guard let listener = deviceListener else { return }

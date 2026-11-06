@@ -207,7 +207,7 @@ extension BrimAppModel {
             "lidSensorStatus": lid.status, "lidAngle": lid.angle as Any? ?? NSNull(),
             "screens": NSScreen.screens.count, "notchedScreens": NSScreen.screens.filter { $0.safeAreaInsets.top > 0 }.count,
             "accessibility": permissions.accessibility, "screenRecording": permissions.screenRecording, "switcher": switcher.status,
-            "batteryPercent": status.battery as Any? ?? NSNull(), "volume": status.volume as Any? ?? NSNull()]
+            "batteryPercent": status.battery as Any? ?? NSNull()]
         if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: URL(fileURLWithPath: output).appendingPathComponent("report.json"))
         }

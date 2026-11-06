@@ -246,7 +246,7 @@ extension NotchController {
         try? await Task.sleep(for: .milliseconds(250))
         let hides = presentation == .hidden && activitiesDismissed
         let notchAnswers = containsPointer(CGPoint(x: displayFrame.midX, y: displayFrame.maxY - 4))
-        showHUD(.init(symbol: "speaker.wave.2.fill", level: 0.5, label: "Volume"), seconds: 0.3)
+        showHUD(.init(symbol: "wifi", tint: .green, label: "Back Online"), seconds: 0.3)
         let levelsStillShow = presentation == .compact
         try? await Task.sleep(for: .milliseconds(500))
         let hidesAgain = presentation == .hidden

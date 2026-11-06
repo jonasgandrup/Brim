@@ -122,11 +122,10 @@ private actor TimerCommands {
     media.stop()
 }
 
-@Test func levelsStayQuietForVoiceOverWhileNoticesAreSpoken() {
-    #expect(IslandHUD(symbol: "speaker.wave.2.fill", level: 0.5, label: "Volume").announcement == nil)
+@Test func noticesAreSpokenToVoiceOver() {
     #expect(IslandHUD(symbol: "wifi.slash", label: "Offline").announcement == "Offline")
-    #expect(IslandHUD(symbol: "battery.25percent", label: "Battery low", battery: 15).announcement?.contains("15") == true)
-    #expect(IslandHUD(symbol: "battery.25percent", label: "Battery low", battery: 15).announcement?.contains("Battery low") == true)
+    #expect(IslandHUD(symbol: "battery.25percent", label: "Battery low", battery: 15).announcement.contains("15"))
+    #expect(IslandHUD(symbol: "battery.25percent", label: "Battery low", battery: 15).announcement.contains("Battery low"))
 }
 
 @Test @MainActor func aSleepTimerKeepsNowPlayingOnTheIslandInsideItsApp() {

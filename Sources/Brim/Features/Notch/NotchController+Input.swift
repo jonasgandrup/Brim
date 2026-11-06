@@ -80,29 +80,20 @@ extension NotchController {
     /// The click that ends a Force Click mustn't then also count as an ordinary click on the island.
     var recentlyForceClicked: Bool { ProcessInfo.processInfo.systemUptime - forceClickedAt < 0.8 }
     private var gesturesEnabled: Bool { preferences?.islandGestures == true && !expanded && presentation == .compact }
-    /// Over the compact island, a sideways swipe hides what's on it, at every level as on iPhone. Scrolling changes
-    /// the volume, if that's turned on. Returns true when used.
+    /// Over the compact island, a sideways swipe hides what's on it, at every level as on iPhone. Returns true when used.
     func handleScroll(_ event: NSEvent, at location: CGPoint) -> Bool {
         guard !expanded, presentation == .compact, containsPointer(location) else { return false }
         if event.phase.contains(.began) || event.phase.contains(.mayBegin) { swipeTravel = 0; swipeFired = false }
-        // Momentum after the fingers lift would keep changing the volume; the gesture is what the fingers did.
+        // The gesture is what the fingers did, not the momentum after they lift.
         guard event.momentumPhase.isEmpty else { return true }
         let fingers = IslandGesture.fingers(dx: event.scrollingDeltaX, dy: event.scrollingDeltaY, inverted: event.isDirectionInvertedFromDevice)
-        if abs(fingers.right) > abs(fingers.up) {
-            guard event.hasPreciseScrollingDeltas, !swipeFired else { return true }
-            swipeTravel += fingers.right
-            if abs(swipeTravel) >= IslandGesture.hideTravel {
-                swipeFired = true
-                haptic(.land)
-                dismissActivities()
-            }
-        } else if preferences?.islandGestures != true {
-            return false
-        } else if let status, status.volumeSettable, let volume = status.volume, fingers.up != 0 {
-            let next = IslandGesture.volume(status.muted ? 0 : volume, up: fingers.up, precise: event.hasPreciseScrollingDeltas)
-            status.setVolume(next)
-            showHUD(.init(symbol: next == 0 ? "speaker.slash.fill" : next < 0.34 ? "speaker.wave.1.fill" : next < 0.67 ? "speaker.wave.2.fill" : "speaker.wave.3.fill",
-                          level: next, label: String(localized: "Volume")))
+        guard abs(fingers.right) > abs(fingers.up) else { return false }
+        guard event.hasPreciseScrollingDeltas, !swipeFired else { return true }
+        swipeTravel += fingers.right
+        if abs(swipeTravel) >= IslandGesture.hideTravel {
+            swipeFired = true
+            haptic(.land)
+            dismissActivities()
         }
         return true
     }

@@ -132,12 +132,12 @@ extension NotchController {
         }
         NSHapticFeedbackManager.defaultPerformer.perform(pattern, performanceTime: .now)
     }
-    /// Volume, brightness and privacy changes stay compact: they never open the island or take focus.
+    /// Small notices (charging, low battery, going offline) stay compact: they never open the island or take focus.
     func showHUD(_ value: IslandHUD, seconds: Double = 1.6) {
         guard preferences?.notchEnabled == true, !expanded, !presentationMode, !suspended else { return }
         hudTask?.cancel()
         hud = value
-        if let text = value.announcement { announce(text) }
+        announce(value.announcement)
         hudTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
             guard !Task.isCancelled else { return }
