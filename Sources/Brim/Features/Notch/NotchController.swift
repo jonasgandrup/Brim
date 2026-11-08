@@ -263,10 +263,12 @@ final class NotchController {
     private var restoreTask: Task<Void, Never>?
     private var lastScreenPreferences: [Bool]?
     var panelFrame: CGRect? { panel?.frame }
+    #if DEBUG
     var transitionDiagnostics: [String: Bool] {
         ["switcher": awayReasons.contains(.switcher), "desktopMoving": awayReasons.contains(.desktopMoving),
          "tucked": tuckedAway, "suspended": suspended, "panelVisible": panel?.isVisible ?? false]
     }
+    #endif
     var presentation: IslandPresentation {
         if transitioning || presentationMode { return .hidden }
         if expanded { return .expanded }

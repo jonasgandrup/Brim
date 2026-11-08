@@ -36,7 +36,9 @@ final class SystemStatus {
     /// The system's sound output moved to another device (AirPlay, headphones, a display), not at startup.
     @ObservationIgnored var onOutputChange: (AudioOutput) -> Void = { _ in }
     private var powerSource: CFRunLoopSource?
+    #if DEBUG
     var powerNotificationsActive: Bool { powerSource != nil }
+    #endif
     private var timer: Timer?
     private var started = false
     private var lowPowerObserver: NSObjectProtocol?

@@ -89,7 +89,7 @@ struct SetupChecklist: View {
                 LabeledContent {
                     switch item.state {
                     case .ready: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Ready")
-                    case .notNeeded: Text("Not needed").foregroundStyle(.secondary)
+                    case .notNeeded: EmptyView()
                     case .attention:
                         if let title = item.actionTitle, let action = item.action { Button(title, action: action) }
                         else { Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange) }

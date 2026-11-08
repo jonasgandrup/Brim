@@ -57,22 +57,6 @@ struct MediaPlayerControls: View {
     }
 }
 
-struct MediaCover: View {
-    let image: NSImage?
-    let size: CGFloat
-    let radius: CGFloat
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    var body: some View {
-        ZStack {
-            Color.white.opacity(0.07)
-            if let image { Image(nsImage: image).resizable().scaledToFill().transition(.opacity) }
-            else { Image(systemName: "waveform").font(.system(size: size * 0.36, weight: .light)).foregroundStyle(.tertiary) }
-        }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .animation(reduceMotion ? nil : IslandStyle.quick, value: image != nil)
-            .accessibilityHidden(true)
-    }
-}
-
 /// The system AirPlay picker, the same list as Control Center's: HomePods, Apple TVs and AirPlay speakers.
 struct AirPlayButton: NSViewRepresentable {
     func makeNSView(context: Context) -> AVRoutePickerView {

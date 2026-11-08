@@ -14,9 +14,6 @@ struct ClipboardPin: Identifiable, Equatable {
         case .image: String(localized: "Image")
         }
     }
-    var searchText: String {
-        switch payload { case .text(let text): text; case .link(let url): url.absoluteString; case .image: "image" }
-    }
     var symbol: String {
         switch payload { case .text: "text.alignleft"; case .link: "link"; case .image: "photo" }
     }

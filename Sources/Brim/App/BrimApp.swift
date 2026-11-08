@@ -185,7 +185,7 @@ final class BrimAppModel {
             let window = ScaleWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 680), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
             window.weighing = scale
             window.title = String(localized: "Trackpad Scale"); window.isReleasedWhenClosed = false
-            window.contentView = NSHostingView(rootView: ScaleView(model: scale))
+            window.contentView = NSHostingView(rootView: NativeScaleView(model: scale))
             window.center(); scaleWindow = window
         }
         scale.start()

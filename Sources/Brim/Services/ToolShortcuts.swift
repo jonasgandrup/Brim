@@ -85,6 +85,7 @@ enum ShortcutModifiers: String, CaseIterable, Identifiable {
         registered.values.forEach { UnregisterEventHotKey($0) }; registered.removeAll()
         if let handler { RemoveEventHandler(handler) }; handler = nil; unavailable = []; open = { _ in }
     }
+    #if DEBUG
     /// Exercises the installed Carbon handler without injecting keys into another app.
     func checkDelivery() -> [String: Bool] {
         let savedOpen = open
@@ -106,6 +107,7 @@ enum ShortcutModifiers: String, CaseIterable, Identifiable {
         }
         return results
     }
+    #endif
 }
 
 /// Plain keys the island borrows while it's open from the keyboard. They're registered with macOS only for

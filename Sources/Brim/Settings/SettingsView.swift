@@ -4,7 +4,6 @@ import ServiceManagement
 /// Laid out like System Settings: a sidebar of colored icons and grouped forms with a header per page.
 struct SettingsView: View {
     @Bindable var model: BrimAppModel
-    var captureMode = false
     private var preferences: Preferences { model.preferences }
     private var version: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—" }
     var body: some View {
@@ -26,7 +25,6 @@ struct SettingsView: View {
                 content
             }
             .formStyle(.grouped)
-            .scrollDisabled(captureMode)
             .id(model.page.id + "/" + (model.islandSection?.id ?? ""))
         }
         .frame(minWidth: 820, minHeight: 560)

@@ -4,7 +4,6 @@ struct MediaSleepSchedule: Sendable {
     let player: MediaPlayer
     let deadline: Date
     var endOfTrack = false
-    var overdue: Bool { Date() >= deadline }
 }
 
 @MainActor @Observable final class MediaSleepTimer {

@@ -8,11 +8,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let item: NSStatusItem
     private let menu = NSMenu()
     var isVisible: Bool { item.isVisible && item.button?.window != nil }
+    #if DEBUG
     var buttonFrame: CGRect? {
         guard let button = item.button, let window = button.window else { return nil }
         return window.convertToScreen(button.convert(button.bounds, to: nil))
     }
     var menuTitles: [String] { menu.items.filter { !$0.isSeparatorItem }.map(\.title) }
+    #endif
 
     init(model: BrimAppModel) {
         self.model = model

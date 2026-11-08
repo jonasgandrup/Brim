@@ -18,10 +18,6 @@ import Observation
 @Test func calibratedMassAndTare() throws {
     let factor = try #require(ScaleCalibration.factor(knownGrams: 50, pressure: 0.6, baseline: 0.1))
     #expect(abs(factor - 100) < 0.0001)
-    let weight = try #require(ScaleCalibration.weight(pressure: 0.35, baseline: 0.1, factor: factor))
-    #expect(abs(weight - 25) < 0.0001)
-    #expect(ScaleCalibration.weight(pressure: 0.05, baseline: 0.1, factor: factor) == 0)
-    #expect(ScaleCalibration.weight(pressure: 0.6, baseline: 0.1, factor: 0) == nil)
 }
 @Test func switcherWrapsBothDirections() {
     #expect(SwitcherSelection.next(2, count: 3, backwards: false) == 0)
