@@ -122,6 +122,12 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         for (title, selector, key) in [(String(localized: "Undo"), "undo:", "z"), (String(localized: "Cut"), "cut:", "x"), (String(localized: "Copy"), "copy:", "c"), (String(localized: "Paste"), "paste:", "v"), (String(localized: "Select All"), "selectAll:", "a")] {
             edit.addItem(NSMenuItem(title: title, action: NSSelectorFromString(selector), keyEquivalent: key))
         }
+        // Standard window keys for Settings and the scale, which a menu item is what provides.
+        let windowRoot = NSMenuItem(title: String(localized: "Window"), action: nil, keyEquivalent: "")
+        let window = NSMenu(title: String(localized: "Window"))
+        window.addItem(NSMenuItem(title: String(localized: "Minimize"), action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"))
+        window.addItem(NSMenuItem(title: String(localized: "Close"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
+        windowRoot.submenu = window; main.addItem(windowRoot)
         NSApp.mainMenu = main
     }
     func menuNeedsUpdate(_ menu: NSMenu) { rebuildMenu() }

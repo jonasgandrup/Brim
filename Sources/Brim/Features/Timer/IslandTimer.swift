@@ -141,6 +141,8 @@ struct FocusCycle: Codable, Equatable {
         guard seconds.isFinite, seconds > 0, seconds <= 86400 else { return }
         state.start(seconds: seconds, at: Date()); runTicker(); save()
     }
+    /// Runs the timer that just ended again, however it was started.
+    func repeatLast() { focus = nil; start(seconds: state.duration) }
     func startFocus(_ cycle: FocusCycle = FocusCycle()) {
         focus = cycle
         start(seconds: Double(cycle.minutes) * 60)
@@ -226,7 +228,7 @@ struct IslandTimerView: View {
                 CountdownReadout(timer: timer)
                 HStack(spacing: 10) {
                     if timer.state.phase == .finished {
-                        TimerActionButton(title: "Repeat", symbol: "arrow.clockwise", prominent: true) { timer.start() }
+                        TimerActionButton(title: "Repeat", symbol: "arrow.clockwise", prominent: true) { timer.repeatLast() }
                         TimerActionButton(title: "Done", symbol: "checkmark") { timer.cancel() }
                     } else {
                         TimerActionButton(title: timer.state.phase == .paused ? "Resume" : "Pause",

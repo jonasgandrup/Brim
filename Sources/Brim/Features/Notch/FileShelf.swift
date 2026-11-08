@@ -31,12 +31,14 @@ final class FileShelf {
     func select(_ urls: Set<URL>) { selectedURLs = urls.intersection(Set(files.map(\.url))) }
     func removeSelection() { files.removeAll { selectedURLs.contains($0.url) }; selectedURLs.removeAll() }
     @discardableResult func add(_ urls: [URL]) -> Int {
-        var inserted = 0
+        var next = files, inserted = 0
         for url in urls where url.isFileURL {
             let normalized = url.standardizedFileURL
-            guard FileManager.default.fileExists(atPath: normalized.path), !files.contains(where: { $0.url == normalized }) else { continue }
-            files.append(ShelfFile(url: normalized)); inserted += 1
+            guard FileManager.default.fileExists(atPath: normalized.path), !next.contains(where: { $0.url == normalized }) else { continue }
+            next.append(ShelfFile(url: normalized)); inserted += 1
         }
+        // Assigned once: every change to the list saves it again.
+        if inserted > 0 { files = next }
         message = inserted > 0 ? nil : String(localized: "No new accessible files were added.")
         return inserted
     }

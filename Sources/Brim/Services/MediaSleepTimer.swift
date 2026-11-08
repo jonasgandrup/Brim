@@ -9,7 +9,6 @@ struct MediaSleepSchedule: Sendable {
 
 @MainActor @Observable final class MediaSleepTimer {
     private(set) var schedule: MediaSleepSchedule?
-    private(set) var now = Date()
     private(set) var firing = false
     private(set) var status: String?
     private var task: Task<Void, Never>?
@@ -29,31 +28,46 @@ struct MediaSleepSchedule: Sendable {
     func startAtTrackEnd(player: MediaPlayer, snapshot: SystemMediaSnapshot, at date: Date = Date()) {
         guard Self.supportsTrackEnd(snapshot), player.processID > 0,
               snapshot.processID == player.processID, snapshot.source == player.source else { return }
-        cancel(); now = date; track = snapshot; trackMeasuredAt = date
+        cancel(); track = snapshot; trackMeasuredAt = date
         schedule = .init(player: player, deadline: date.addingTimeInterval(snapshot.duration! - snapshot.position!), endOfTrack: true)
         run()
     }
-    private func run() {
+    /// Waits for the deadline rather than watching the clock. The end of a track can move, so that's read now and then,
+    /// whenever playback changes, and closely only for the last two seconds.
+    private func run(firstWait: TimeInterval? = nil) {
         task = Task { [weak self] in
+            var wait = firstWait
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(500))
+                guard let pause = wait ?? self?.nextCheck else { return }
+                try? await Task.sleep(for: .seconds(pause))
                 guard !Task.isCancelled, let self else { return }
                 await self.check(at: Date())
                 if self.schedule == nil { return }
+                wait = nil
             }
         }
     }
+    private var nextCheck: TimeInterval? {
+        guard let schedule else { return nil }
+        let left = schedule.deadline.timeIntervalSinceNow
+        guard schedule.endOfTrack else { return max(0.05, left + 0.02) }
+        return left > 17 ? 15 : left > 2 ? left - 2 : 0.5
+    }
+    /// The helper saw playback change: a seek, a pause or the next track moves the end, so look now.
+    func playbackChanged() {
+        guard schedule?.endOfTrack == true, !firing, !reading else { return }
+        task?.cancel(); run(firstWait: 0.2)
+    }
     @ObservationIgnored var pause: @MainActor (MediaPlayer) async -> MediaCommandResult = { _ in .unavailable }
-    var remaining: TimeInterval { schedule.map { max(0, $0.deadline.timeIntervalSince(now)) } ?? 0 }
+    var remaining: TimeInterval { schedule.map { max(0, $0.deadline.timeIntervalSinceNow) } ?? 0 }
     func start(minutes: Int, player: MediaPlayer, at date: Date = Date()) {
         guard (1...240).contains(minutes), player.processID > 0 else { return }
-        cancel(); now = date; schedule = .init(player: player, deadline: date.addingTimeInterval(Double(minutes)*60))
+        cancel(); schedule = .init(player: player, deadline: date.addingTimeInterval(Double(minutes)*60))
         status = nil
         run()
     }
     func cancel() { revision += 1; task?.cancel(); task = nil; schedule = nil; track = nil; missing = 0; firing = false; status = nil }
     func check(at date: Date) async {
-        now = date
         guard let schedule, !firing, !reading else { return }
         if schedule.endOfTrack { await checkTrack(schedule, at: date); return }
         guard date >= schedule.deadline else { return }
@@ -99,7 +113,8 @@ struct MediaSleepSchedule: Sendable {
             return
         }
         track = snapshot; trackMeasuredAt = date
-        self.schedule = .init(player: schedule.player,
-            deadline: date.addingTimeInterval(max(0, duration - position)), endOfTrack: true)
+        // Others watch the schedule, so it only changes when the end really moved.
+        let end = date.addingTimeInterval(max(0, duration - position))
+        if abs(end.timeIntervalSince(schedule.deadline)) > 1 { self.schedule = .init(player: schedule.player, deadline: end, endOfTrack: true) }
     }
 }

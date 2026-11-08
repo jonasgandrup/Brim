@@ -394,3 +394,48 @@ private actor PlaybackFeed {
     #expect(NowPlayingHelperLine("") == .ignored)
     #expect(NowPlayingHelperLine(#"{"available":true}"#) == .reply(#"{"available":true}"#))
 }
+
+@Test @MainActor func aPlayerThatGoesBlankIsFirstPausedThenDropped() async {
+    let chooser = NowPlayingChooser()
+    let notBrowser: (String?) -> Bool = { _ in false }
+    let blank = SystemMediaSnapshot(available: true, source: playerA.source)
+    let playing = await chooser.choose(main: session(playerA), players: [playerA], isBrowser: notBrowser) { _ in nil }
+    #expect(playing.source == playerA.source && playing.isPlaying)
+    let paused = await chooser.choose(main: blank, players: [playerA], isBrowser: notBrowser) { _ in nil }
+    #expect(paused.source == playerA.source && !paused.isPlaying)
+    let gone = await chooser.choose(main: blank, players: [playerA], isBrowser: notBrowser) { _ in nil }
+    #expect(!gone.hasMedia); #expect(chooser.shown == nil)
+}
+
+@Test @MainActor func aShownPlayerGetsOneRetryBeforeItIsDropped() async {
+    let chooser = NowPlayingChooser()
+    let notBrowser: (String?) -> Bool = { _ in false }
+    let players = [playerA, playerB]
+    _ = await chooser.choose(main: session(playerA), players: players, isBrowser: notBrowser) { _ in nil }
+    var reads = 0
+    let kept = await chooser.choose(main: session(playerB, rate: 0), players: players, isBrowser: notBrowser) { player in
+        reads += 1; return reads == 1 ? nil : session(player)
+    }
+    #expect(kept.source == playerA.source); #expect(reads == 2)
+    let dropped = await chooser.choose(main: session(playerB, title: "Other", rate: 0), players: players, isBrowser: notBrowser) { _ in nil }
+    #expect(dropped.source == playerB.source)
+}
+
+@Test @MainActor func theSameTrackDoesNotDecodeItsCoverAgain() throws {
+    let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1, pixelsHigh: 1, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+    let png = try #require(bitmap.representation(using: .png, properties: [:]))
+    let media = MediaService()
+    var snapshot = session(playerA); snapshot.artwork = png.base64EncodedString()
+    media.apply(snapshot)
+    let first = try #require(media.artwork)
+    media.apply(snapshot)
+    #expect(media.artwork === first)
+    media.stop()
+}
+
+@Test func aDisabledHelperStaysOutOfTheWay() {
+    let helper = NowPlayingHelper()
+    #expect(helper.enabled)
+    helper.disable(reason: "test")
+    #expect(!helper.enabled)
+}

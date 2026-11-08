@@ -14,20 +14,23 @@ extension FileShelfActions: NSSharingServiceDelegate {
               service.canPerform(withItems: urls) else { shelf.message = String(localized: "AirDrop isn’t available for these files."); return }
         closePreview()
         airDropService = service; service.delegate = self; shelf.systemUIActive = true
+        transfers?.beginAirDropSend(count: urls.count)
         NSApp.activate(); service.perform(withItems: urls)
     }
     nonisolated func sharingService(_ sharingService: NSSharingService, didShareItems items: [Any]) {
         let identity = ObjectIdentifier(sharingService)
-        MainActor.assumeIsolated { finishAirDrop(identity: identity, message: nil) }
+        MainActor.assumeIsolated { finishAirDrop(identity: identity, message: nil, cancelled: false) }
     }
     nonisolated func sharingService(_ sharingService: NSSharingService, didFailToShareItems items: [Any], error: any Error) {
         let identity = ObjectIdentifier(sharingService)
         let message = error.localizedDescription
-        MainActor.assumeIsolated { finishAirDrop(identity: identity, message: message) }
+        let cancelled = (error as NSError).domain == NSCocoaErrorDomain && (error as NSError).code == NSUserCancelledError
+        MainActor.assumeIsolated { finishAirDrop(identity: identity, message: cancelled ? nil : message, cancelled: cancelled) }
     }
-    private func finishAirDrop(identity: ObjectIdentifier, message: String?) {
+    private func finishAirDrop(identity: ObjectIdentifier, message: String?, cancelled: Bool) {
         guard let service = airDropService, ObjectIdentifier(service) == identity else { return }
         service.delegate = nil; airDropService = nil; shelf?.systemUIActive = false; shelf?.message = message
+        if cancelled { transfers?.cancelAirDropSend() } else { transfers?.endAirDropSend(error: message) }
     }
     @discardableResult func copy(to pasteboard: NSPasteboard = .general) -> Bool {
         guard let shelf else { return false }
@@ -251,13 +254,21 @@ extension FileShelfActions {
             MainActor.assumeIsolated {
                 guard let self, let shelf = self.shelf else { return }
                 shelf.systemUIActive = false
-                guard response == .OK, let folder = panel.url else { return }
-                var copied = 0
-                for source in shelf.availableSelection {
-                    let target = ShelfImageTools.uniqueURL(for: folder.appendingPathComponent(source.lastPathComponent), suffix: "", ext: source.pathExtension)
-                    if (try? FileManager.default.copyItem(at: source, to: target)) != nil { copied += 1 }
+                guard response == .OK, let folder = panel.url, !shelf.compressing else { return }
+                // Off the main thread: a large file or a slow disk mustn't freeze the island while it copies.
+                let sources = shelf.availableSelection
+                shelf.compressing = true
+                shelf.message = sources.count == 1 ? String(localized: "Copying 1 file…") : String(localized: "Copying \(sources.count) files…")
+                Task {
+                    let copied = await Task.detached(priority: .userInitiated) {
+                        sources.filter { source in
+                            let target = ShelfImageTools.uniqueURL(for: folder.appendingPathComponent(source.lastPathComponent), suffix: "", ext: source.pathExtension)
+                            return (try? FileManager.default.copyItem(at: source, to: target)) != nil
+                        }.count
+                    }.value
+                    shelf.compressing = false
+                    shelf.message = copied > 0 ? (copied == 1 ? String(localized: "Copied 1 file to \(folder.lastPathComponent)") : String(localized: "Copied \(copied) files to \(folder.lastPathComponent)")) : String(localized: "Nothing could be copied there.")
                 }
-                shelf.message = copied > 0 ? (copied == 1 ? String(localized: "Copied 1 file to \(folder.lastPathComponent)") : String(localized: "Copied \(copied) files to \(folder.lastPathComponent)")) : String(localized: "Nothing could be copied there.")
             }
         }
     }

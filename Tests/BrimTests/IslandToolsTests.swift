@@ -272,12 +272,100 @@ private func runBrimCommand(_ arguments: [String]) throws -> (status: Int32, lin
     let clock = ClockTools(defaults: defaults, notificationsEnabled: false)
     var rang = 0
     clock.onAlarm = { rang += 1 }
-    clock.arm(at: Date().addingTimeInterval(0.3))
-    try? await Task.sleep(for: .milliseconds(150))
+    // Tests share the main thread, so the margins are wide enough for a busy run.
+    clock.arm(at: Date().addingTimeInterval(1))
+    try? await Task.sleep(for: .milliseconds(100))
     #expect(!clock.ringing && rang == 0)
-    try? await Task.sleep(for: .milliseconds(400))
+    try? await Task.sleep(for: .milliseconds(1500))
     #expect(clock.ringing && rang == 1)
     clock.stopAlarm()
     #expect(!clock.ringing)
     clock.stop()
+}
+
+@Test func theIslandsOwnWindowsDoNotCountAsMenuBarIcons() {
+    func window(_ number: CGWindowID, x: CGFloat) -> [String: Any] {
+        [kCGWindowLayer as String: Int(CGWindowLevelForKey(.statusWindow)), kCGWindowNumber as String: number,
+         kCGWindowBounds as String: CGRect(x: x, y: 0, width: 30, height: 24).dictionaryRepresentation]
+    }
+    let frames = MenuBarClearance.statusIconFrames(in: [window(7, x: 100), window(8, x: 200)], excluding: [7])
+    #expect(frames.map(\.minX) == [200])
+}
+
+private func alarmDefaults(saved: Date, repeating: AlarmRepeat) throws -> (UserDefaults, String) {
+    let suite = "BrimClockTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defaults.set(saved, forKey: "clockAlarmDate"); defaults.set(repeating.rawValue, forKey: "clockAlarmRepeat")
+    return (defaults, suite)
+}
+
+@Test @MainActor func aRepeatingAlarmMissedWhileQuitCarriesOn() throws {
+    let (defaults, suite) = try alarmDefaults(saved: Date().addingTimeInterval(-3600), repeating: .daily)
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let clock = ClockTools(defaults: defaults, notificationsEnabled: false)
+    let next = try #require(clock.alarmDate)
+    #expect(next > Date()); #expect(defaults.object(forKey: "clockAlarmDate") as? Date == next)
+    clock.stop()
+}
+
+@Test @MainActor func aOnceAlarmMissedWhileQuitIsGone() throws {
+    let (defaults, suite) = try alarmDefaults(saved: Date().addingTimeInterval(-3600), repeating: .once)
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let clock = ClockTools(defaults: defaults, notificationsEnabled: false)
+    #expect(clock.alarmDate == nil); #expect(defaults.object(forKey: "clockAlarmDate") == nil)
+    clock.stop()
+}
+
+@Test @MainActor func aRepeatingAlarmStaysOnRecordWhileItRings() throws {
+    let date = Date().addingTimeInterval(3600)
+    let (defaults, suite) = try alarmDefaults(saved: date, repeating: .daily)
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let clock = ClockTools(defaults: defaults, notificationsEnabled: false)
+    clock.checkAlarm(at: date)
+    #expect(clock.ringing); #expect(defaults.object(forKey: "clockAlarmDate") != nil)
+    clock.cancelAlarm(); clock.stop()
+}
+
+@Test @MainActor func repeatRunsTheTimerThatJustEndedNotThePickerValue() throws {
+    let suite = "BrimTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let timer = IslandTimer(defaults: defaults)
+    timer.minutes = 5
+    timer.start(seconds: 90)
+    timer.repeatLast()
+    #expect(timer.state.duration == 90)
+    timer.cancel()
+}
+
+@Test func aPartialDownloadNobodyWritesToIsStalled() throws {
+    let now = Date()
+    #expect(TransferScan.isStalled(lastWrite: now.addingTimeInterval(-121), now: now))
+    #expect(!TransferScan.isStalled(lastWrite: now.addingTimeInterval(-10), now: now))
+    #expect(!TransferScan.isStalled(lastWrite: nil, now: now))
+    let package = FileManager.default.temporaryDirectory.appendingPathComponent("brim-\(UUID().uuidString).download")
+    try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: package) }
+    let old = now.addingTimeInterval(-3600)
+    try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: package.path)
+    let inside = package.appendingPathComponent("partial")
+    try Data("x".utf8).write(to: inside)
+    try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: inside.path)
+    try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: package.path)
+    let newest = try #require(TransferScan.lastWrite(of: package))
+    #expect(abs(newest.timeIntervalSince(now)) < 2)
+}
+
+@Test @MainActor func addingToTheShelfSkipsRepeatsAndMissingFiles() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("brim-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let file = directory.appendingPathComponent("one.txt").standardizedFileURL
+    try Data("x".utf8).write(to: file)
+    let shelf = FileShelf()
+    let missing = directory.appendingPathComponent("missing.txt")
+    #expect(shelf.add([file, file, missing]) == 1)
+    #expect(shelf.add([file]) == 0)
+    #expect(shelf.files.map(\.url) == [file])
+    shelf.clear()
 }

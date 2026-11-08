@@ -31,6 +31,17 @@ enum TransferScan {
             return final.isEmpty ? nil : (name, final)
         }
     }
+    /// A partial nobody has written to for this long is a stopped download left behind, not one still arriving.
+    static let stalledAfter: TimeInterval = 120
+    static func isStalled(lastWrite: Date?, now: Date = Date()) -> Bool {
+        lastWrite.map { now.timeIntervalSince($0) > stalledAfter } ?? false
+    }
+    /// A file's modification date, or for Safari's package the newest of what's inside it.
+    static func lastWrite(of url: URL) -> Date? {
+        func modified(_ url: URL) -> Date? { try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate }
+        let inside = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        return ([url] + inside).compactMap(modified).max()
+    }
     /// Safari's `.download` package records its own byte counts.
     static func safariProgress(_ plist: [String: Any]) -> (fraction: Double?, bytes: Int64?) {
         let loaded = (plist["DownloadEntryProgressBytesSoFar"] as? NSNumber)?.int64Value
@@ -72,6 +83,7 @@ enum TransferScan {
     private var downloads: [String: TransferActivity] = [:]
     private var airDropSend: TransferActivity?
     private var airDropToken = UUID()
+    private var airDropCount = 0
 
     func start(directory override: URL? = nil) {
         guard source == nil else { return }
@@ -97,6 +109,7 @@ enum TransferScan {
     // MARK: AirDrop sent from the shelf
 
     func beginAirDropSend(count: Int) {
+        airDropCount = count
         airDropSend = TransferActivity(id: "airdrop-send", kind: .airDropSend, name: count == 1 ? String(localized: "Sending 1 file") : String(localized: "Sending \(count) files"))
         publish()
         // macOS reports completion or failure; this only keeps a lost callback from leaving a spinner behind.
@@ -111,7 +124,7 @@ enum TransferScan {
         guard var activity = airDropSend else { return }
         airDropSend = nil
         activity.state = error.map { .failed($0) } ?? .finished
-        if error == nil { activity.name = activity.name.replacingOccurrences(of: String(localized: "Sending"), with: String(localized: "Sent")) }
+        if error == nil { activity.name = airDropCount == 1 ? String(localized: "Sent 1 file") : String(localized: "Sent \(airDropCount) files") }
         publish(); finish(activity)
     }
 
@@ -124,6 +137,7 @@ enum TransferScan {
         for (partial, final) in partials {
             seen.insert(final)
             let url = directory.appendingPathComponent(partial)
+            if TransferScan.isStalled(lastWrite: TransferScan.lastWrite(of: url)) { downloads[final] = nil; continue }
             var activity = downloads[final] ?? TransferActivity(id: "download-\(final)", kind: .download, name: final)
             activity.url = directory.appendingPathComponent(final)
             if url.pathExtension.lowercased() == "download",

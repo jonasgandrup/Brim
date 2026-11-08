@@ -196,6 +196,7 @@ final class MediaService {
     /// Something changed: read now, or as soon as the read or command already under way is done.
     private func playbackChanged() {
         chooser.checkShownAgain = true
+        sleepTimer.playbackChanged()
         guard changeTask == nil else { return }
         changeTask = Task { [weak self] in
             for _ in 0..<30 {
@@ -240,7 +241,8 @@ final class MediaService {
                 self.message = self.systemAvailable ? nil : String(localized: "Now Playing isn’t available.")
                 return
             }
-            let native = await PlayerAutomation.snapshot(runningPlayers: PlayerAutomation.runningPlayers())
+            let known = self.artwork == nil ? nil : self.source.map { (source: $0, title: self.title) }
+            let native = await PlayerAutomation.snapshot(runningPlayers: PlayerAutomation.runningPlayers(), coverAlreadyHeld: known)
             guard !Task.isCancelled, self.generation == currentGeneration, self.selectionRevision == selection else { return }
             self.refreshing = false
             guard let native else {
@@ -249,9 +251,11 @@ final class MediaService {
                 return
             }
             self.systemTransport = false; self.identifier = ""; self.playerPath = ""; self.timeline = nil; self.seekSupported = false; self.cancelScrub()
+            let sameTrack = native.title == self.title && native.source == self.source
             self.title = native.title; self.artist = native.artist; self.playing = native.playing
             self.setSource(native.source.isEmpty ? nil : native.source, name: native.source == "com.spotify.client" ? "Spotify" : native.source == "com.apple.Music" ? "Music" : String(localized: "Now Playing"))
-            self.artwork = native.artwork.flatMap { NSImage(data: $0) }; self.message = nil
+            if let image = native.artwork.flatMap({ NSImage(data: $0) }) { self.artwork = image } else if !sameTrack { self.artwork = nil }
+            self.message = nil
         }
     }
     // MARK: What the island shows
@@ -284,7 +288,8 @@ final class MediaService {
             let value = MediaTimeline(duration: duration, position: position, rate: rate, measuredAt: Date())
             if value.usable { timeline = value }
         }
-        if let encoded = snapshot.artwork, let data = Data(base64Encoded: encoded), data.count < 2_000_000, let image = NSImage(data: data) { artwork = image; rememberCover(image) }
+        // Sent with every reading; only worth decoding for a new track, or when there's no cover yet.
+        if coverChanged || artwork == nil, let encoded = snapshot.artwork, let data = Data(base64Encoded: encoded), data.count < 2_000_000, let image = NSImage(data: data) { artwork = image; rememberCover(image) }
         message = nil
     }
     private func setSource(_ bundle: String?, name: String, parent: String? = nil) {

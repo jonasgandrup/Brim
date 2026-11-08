@@ -10,7 +10,7 @@
 "%@ · unavailable" = "%@ · ikke tilgængelig";
 "%@0" = "%@0";
 "%@0 opens the island." = "%@0 åbner øen.";
-"%@1 to 6 open a section." = "%@1 til 6 åbner en sektion.";
+"%@1 to 5 open a section." = "%@1 til 5 åbner en sektion.";
 "%lld" = "%lld";
 "%lld h" = "%lld t";
 "%lld h %lld min" = "%1$lld t %2$lld min";
@@ -22,7 +22,7 @@
 "%lld-hour timer" = "Timer på %lld timer";
 "%lld-minute timer" = "Timer på %lld minutter";
 "%lld-second timer" = "Timer på %lld sekunder";
-"1 Now Playing · 2 Files · 3 Clipboard · 4 Clock · 5 Battery · 6 Downloads & AirDrop." = "1 Spiller nu · 2 Arkiver · 3 Udklipsholder · 4 Ur · 5 Batteri · 6 Overførsler og AirDrop.";
+"1 Now Playing · 2 Files · 3 Clipboard · 4 Clock · 5 Downloads & AirDrop." = "1 Spiller nu · 2 Arkiver · 3 Udklipsholder · 4 Ur · 5 Overførsler og AirDrop.";
 "1 thing needs attention" = "1 ting kræver opmærksomhed";
 "1-hour timer" = "Timer på 1 time";
 "1-minute timer" = "Timer på 1 minut";
@@ -197,7 +197,7 @@
 "g" = "g";
 "General" = "Generelt";
 "Grams" = "Gram";
-"Grant only what you use. Battery, volume, the scale and the camera/microphone indicator need no permissions. Brim never captures from your camera or microphone." = "Giv kun adgang til det, du bruger. Batteri, lydstyrke, vægten og kamera-/mikrofonindikatoren kræver ingen tilladelser. Brim optager aldrig fra dit kamera eller din mikrofon.";
+"Grant only what you use. The battery and the scale need no permissions. Brim never captures from your camera or microphone." = "Giv kun adgang til det, du bruger. Batteriet og vægten kræver ingen tilladelser. Brim optager aldrig fra dit kamera eller din mikrofon.";
 "Half Size" = "Halv størrelse";
 "Haptic Feedback" = "Haptisk feedback";
 "Held reading · set zero for a new measurement" = "Fastholdt måling · nulstil for en ny måling";
@@ -284,7 +284,7 @@
 "How Much to Show" = "Hvor meget der skal vises";
 "What iPhone shows: what’s playing, charging and your AirPods. Otherwise, nothing." = "Det, iPhone viser: hvad der spiller, opladning og dine AirPods. Ellers ingenting.";
 "Adds files, clipboard, clock and quick controls, all a hover away." = "Tilføjer arkiver, udklipsholder, ur og hurtige betjeningsknapper, kun et hold med markøren væk.";
-"Adds every other extra, like the camera dot, system notices and more shortcuts." = "Tilføjer alt det andet ekstra, som kameraprikken, systembeskeder og flere genveje.";
+"Adds every other extra, like system notices and more shortcuts." = "Tilføjer alt det andet ekstra, som systembeskeder og flere genveje.";
 "Your own mix. Choose a level to start over." = "Din egen blanding. Vælg et niveau for at starte forfra.";
 "Open When Nothing’s Happening" = "Åbn, når der ikke sker noget";
 "Point at the camera for the time and battery." = "Peg på kameraet for at se tid og batteri.";
@@ -425,7 +425,6 @@
 "Select an accessible file to preview." = "Vælg et tilgængeligt arkiv at se.";
 "Select an image first." = "Vælg først et billede.";
 "Select one file to rename." = "Vælg ét arkiv at omdøbe.";
-"Sending" = "Sender";
 "Sending %lld files" = "Sender %lld arkiver";
 "Sending 1 file" = "Sender 1 arkiv";
 "Brim" = "Brim";
@@ -438,7 +437,6 @@
 "Brim reads the clipboard only when you ask." = "Brim læser kun udklipsholderen, når du beder om det.";
 "Brim Settings" = "Brim-indstillinger";
 "Brim — the island and Mac utilities" = "Brim — øen og Mac-værktøjer";
-"Sent" = "Sendt";
 "Session complete" = "Session fuldført";
 "Set a sleep timer for this player" = "Indstil en sovetimer for denne afspiller";
 "Set Alarm" = "Indstil alarm";
@@ -553,3 +551,10 @@
 "Force Click" = "Force Click";
 "Press firmly on the island to open it, like a long press on iPhone." = "Tryk fast på øen for at åbne den, som et langt tryk på iPhone.";
 "Swiping an activity away works whether this is on or not." = "Du kan altid skubbe en aktivitet væk, uanset om dette er slået til.";
+"Sent 1 file" = "1 arkiv sendt";
+"Sent %lld files" = "%lld arkiver sendt";
+"Copying 1 file…" = "Kopierer 1 arkiv…";
+"Copying %lld files…" = "Kopierer %lld arkiver…";
+"Window" = "Vindue";
+"Close" = "Luk";
+"Minimize" = "Minimer";

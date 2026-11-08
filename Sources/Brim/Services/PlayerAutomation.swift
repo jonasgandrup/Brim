@@ -38,7 +38,9 @@ enum PlayerAutomation {
     @MainActor static func runningPlayers() -> Set<String> {
         Set(["com.spotify.client", "com.apple.Music"].filter { !NSRunningApplication.runningApplications(withBundleIdentifier: $0).isEmpty })
     }
-    nonisolated static func snapshot(runningPlayers: Set<String>) async -> PlayerSnapshot? {
+    nonisolated static func snapshot(runningPlayers: Set<String>, coverAlreadyHeld held: (source: String, title: String)? = nil) async -> PlayerSnapshot? {
+        let nothing = PlayerSnapshot(source: "", title: String(localized: "Nothing playing"), artist: "Music & Spotify", playing: false, artwork: nil)
+        guard !runningPlayers.isEmpty else { return nothing }
         let artworkFile = FileManager.default.temporaryDirectory.appendingPathComponent("brim-art-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: artworkFile) }
         let spotifyPlaying = """
@@ -84,7 +86,8 @@ enum PlayerAutomation {
         let (result, success) = await run(script)
         guard success, !Task.isCancelled else { return nil }
         let fields = result.components(separatedBy: "\u{1f}")
-        guard fields.count == 5 else { return PlayerSnapshot(source: "", title: String(localized: "Nothing playing"), artist: "Music & Spotify", playing: false, artwork: nil) }
+        guard fields.count == 5 else { return nothing }
+        if held?.source == fields[0], held?.title == fields[1] { return PlayerSnapshot(source: fields[0], title: fields[1], artist: fields[2], playing: fields[3].lowercased() == "playing", artwork: nil) }
         var artwork: Data?
         if fields[4] == "local" { artwork = try? Data(contentsOf: artworkFile) }
         else if let url = URL(string: fields[4]), url.scheme == "https" {

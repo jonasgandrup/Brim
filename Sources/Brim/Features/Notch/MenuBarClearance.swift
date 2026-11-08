@@ -21,16 +21,19 @@ enum MenuBarClearance {
         // Window and Accessibility rectangles measure from the top of the primary display.
         let top = (NSScreen.screens.first?.frame.maxY ?? display.maxY) - display.maxY
         func onThisBar(_ rect: CGRect) -> Bool { abs(rect.minY - top) < 5 && rect.width > 0 && rect.height < 50 }
-        var rects = statusIconFrames().filter(onThisBar)
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        // Brim's own island and hover sensor sit at this level too, and aren't icons anyone is reaching for.
+        let own = Set(NSApp.windows.filter { $0 is FloatingPanel }.compactMap(\.windowID))
+        var rects = statusIconFrames(in: list, excluding: own).filter(onThisBar)
         if AXIsProcessTrusted(), let app = NSWorkspace.shared.frontmostApplication {
             rects += menuFrames(of: app.processIdentifier).filter(onThisBar)
         }
         return rects.map { $0.minX...$0.maxX }
     }
-    private static func statusIconFrames() -> [CGRect] {
-        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return [] }
-        return list.compactMap { window in
+    static func statusIconFrames(in list: [[String: Any]], excluding own: Set<CGWindowID>) -> [CGRect] {
+        list.compactMap { window in
             guard (window[kCGWindowLayer as String] as? Int) == Int(CGWindowLevelForKey(.statusWindow)),
+                  (window[kCGWindowNumber as String] as? CGWindowID).map({ !own.contains($0) }) ?? true,
                   let bounds = window[kCGWindowBounds as String] as? NSDictionary,
                   let rect = CGRect(dictionaryRepresentation: bounds), rect.width < 300 else { return nil }
             return rect

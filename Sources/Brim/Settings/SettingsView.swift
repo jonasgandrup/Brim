@@ -355,8 +355,8 @@ struct SettingsView: View {
                               info: "Opened this way, ← and → switch sections, Return plays or pauses, and Escape closes.")
             }
             Toggle(isOn: binding(\.sectionShortcuts)) {
-                SettingsLabel(title: "Section Shortcuts", detail: "\(preferences.toolShortcutModifiers.label)1 to 6 open a section.",
-                              info: "1 Now Playing · 2 Files · 3 Clipboard · 4 Clock · 5 Battery · 6 Downloads & AirDrop.")
+                SettingsLabel(title: "Section Shortcuts", detail: "\(preferences.toolShortcutModifiers.label)1 to 5 open a section.",
+                              info: "1 Now Playing · 2 Files · 3 Clipboard · 4 Clock · 5 Downloads & AirDrop.")
             }.disabled(!preferences.toolShortcutsEnabled)
             Picker("Modifier Keys", selection: binding(\.toolShortcutModifiers)) {
                 ForEach(ShortcutModifiers.allCases) { Text($0.label).tag($0) }
@@ -521,7 +521,7 @@ struct SettingsView: View {
             }
         } header: { Text("Privacy") } footer: {
             VStack(alignment: .leading, spacing: 6) {
-                Footnote(text: "Grant only what you use. Battery, volume, the scale and the camera/microphone indicator need no permissions. Brim never captures from your camera or microphone.", symbol: "hand.raised")
+                Footnote(text: "Grant only what you use. The battery and the scale need no permissions. Brim never captures from your camera or microphone.", symbol: "hand.raised")
             }
         }
         Section {

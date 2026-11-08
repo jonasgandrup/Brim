@@ -230,7 +230,8 @@ final class LidEffectService {
         let ownOverlayIDs = Set(NSApp.windows.filter { $0.level.rawValue >= NSWindow.Level.statusBar.rawValue }.compactMap(\.windowID))
         let filter = SCContentFilter(display: display, excludingWindows: content.windows.filter { ownOverlayIDs.contains($0.windowID) })
         let config = SCStreamConfiguration()
-        config.width = min(display.width, 2560)
+        // SCDisplay measures in points; the image needs the panel's pixels to stay sharp when the fold starts flat.
+        config.width = min(Int(CGFloat(display.width) * screen.backingScaleFactor), 3840)
         config.height = Int(Double(config.width) * Double(display.height) / Double(max(display.width, 1)))
         config.showsCursor = false
         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)

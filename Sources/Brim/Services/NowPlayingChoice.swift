@@ -43,7 +43,11 @@ enum BrowserApps {
     private var lastMain: NowPlayingCandidate?
     /// A player announced a change, or the island was clicked: what's showing is worth reading again.
     var checkShownAgain = false
-    func shownPlayer(in players: [MediaPlayer]) -> MediaPlayer? { shown.flatMap { item in players.first { $0.source == item.source } } }
+    /// By process first: one app can publish from several.
+    func shownPlayer(in players: [MediaPlayer]) -> MediaPlayer? {
+        guard let item = shown else { return nil }
+        return players.first { $0.source == item.source && $0.processID == item.processID } ?? players.first { $0.source == item.source }
+    }
     func forget() { shown = nil; lastMain = nil; checkShownAgain = false }
     /// macOS names one Now Playing app; a Mac can play two things at once. See `NowPlayingCandidate.pick` for the rules.
     func choose(main: SystemMediaSnapshot, players: [MediaPlayer], isBrowser: (String?) -> Bool,
@@ -52,16 +56,27 @@ enum BrowserApps {
             .init(source: snapshot.hasMedia ? snapshot.source : nil, playing: snapshot.isPlaying, app: !isBrowser(snapshot.parentSource ?? snapshot.source))
         }
         let mainCandidate = candidate(main)
-        let mainChanged = mainCandidate != lastMain
+        var lookElsewhere = mainCandidate != lastMain
         lastMain = mainCandidate
+        let readAgain = checkShownAgain
+        checkShownAgain = false
         if let current = shown, current.source != main.source {
             if let player = shownPlayer(in: players) {
-                if current.isPlaying || checkShownAgain { shown = await read(player).flatMap { $0.hasMedia ? $0 : nil } }
+                if current.isPlaying || readAgain {
+                    var answer = await read(player)
+                    // A player between tracks can answer with nothing for a moment, so it gets a second chance.
+                    if answer?.hasMedia != true { try? await Task.sleep(for: .milliseconds(300)); answer = await read(player) }
+                    if let answer, answer.hasMedia { shown = answer }
+                    else { shown = nil; lastMain = nil; lookElsewhere = true } // Looked at again on the next reading too, should it come back.
+                }
             } else { shown = nil }
         } else if main.hasMedia { shown = main }
-        checkShownAgain = false
+        else if var current = shown, current.isPlaying {
+            // The player has nothing to show any more, or for a moment between tracks: first treated as a pause, then gone.
+            current.rate = 0; shown = current
+        } else { shown = nil }
         // Music that was already going under a video, or before Brim started.
-        if mainChanged, shown.map({ !candidate($0).listening }) ?? true, !mainCandidate.listening {
+        if lookElsewhere, shown.map({ !candidate($0).listening }) ?? true, !mainCandidate.listening {
             for player in players where player.source != main.source && player.source != shown?.source && !isBrowser(player.source) {
                 if let answer = await read(player), answer.isPlaying { shown = answer; break }
             }

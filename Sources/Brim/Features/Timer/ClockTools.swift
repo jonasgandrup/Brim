@@ -88,6 +88,10 @@ enum ClockMode: String, CaseIterable {
         alarmRepeat = AlarmRepeat(rawValue: self.defaults.string(forKey: "clockAlarmRepeat") ?? "") ?? .once
         if let saved = self.defaults.object(forKey: "clockAlarmDate") as? Date, saved > Date() {
             alarmDate = saved; alarmTime = saved; runAlarmTicker()
+        } else if let saved = self.defaults.object(forKey: "clockAlarmDate") as? Date, alarmRepeat != .once,
+                  let next = AlarmSchedule.next(time: saved, after: Date(), repeat: alarmRepeat) {
+            // Brim wasn't running when a repeating alarm came due: it carries on with the next one.
+            alarmTime = saved; arm(at: next); notice = nil
         } else { self.defaults.removeObject(forKey: "clockAlarmDate") }
         // Waking up or a changed clock can move the alarm closer: look again at once.
         for (center, name) in [(NSWorkspace.shared.notificationCenter, NSWorkspace.didWakeNotification),
@@ -143,18 +147,24 @@ enum ClockMode: String, CaseIterable {
     func snooze() { arm(at: Date().addingTimeInterval(300)) }
     func checkAlarm(at now: Date) {
         guard let date = alarmDate, now >= date else { return }
-        alarmDate = nil; defaults.removeObject(forKey: "clockAlarmDate"); ringing = true; mode = .alarm
+        // A repeating alarm stays on record while it rings, so quitting Brim then doesn't end the series.
+        alarmDate = nil; if alarmRepeat == .once { defaults.removeObject(forKey: "clockAlarmDate") }; ringing = true; mode = .alarm
         onAlarm()
     }
+    private static let ringsFor: TimeInterval = 900
     /// Waits for the alarm rather than watching the clock: it wakes at the alarm time, and at most every quarter hour
     /// before that in case the Mac's clock moved. Once ringing, it chimes every four seconds until stopped.
     private func runAlarmTicker() {
         alarmTicker?.cancel()
         alarmTicker = Task { [weak self] in
+            var ringingSince: Date?
             while !Task.isCancelled {
                 guard let self else { return }
                 self.checkAlarm(at: Date())
                 if self.ringing {
+                    // Like iPhone, an alarm nobody answers stops by itself after a while.
+                    if Date() >= (ringingSince ?? Date()).addingTimeInterval(Self.ringsFor) { self.stopAlarm(); return }
+                    ringingSince = ringingSince ?? Date()
                     if self.notificationsEnabled { NSSound(named: "Glass")?.play() }
                     try? await Task.sleep(for: .seconds(4))
                 } else if let date = self.alarmDate {

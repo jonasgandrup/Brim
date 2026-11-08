@@ -102,6 +102,7 @@ final class NotchController {
     private var pressureMonitor: Any?
     private var observationGeneration = 0
     private var observingActivity = false
+    @ObservationIgnored private var systemUIWasActive = false
     private(set) var preferences: Preferences?
     private(set) var status: SystemStatus?
     private(set) var media: MediaService?
@@ -242,7 +243,6 @@ final class NotchController {
         if !expanded { selectedTab = contextTab() }
         openFromMenu()
     }
-    /// Shows the camera/microphone dot only when the user asked for it.
     func openCompactActivity(_ tab: IslandTab) {
         guard !presentationMode, !recentlyForceClicked else { return }
         feedbackTask?.cancel(); feedback = nil
@@ -493,7 +493,11 @@ final class NotchController {
                 self.dismissal.update(self.activityKinds)
                 // An activity appearing under a still pointer isn't the pointer coming to rest on it.
                 self.updateInteraction(scheduleHover: false)
-                if !self.shelf.systemUIActive && self.expanded && !self.pointerInside { self.collapseAfterDelay() }
+                // Closing Quick Look or a share sheet hands the island back. Anything else that changes (a notice arriving,
+                // a download ticking along) must not cut short an island that was opened on purpose.
+                let systemUIEnded = self.systemUIWasActive && !self.shelf.systemUIActive
+                self.systemUIWasActive = self.shelf.systemUIActive
+                if systemUIEnded && self.expanded && !self.pointerInside { self.collapseAfterDelay() }
                 self.observeActivity()
             }
         }

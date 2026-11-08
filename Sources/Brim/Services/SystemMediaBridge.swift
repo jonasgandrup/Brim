@@ -74,7 +74,11 @@ final class NowPlayingHelper: @unchecked Sendable {
     private var pending: [(id: Int, continuation: CheckedContinuation<String?, Never>)] = []
     private var nextID = 0
     private var served = 0
-    private var disabled = false
+    /// Until when the helper is off after failing its check. It gets another chance later: one bad moment shouldn't
+    /// cost a scripting launch per read for as long as Brim runs.
+    private var retryAt: TimeInterval = 0
+    static let retryAfter: TimeInterval = 1800
+    private var disabled: Bool { ProcessInfo.processInfo.systemUptime < retryAt }
     private var lastVerified: TimeInterval = -.infinity
     /// Bounds memory growth inside the scripting runtime.
     private let recycleAfter = 600
@@ -82,6 +86,8 @@ final class NowPlayingHelper: @unchecked Sendable {
     private var changeHandler: (@Sendable () -> Void)?
 
     var enabled: Bool { lock.withLock { !disabled } }
+    /// Already up and able to take a request.
+    var isRunning: Bool { lock.withLock { !disabled && process?.isRunning == true } }
     /// True while a running helper announces changes, so asking every few seconds isn't needed.
     var announcesChanges: Bool { lock.withLock { listening && !disabled } }
     /// Called, off the main thread, when the helper sees playback change in any player.
@@ -91,7 +97,7 @@ final class NowPlayingHelper: @unchecked Sendable {
     }
     func disable(reason: String) {
         Log.media.error("Now Playing helper disabled: \(reason, privacy: .public)")
-        let failed = lock.withLock { disabled = true; return tearDownLocked() }
+        let failed = lock.withLock { retryAt = ProcessInfo.processInfo.systemUptime + Self.retryAfter; return tearDownLocked() }
         failed.forEach { $0.resume(returning: nil) }
     }
     /// True for a new helper's first answer, then every ten minutes: time to compare it against a fresh one-shot
@@ -291,7 +297,7 @@ enum SystemMediaBridge {
     /// for MediaRemote's change notifications, which macOS delivers to this Apple tool but not to Brim, and writes
     /// `changed` once a burst of them settles, so Brim reads when something happens instead of asking every few seconds.
     /// `listening` on its first line says the notifications are on.
-    static let serveScript = bootstrap + "ObjC.import('AppKit');" + playerFunctions + readFunction + #"""
+    static let serveScript = bootstrap + "ObjC.import('AppKit');" + playerFunctions + readFunction + commandFunction + seekFunction + #"""
     function run() {
         const input=$.NSFileHandle.fileHandleWithStandardInput, output=$.NSFileHandle.fileHandleWithStandardOutput;
         let buffer='', done=false, changedAt=0, announcedAt=0;
@@ -305,7 +311,7 @@ enum SystemMediaBridge {
                 // Let MediaRemote deliver any queued updates before answering.
                 $.NSRunLoop.currentRunLoop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(0.01));
                 let reply;
-                try { reply=readOnce(JSON.parse(line)); } catch(_) { reply=JSON.stringify({available:false}); }
+                try { const request=JSON.parse(line); reply=request[0]==='command'?sendCommand(request.slice(1)):request[0]==='seek'?sendSeek(request.slice(1)):readOnce(request); } catch(_) { reply=JSON.stringify({available:false}); }
                 write(reply);
             }
         }
@@ -338,8 +344,8 @@ enum SystemMediaBridge {
         return '';
     }
     """#
-    static let commandScript = bootstrap + "ObjC.import('AppKit');" + playerFunctions + #"""
-    function run(argv) {
+    static let commandFunction = #"""
+    function sendCommand(argv) {
         if(!frameworkReady())return 'unavailable';
         const command=Number(argv[0]);
         if([0,1,4,5].indexOf(command)<0)return 'unsupported';
@@ -359,14 +365,23 @@ enum SystemMediaBridge {
         } catch(_){return 'failed';} finally {if(value)value.close();}
     }
     """#
+    static let commandScript = bootstrap + "ObjC.import('AppKit');" + playerFunctions + commandFunction + "\nfunction run(argv) { return sendCommand(argv); }"
+    /// Through the helper when it's up, so a click doesn't wait for a scripting launch. A helper that doesn't answer is
+    /// a failure, never a reason to try again: the first attempt may have worked, and skipping twice is worse.
+    private static func perform(_ tag: String, script: String, arguments: [String]) async -> (String, Bool) {
+        let helper = NowPlayingHelper.shared
+        guard helper.isRunning else { return await MediaScriptRunner.run(script, javaScript: true, arguments: arguments) }
+        guard let reply = await helper.read([tag] + arguments) else { return ("", false) }
+        return (reply, true)
+    }
     static func send(_ request: MediaPlaybackRequest, validateOnly: Bool = false) async -> MediaCommandResult {
-        let (result, success) = await MediaScriptRunner.run(commandScript, javaScript: true,
+        let (result, success) = await perform("command", script: commandScript,
             arguments: [String(request.action.code), request.item.source, request.item.title, request.item.identifier,
                         request.item.playerPath, validateOnly ? "validate" : "send"])
         return success ? MediaCommandResult(rawValue: result) ?? .failed : .failed
     }
-    static let seekScript = bootstrap + "ObjC.import('AppKit');" + playerFunctions + #"""
-    function run(argv) {
+    static let seekFunction = #"""
+    function sendSeek(argv) {
         if(!frameworkReady())return 'unavailable';
         if(!argv[5])return 'item-changed';
         let value;
@@ -388,9 +403,10 @@ enum SystemMediaBridge {
         }catch(_){return 'failed';}finally{if(value)value.close();}
     }
     """#
+    static let seekScript = bootstrap + "ObjC.import('AppKit');" + playerFunctions + seekFunction + "\nfunction run(argv) { return sendSeek(argv); }"
     static func seek(_ request: MediaSeekRequest, validateOnly: Bool = false) async -> Bool {
         guard request.position.isFinite, request.position >= 0 else { return false }
-        let (result, success) = await MediaScriptRunner.run(seekScript, javaScript: true,
+        let (result, success) = await perform("seek", script: seekScript,
             arguments: [request.item.source, request.item.title, request.item.identifier, String(request.position), validateOnly ? "validate" : "send", request.item.playerPath])
         return success && result == (validateOnly ? "validated" : "submitted")
     }
@@ -411,11 +427,12 @@ enum SystemMediaBridge {
         guard helper.enabled else { return await oneShotSnapshot(arguments) }
         guard let fromHelper = decode(await helper.read(arguments)) else { return await oneShotSnapshot(arguments) }
         guard helper.dueForVerification(), let fresh = await oneShotSnapshot(arguments), !agrees(fromHelper, fresh) else { return fromHelper }
-        // Playback can change between the two reads. Only a helper that still disagrees after asking again is wrong;
-        // turning it off sends every later poll through a scripting launch of its own.
-        let again = decode(await helper.read(arguments))
-        if again.map({ !agrees($0, fresh) }) ?? true { helper.disable(reason: "a long-lived read disagreed with a fresh one") }
-        return fresh
+        // Playback can change between the two reads, so one mismatch proves nothing: compare a second pair. Turning the
+        // helper off sends every later read through a scripting launch of its own.
+        guard let again = decode(await helper.read(arguments)), let confirm = await oneShotSnapshot(arguments) else { return fresh }
+        if agrees(again, confirm) { return again }
+        helper.disable(reason: "a long-lived read disagreed with a fresh one, twice")
+        return confirm
     }
     /// The parts that would make the island show the wrong thing. Position naturally drifts between reads.
     static func agrees(_ a: SystemMediaSnapshot, _ b: SystemMediaSnapshot) -> Bool {

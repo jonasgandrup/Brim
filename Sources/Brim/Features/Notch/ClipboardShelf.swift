@@ -91,7 +91,7 @@ struct ClipboardPinStore: Sendable {
     static func isSupportedLink(_ url: URL) -> Bool { linkSchemes.contains(url.scheme?.lowercased() ?? "") }
     private static let totalImageBytes = 60_000_000
     private(set) var pins: [ClipboardPin] = [] { didSet { if pins != oldValue { try? persistence?.save(pins) } } }
-    /// When set, pins survive relaunches in Application Support. History never does.
+    /// When set, pins survive relaunches in Application Support.
     @ObservationIgnored var persistence: ClipboardPinStore? {
         didSet {
             if persistence == nil { oldValue?.erase() } else { try? persistence?.save(pins) }

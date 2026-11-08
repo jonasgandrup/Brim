@@ -19,11 +19,16 @@ enum BrimApp {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var statusBar: StatusBarController?
+    /// Links that started Brim arrive before it's ready: acting then would fill the shelf and pins ahead of what they
+    /// load from disk, and the saved ones would be lost. They wait until the island is up.
+    private var ready = false
+    private var waitingLinks: [URL] = []
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         let model = BrimAppModel.shared
         statusBar = StatusBarController(model: model)
         model.apply()
+        ready = true; follow(waitingLinks); waitingLinks = []
         if CommandLine.arguments.contains("--lid-diagnostics") {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(2))
@@ -60,6 +65,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     /// `brim://` links from Shortcuts, scripts or other apps.
     func application(_ application: NSApplication, open urls: [URL]) {
+        if ready { follow(urls) } else { waitingLinks += urls }
+    }
+    private func follow(_ urls: [URL]) {
         for url in urls {
             guard let command = BrimCommand(url: url) else { Log.app.notice("Ignored unknown link \(url.absoluteString, privacy: .private)"); continue }
             BrimAppModel.shared.perform(command)

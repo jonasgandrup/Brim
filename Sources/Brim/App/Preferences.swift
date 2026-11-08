@@ -27,7 +27,7 @@ enum IslandLevel: String, CaseIterable, Identifiable {
         switch self {
         case .essentials: String(localized: "What iPhone shows: what’s playing, charging and your AirPods. Otherwise, nothing.")
         case .more: String(localized: "Adds files, clipboard, clock and quick controls, all a hover away.")
-        case .everything: String(localized: "Adds every other extra, like the camera dot, system notices and more shortcuts.")
+        case .everything: String(localized: "Adds every other extra, like system notices and more shortcuts.")
         }
     }
 }
@@ -93,8 +93,6 @@ final class Preferences {
             if clamped != lowBatteryAlert { lowBatteryAlert = clamped } else { save(lowBatteryAlert, "lowBatteryAlert") }
         }
     }
-    /// A small camera/microphone dot in the island, like iPhone's privacy indicators.
-    /// Volume and brightness changes appear in the island.
     var bluetoothBatteries: Bool { didSet { save(bluetoothBatteries, "bluetoothBatteries") } }
     /// Keep shelf files (as references, never copies) and clipboard pins across relaunches.
     var keepShelf: Bool { didSet { save(keepShelf, "keepShelf") } }
@@ -102,7 +100,7 @@ final class Preferences {
     var haptics: Bool { didSet { save(haptics, "haptics") } }
     /// A brief compact notice when a Focus turns on or off.
     var focusFeedback: Bool { didSet { save(focusFeedback, "focusFeedback") } }
-    /// Scroll for volume and Force Click for controls, on the compact island.
+    /// Force Click on the compact island opens it.
     var islandGestures: Bool { didSet { save(islandGestures, "islandGestures") } }
     /// Brief notices for sound output, Low Power Mode and connectivity changes.
     var systemChanges: Bool { didSet { save(systemChanges, "systemChanges") } }
