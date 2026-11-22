@@ -29,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusBar = StatusBarController(model: model)
         model.apply()
         ready = true; follow(waitingLinks); waitingLinks = []
-        if CommandLine.arguments.contains("--lid-diagnostics") {
+        if AppEnvironment.printsLidDiagnostics {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(2))
                 model.permissions.refresh()
@@ -46,8 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return
         }
-        if CommandLine.arguments.contains("--lid-setup") { model.openSettings(page: .labs) }
-        else if !UserDefaults.standard.bool(forKey: "hasLaunched") || CommandLine.arguments.contains("--settings") || AppEnvironment.isSmokeTest {
+        if AppEnvironment.opensLidSetup { model.openSettings(page: .labs) }
+        else if !UserDefaults.standard.bool(forKey: "hasLaunched") || AppEnvironment.opensSettings || AppEnvironment.isSmokeTest {
             let firstLaunch = !UserDefaults.standard.bool(forKey: "hasLaunched") && !AppEnvironment.isSmokeTest
             if !AppEnvironment.isSmokeTest { UserDefaults.standard.set(true, forKey: "hasLaunched") }
             model.openSettings(page: firstLaunch ? .welcome : nil)
@@ -90,7 +90,6 @@ final class BrimAppModel {
     let switcher = WindowSwitcher()
     let toolShortcuts = ToolShortcuts()
     let scale = NativeWeighing()
-    let autoHide = AutoHideMonitor()
     let lock = LockScreenService()
     let lid = LidEffectService()
     var lidFoldReadiness: LidFoldReadiness {
@@ -126,11 +125,6 @@ final class BrimAppModel {
         } else { notch.stop(); if preferences.menuBarStatus == .battery { status.start() } else { status.stop() } }
         media.playerAccess = preferences.playerAccess
         if preferences.notchEnabled && preferences.mediaEnabled { media.start() } else { media.stop() }
-        if preferences.notchEnabled {
-            autoHide.configure(focus: preferences.autoHideFocus, sharing: preferences.autoHideSharing, focusChanges: preferences.focusFeedback,
-                               onChange: { [notch] reason in notch.setAutoHide(reason: reason) },
-                               onFocusChange: { [notch] on in notch.focusChanged(on: on) })
-        } else { autoHide.stop() }
         toolShortcuts.configure(enabled: preferences.notchEnabled && preferences.toolShortcutsEnabled, sections: preferences.sectionShortcuts, modifiers: preferences.toolShortcutModifiers) { [weak self] tool in
             self?.notch.openTool(tool, fromKeyboard: true)
         }
@@ -162,7 +156,7 @@ final class BrimAppModel {
         }
     }
     func stop() {
-        autoHide.stop(); toolShortcuts.stop(); scale.stop(); lid.stop(); switcher.stop()
+        toolShortcuts.stop(); scale.stop(); lid.stop(); switcher.stop()
         // Timers are saved, not cancelled, so a running countdown picks up again after relaunch.
         notch.clock.stop(); notch.countdown.suspend()
         notch.stop(); status.stop(); media.stop()

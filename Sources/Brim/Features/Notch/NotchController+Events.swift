@@ -82,11 +82,6 @@ extension NotchController {
         haptic(.land)
         showFeedback(device.name, symbol: device.symbol, tint: .white, device: device, seconds: 4)
     }
-    /// Shown compact and brief, as on iPhone. Brim learns only that a Focus is on, not which one.
-    func focusChanged(on: Bool) {
-        guard preferences?.focusFeedback == true else { return }
-        showHUD(.init(symbol: on ? "moon.fill" : "moon", tint: .indigo, label: on ? String(localized: "Focus On") : String(localized: "Focus Off")), seconds: 2)
-    }
     /// A new screenshot goes onto the file shelf and gets a brief preview, like the iPhone's corner thumbnail.
     func receiveScreenshot(_ url: URL) {
         guard preferences?.notchEnabled == true, preferences?.screenshotShelf == true, shows(.files) else { return }

@@ -643,18 +643,9 @@ import Observation
     tracker.stop()
 }
 
-@Test func sharingIsDetectedFromMirroringOrShareHelpers() {
-    #expect(SharingDetection.isSharing(processNames: ["Safari"], displaysMirrored: true))
-    #expect(SharingDetection.isSharing(processNames: ["CptHost", "Finder"], displaysMirrored: false))
-    #expect(!SharingDetection.isSharing(processNames: ["zoom.us", "Safari"], displaysMirrored: false))
-}
-
-@Test @MainActor func autoHideAndPresentationModeAreIndependent() {
+@Test @MainActor func hideIslandFromTheMenuBarComesAndGoes() {
     let controller = NotchController()
-    controller.setAutoHide(reason: "Focus is on")
-    #expect(controller.presentationMode && !controller.manualPresentation)
     controller.setPresentationMode(true)
-    controller.setAutoHide(reason: nil)
     #expect(controller.presentationMode)
     controller.setPresentationMode(false)
     #expect(!controller.presentationMode)
@@ -785,7 +776,7 @@ import Observation
     }
     #expect(preferences.systemChanges && preferences.sectionShortcuts && preferences.menuLockMac)
     #expect(!preferences.playerAccess && !preferences.liveTransfers && !preferences.calendarPreview && !preferences.screenshotShelf)
-    #expect(!preferences.focusFeedback && !preferences.autoHideFocus && !preferences.switcherEnabled)
+    #expect(!preferences.switcherEnabled)
     preferences.systemChanges = false
     #expect(preferences.level == nil)
     // Choosing nothing changes nothing.
@@ -925,4 +916,15 @@ private final class RedrawCount: @unchecked Sendable { var value = 0 }
     #expect(IslandHitRegion.contains(CGPoint(x: 864, y: 1117), frame: frame, radius: 34, roundedTop: false))
     #expect(!IslandHitRegion.contains(CGPoint(x: 864, y: 1118), frame: frame, radius: 34, roundedTop: false))
     #expect(!IslandHitRegion.contains(CGPoint(x: 1100, y: 1117), frame: frame, radius: 34, roundedTop: false))
+}
+
+@Test func calendarSleepsUntilTheNextMomentThatMatters() {
+    let now = Date(timeIntervalSinceReferenceDate: 1_000_000)
+    let later = NextEvent(id: "a", title: "Later", start: now.addingTimeInterval(7200), end: now.addingTimeInterval(9000))
+    #expect(abs(NextEvent.nextLook(after: later, now: now) - 3600.5) < 0.01)  // the hourly look comes first
+    let soon = NextEvent(id: "b", title: "Soon", start: now.addingTimeInterval(1200), end: now.addingTimeInterval(3000))
+    #expect(abs(NextEvent.nextLook(after: soon, now: now) - 900.5) < 0.01)    // five minutes before it starts
+    let underway = NextEvent(id: "c", title: "Now", start: now.addingTimeInterval(-60), end: now.addingTimeInterval(600))
+    #expect(abs(NextEvent.nextLook(after: underway, now: now) - 600.5) < 0.01) // when it ends
+    #expect(abs(NextEvent.nextLook(after: nil, now: now) - 3600.5) < 0.01)
 }

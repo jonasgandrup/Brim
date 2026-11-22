@@ -153,6 +153,49 @@ private func runBrimCommand(_ arguments: [String]) throws -> (status: Int32, lin
     #expect(!shelf.add(.text("Overflow")))
 }
 
+@Test @MainActor func imagePinsShowASmallPreviewAndStayOnDiskUntilUsed() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("BrimPins-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1200, pixelsHigh: 600, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 4800, bitsPerPixel: 32))
+    let png = try #require(bitmap.representation(using: .png, properties: [:]))
+    let shelf = ClipboardShelf()
+    #expect(shelf.add(.image(png)))
+    let pin = try #require(shelf.pins.first)
+    let preview = try #require(shelf.thumbnail(for: pin))
+    #expect(max(preview.size.width, preview.size.height) <= 108)
+    #expect(shelf.thumbnail(for: pin) === preview)
+    let store = ClipboardPinStore(directory: directory)
+    try store.save(shelf.pins)
+    let restored = ClipboardShelf()
+    restored.restore(from: store)
+    let saved = try #require(restored.pins.first)
+    #expect(saved.payload == pin.payload)
+    #expect(restored.thumbnail(for: saved) != nil)
+    restored.remove(saved)
+    #expect(restored.pins.isEmpty)
+}
+
+@Test func onlyTheSwitcherShortcutNeedsBrimWhileTheSwitcherIsClosed() {
+    let tab: Int64 = 48
+    #expect(SwitcherKeyTap.isTrigger(code: tab, flags: .maskCommand, modifier: .maskCommand))
+    #expect(SwitcherKeyTap.isTrigger(code: tab, flags: [.maskCommand, .maskShift], modifier: .maskCommand))
+    #expect(!SwitcherKeyTap.isTrigger(code: tab, flags: [], modifier: .maskCommand))
+    #expect(!SwitcherKeyTap.isTrigger(code: 0, flags: .maskCommand, modifier: .maskCommand))
+    #expect(!SwitcherKeyTap.isTrigger(code: tab, flags: [.maskCommand, .maskAlternate], modifier: .maskCommand))
+    #expect(SwitcherKeyTap.isTrigger(code: tab, flags: .maskAlternate, modifier: .maskAlternate))
+    #expect(!SwitcherKeyTap.isTrigger(code: tab, flags: .maskCommand, modifier: .maskAlternate))
+}
+
+@Test @MainActor func theTrackpadIsLeftAloneUntilTheIslandWantsIt() {
+    let motion = DesktopMotionMonitor()
+    motion.start { _ in }
+    #expect(!motion.listening)
+    motion.spaceDidChange()
+    #expect(!motion.listening)
+    motion.setWanted(false)
+    #expect(!motion.listening)
+}
+
 @Test @MainActor func clipboardAcceptsNativeDropProviders() async throws {
     let shelf = ClipboardShelf()
     #expect(shelf.accept([NSItemProvider(object: "Dropped note" as NSString), NSItemProvider(object: URL(string: "https://example.com")! as NSURL)]))

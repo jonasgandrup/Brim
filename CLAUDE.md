@@ -38,7 +38,7 @@ extras. The goal is an Apple-like feel: quiet by default, opaque black island, s
   `_AXUIElementGetWindow`, `SACLockScreenImmediate`) are loaded at runtime with `dlopen`/`dlsym`, isolated in one place, and must fail
   gracefully into an "unavailable" state. Never show invented values: no fake weights, angles or percentages.
 - Anything that reads personal data or needs a permission is opt-in (Downloads, calendar,
-  Focus status, screenshots). Now Playing is on by default because its system feed asks for nothing; its Music and
+  screenshots). Now Playing is on by default because its system feed asks for nothing; its Music and
   Spotify access (Apple Events, `playerAccess`) stays opt-in, so a new install never sees an Automation prompt unasked. Titles and file names are never logged
   (`Log.*` with `privacy: .private`).
 - Launch-time flags come from `AppEnvironment` (`isSmokeTest`, `isBundledApp`, `allowsAlerts`); feature code

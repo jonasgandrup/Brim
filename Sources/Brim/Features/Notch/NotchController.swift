@@ -170,18 +170,12 @@ final class NotchController {
 
     // MARK: Presentation mode
 
-    /// Hidden by the menu bar's Presentation Mode (manual) or automatically (Focus, screen sharing).
+    /// Hidden from the menu bar (Hide Island).
     private(set) var manualPresentation = false
-    private(set) var autoHideReason: String?
-    var presentationMode: Bool { manualPresentation || autoHideReason != nil }
+    var presentationMode: Bool { manualPresentation }
     func setPresentationMode(_ enabled: Bool) {
         guard enabled != manualPresentation else { return }
         manualPresentation = enabled
-        presentationChanged()
-    }
-    func setAutoHide(reason: String?) {
-        guard reason != autoHideReason else { return }
-        autoHideReason = reason
         presentationChanged()
     }
     private func presentationChanged() {
@@ -265,7 +259,7 @@ final class NotchController {
     var panelFrame: CGRect? { panel?.frame }
     #if DEBUG
     var transitionDiagnostics: [String: Bool] {
-        ["switcher": awayReasons.contains(.switcher), "desktopMoving": awayReasons.contains(.desktopMoving),
+        ["switcher": awayReasons.contains(.switcher), "desktopMoving": awayReasons.contains(.desktopMoving), "feelsTrackpad": desktopMotion.listening,
          "tucked": tuckedAway, "suspended": suspended, "panelVisible": panel?.isVisible ?? false]
     }
     #endif
@@ -315,8 +309,6 @@ final class NotchController {
         status.onPowerSample = { [weak self] sample in self?.receivePower(sample) }
         receivePower(PowerSample(percent: status.battery, externalPower: status.charging))
         configureCallbacks()
-        // The scrubber needs per-second positions only while it's on screen; compact needs track changes.
-        media.wantsFrequentUpdates = { [weak self] in self?.expanded == true && self?.displayedTab == .music }
         if observers.isEmpty { installObservers() }
         let screenPreferences = [preferences.showOnExternal, preferences.followActiveDisplay]
         if panel == nil || lastScreenPreferences != screenPreferences { rebuild() }
@@ -572,7 +564,7 @@ final class NotchController {
         let point = location ?? previewPointer ?? NSEvent.mouseLocation
         updateWingClearance(at: point)
         syncPanelVisibility()
-        guard let panel else { watchPointer(false); sensor?.place(nil, below: nil); return }
+        guard let panel else { watchPointer(false); sensor?.place(nil, below: nil); desktopMotion.setWanted(false); return }
         let inside = !suspended && !presentationMode && !transitioning && containsPointer(point)
         if !inside { hoverIntent.left() }
         // The window never resizes. Transparent space outside the animated surface passes through.
@@ -582,6 +574,8 @@ final class NotchController {
         else if pointerInside != inside { pointerInside = inside }
         watchPointer(pointerInside || expanded || wingsAside)
         sensor?.place(sensorFrame, below: panel)
+        // Only an island on screen has anything to tuck away when the desktop slides.
+        desktopMotion.setWanted(!suspended && !presentationMode && (presentation != .hidden || transitioning))
     }
     /// Where the pointer can reach the island: the camera housing while it's hidden, otherwise the island itself.
     private var sensorFrame: CGRect? {

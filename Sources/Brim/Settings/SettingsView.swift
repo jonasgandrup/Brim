@@ -44,11 +44,8 @@ struct SettingsView: View {
         .onChange(of: preferences.calendarPreview) { model.apply() }
         .onChange(of: preferences.liveTransfers) { model.apply() }
         .onChange(of: preferences.bluetoothBatteries) { model.apply() }
-        .onChange(of: preferences.autoHideFocus) { model.apply() }
-        .onChange(of: preferences.autoHideSharing) { model.apply() }
         .onChange(of: preferences.menuBarStatus) { model.apply() }
         .onChange(of: preferences.lidFoldStyle) { model.apply() }
-        .onChange(of: preferences.focusFeedback) { model.apply() }
         .onChange(of: preferences.systemChanges) { model.apply() }
         .onChange(of: preferences.smallNotices) { model.apply() }
         .onChange(of: preferences.openWhenIdle) { model.apply() }
@@ -97,7 +94,6 @@ struct SettingsView: View {
             case .shelf: shelfSettings
             case .notices: noticeSettings
             case .battery: batterySettings
-            case .hiding: hidingSettings
             case .keyboard: keyboardSettings
             }
         case .switcher: switcher
@@ -269,9 +265,8 @@ struct SettingsView: View {
         }
         return switch section {
         case .shelf: count([preferences.keepShelf, preferences.screenshotShelf])
-        case .notices: count([preferences.calendarPreview, preferences.focusFeedback, preferences.systemChanges])
+        case .notices: count([preferences.calendarPreview, preferences.systemChanges])
         case .battery: count([preferences.chargingFeedback, preferences.lowBatteryAlert > 0, preferences.bluetoothBatteries])
-        case .hiding: count([preferences.autoHideFocus, preferences.autoHideSharing])
         case .keyboard: preferences.toolShortcutsEnabled ? String(localized: "\(preferences.toolShortcutModifiers.label)0") : String(localized: "Off")
         }
     }
@@ -299,17 +294,12 @@ struct SettingsView: View {
             Toggle(isOn: binding(\.calendarPreview)) {
                 SettingsLabel(title: "Next Calendar Event", detail: calendarDetail)
             }
-            Toggle(isOn: binding(\.focusFeedback)) {
-                SettingsLabel(title: "Focus", detail: model.autoHide.focusDenied ? focusDenied : "A brief note when a Focus turns on or off.",
-                              info: "Brim learns only whether a Focus is on, not which one.")
-            }
             Toggle(isOn: binding(\.systemChanges)) {
                 SettingsLabel(title: "System Changes", detail: "Where sound is playing, Low Power Mode, and going offline.",
                               info: "Brim notices only that the connection dropped or returned, never which network you’re on.")
             }
         }
     }
-    private var focusDenied: LocalizedStringKey { "Focus access is off. Allow Brim in System Settings → Privacy & Security → Focus." }
     @ViewBuilder private var batterySettings: some View {
         Section {
             Toggle(isOn: binding(\.chargingFeedback)) {
@@ -331,19 +321,6 @@ struct SettingsView: View {
             Toggle(isOn: binding(\.bluetoothBatteries)) {
                 SettingsLabel(title: "Accessories", detail: "AirPods and other accessories, with a card when they connect.")
             }
-        }
-    }
-    @ViewBuilder private var hidingSettings: some View {
-        Section {
-            Toggle(isOn: binding(\.autoHideFocus)) {
-                SettingsLabel(title: "During Focus", detail: model.autoHide.focusDenied ? focusDenied : "Including Do Not Disturb.")
-            }
-            Toggle(isOn: binding(\.autoHideSharing)) {
-                SettingsLabel(title: "While Sharing Your Screen", detail: "Mirroring, Zoom and Screen Sharing.",
-                              info: "Browser meetings can’t be detected. Use Hide Island from the menu bar instead.")
-            }
-        } footer: {
-            if let reason = model.notch.autoHideReason { Footnote(text: "Hidden right now: \(reason).", symbol: "eye.slash") }
         }
     }
     @ViewBuilder private var keyboardSettings: some View {

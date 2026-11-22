@@ -54,7 +54,7 @@ enum BluetoothReport {
 }
 
 /// Battery levels come from System Information's own report, which needs no Bluetooth permission.
-/// It refreshes when audio devices change (headphones connecting), when asked, and every few minutes.
+/// It's read at start and when audio devices change (headphones connecting), never on a timer.
 @MainActor @Observable final class BluetoothBatteries {
     private(set) var devices: [BluetoothDevice] = []
     @ObservationIgnored var onConnected: (BluetoothDevice) -> Void = { _ in }

@@ -58,7 +58,7 @@ struct FocusCycle: Codable, Equatable {
     /// 1-based session number within the current round of four.
     var session: Int { phase == .focus ? completed % Self.sessionsPerRound + 1 : (completed - 1) % Self.sessionsPerRound + 1 }
     var title: String {
-        switch phase { case .focus: "Focus"; case .shortBreak: String(localized: "Short Break"); case .longBreak: String(localized: "Long Break") }
+        switch phase { case .focus: String(localized: "Focus"); case .shortBreak: String(localized: "Short Break"); case .longBreak: String(localized: "Long Break") }
     }
     mutating func advance() {
         if phase == .focus {

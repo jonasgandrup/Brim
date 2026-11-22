@@ -5,6 +5,11 @@ import os
 enum AppEnvironment {
     /// The DEBUG smoke test renders previews; it must not beep, notify or touch the user's real settings.
     static let isSmokeTest = CommandLine.arguments.contains("--smoke-test")
+    /// `--lid-diagnostics` prints the lid fold's state as JSON and quits (the verify-brim skill reads it).
+    static let printsLidDiagnostics = CommandLine.arguments.contains("--lid-diagnostics")
+    /// `--lid-setup` comes back from the restart that finishes the Screen Recording grant, onto Labs.
+    static let opensLidSetup = CommandLine.arguments.contains("--lid-setup")
+    static let opensSettings = CommandLine.arguments.contains("--settings")
     /// Unit tests and `swift run` load the code outside an app bundle, where notifications and login items don't apply.
     static let isBundledApp = Bundle.main.bundleURL.pathExtension == "app"
     /// Real alerts (sounds, notifications, charging feedback) only in the bundled app's normal run.

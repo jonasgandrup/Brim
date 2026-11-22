@@ -223,3 +223,36 @@ private actor PlaybackRecorder {
     #expect(media.source == "player.b"); #expect(media.playing)
     media.stop()
 }
+
+@Test @MainActor func aPlayerThatIgnoresPlaySaysSoInsteadOfStayingSilent() async {
+    let recorder = PlaybackRecorder(result: .submitted)
+    let media = MediaService()
+    let paused = SystemMediaSnapshot(available: true, title: "Video", source: "browser", rate: 0, playerPath: "tab")
+    media.playbackTransport = { await recorder.receive($0, system: $1) }
+    media.playersReader = { [] }
+    media.snapshotReader = { paused }
+    media.apply(paused)
+    media.command("playpause")
+    for _ in 0..<40 {
+        if media.message != nil { break }
+        try? await Task.sleep(for: .milliseconds(100))
+    }
+    #expect(await recorder.requests.first?.action == .play)
+    #expect(!media.playing)
+    #expect(media.message != nil)
+    media.stop()
+}
+
+@Test @MainActor func aPlayerThatPausesStaysQuiet() async {
+    let recorder = PlaybackRecorder(result: .submitted)
+    let media = MediaService()
+    media.playbackTransport = { await recorder.receive($0, system: $1) }
+    media.playersReader = { [] }
+    media.snapshotReader = { .init(available: true, title: "Track", source: "player.a", rate: 0, playerPath: "session.a") }
+    media.apply(.init(available: true, title: "Track", source: "player.a", rate: 1, playerPath: "session.a"))
+    media.command("playpause")
+    try? await Task.sleep(for: .milliseconds(2600))
+    #expect(!media.playing)
+    #expect(media.message == nil)
+    media.stop()
+}

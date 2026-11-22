@@ -47,10 +47,10 @@ final class Preferences {
         "lidEffectEnabled": false, "hoverToExpand": true, "showOnExternal": false,
         "followActiveDisplay": false, "shortcut": "command", "includeMinimized": true, "chargingFeedback": true,
         "chargeTarget": 80, "lowBatteryAlert": 20, "lidFoldStyle": "duo",
-        "liveTransfers": false, "autoHideFocus": false, "autoHideSharing": false, "calendarPreview": false,
+        "liveTransfers": false, "calendarPreview": false,
         "toolShortcutModifiers": "ctrlOptCmd", "menuBarStatus": "off",
         "screenshotShelf": false, "appearance": "system",
-        "bluetoothBatteries": true, "keepShelf": true, "haptics": true, "focusFeedback": false, "islandGestures": false, "systemChanges": false,
+        "bluetoothBatteries": true, "keepShelf": true, "haptics": true, "islandGestures": false, "systemChanges": false,
         "smallNotices": true, "openWhenIdle": false, "showFiles": false, "showClipboard": false, "showClock": false,
         "sectionShortcuts": false, "menuLockMac": false,
     ]
@@ -65,8 +65,6 @@ final class Preferences {
     var lidFoldStyle: LidFoldStyle { didSet { save(lidFoldStyle.rawValue, "lidFoldStyle") } }
     var calendarPreview: Bool { didSet { save(calendarPreview, "calendarPreview") } }
     var liveTransfers: Bool { didSet { save(liveTransfers, "liveTransfers") } }
-    var autoHideFocus: Bool { didSet { save(autoHideFocus, "autoHideFocus") } }
-    var autoHideSharing: Bool { didSet { save(autoHideSharing, "autoHideSharing") } }
     var menuBarStatus: MenuBarStatus { didSet { save(menuBarStatus.rawValue, "menuBarStatus") } }
     var screenshotShelf: Bool { didSet { save(screenshotShelf, "screenshotShelf") } }
     var hoverToExpand: Bool { didSet { save(hoverToExpand, "hoverToExpand") } }
@@ -98,8 +96,6 @@ final class Preferences {
     var keepShelf: Bool { didSet { save(keepShelf, "keepShelf") } }
     /// A soft trackpad tap for island moments that are worth feeling.
     var haptics: Bool { didSet { save(haptics, "haptics") } }
-    /// A brief compact notice when a Focus turns on or off.
-    var focusFeedback: Bool { didSet { save(focusFeedback, "focusFeedback") } }
     /// Force Click on the compact island opens it.
     var islandGestures: Bool { didSet { save(islandGestures, "islandGestures") } }
     /// Brief notices for sound output, Low Power Mode and connectivity changes.
@@ -136,8 +132,6 @@ final class Preferences {
         lidFoldStyle = choice("lidFoldStyle", LidFoldStyle.duo)
         calendarPreview = flag("calendarPreview")
         liveTransfers = flag("liveTransfers")
-        autoHideFocus = flag("autoHideFocus")
-        autoHideSharing = flag("autoHideSharing")
         menuBarStatus = choice("menuBarStatus", MenuBarStatus.off)
         screenshotShelf = flag("screenshotShelf")
         hoverToExpand = flag("hoverToExpand")
@@ -153,7 +147,6 @@ final class Preferences {
         bluetoothBatteries = flag("bluetoothBatteries")
         keepShelf = flag("keepShelf")
         haptics = flag("haptics")
-        focusFeedback = flag("focusFeedback")
         islandGestures = flag("islandGestures")
         systemChanges = flag("systemChanges")
         smallNotices = flag("smallNotices")
@@ -245,14 +238,13 @@ enum SettingsPage: String, CaseIterable, Identifiable {
 /// The Island page's sub-pages, reached by drilling in, as System Settings does for Control Center.
 enum IslandSection: String, CaseIterable, Identifiable {
     case shelf = "Files & Clipboard", notices = "Notices"
-    case battery = "Battery", hiding = "Hide Automatically", keyboard = "Keyboard & Shortcuts"
+    case battery = "Battery", keyboard = "Keyboard & Shortcuts"
     var id: String { rawValue }
     var title: String {
         switch self {
         case .shelf: String(localized: "Files & Clipboard")
         case .notices: String(localized: "Notices")
         case .battery: String(localized: "Battery")
-        case .hiding: String(localized: "Hide Automatically")
         case .keyboard: String(localized: "Keyboard & Shortcuts")
         }
     }
@@ -261,7 +253,6 @@ enum IslandSection: String, CaseIterable, Identifiable {
         case .shelf: "tray.fill"
         case .notices: "bolt.horizontal.fill"
         case .battery: "battery.100percent"
-        case .hiding: "eye.slash.fill"
         case .keyboard: "keyboard.fill"
         }
     }
@@ -270,7 +261,6 @@ enum IslandSection: String, CaseIterable, Identifiable {
         case .shelf: .teal
         case .notices: .blue
         case .battery: .green
-        case .hiding: .gray
         case .keyboard: .gray
         }
     }
@@ -279,7 +269,6 @@ enum IslandSection: String, CaseIterable, Identifiable {
         case .shelf: String(localized: "A place for files and snippets while you work.")
         case .notices: String(localized: "Brief updates from your Mac, right where you’re looking.")
         case .battery: String(localized: "Power at a glance, and a word when it matters.")
-        case .hiding: String(localized: "The island steps aside when it should.")
         case .keyboard: String(localized: "Open the island without reaching for the pointer.")
         }
     }

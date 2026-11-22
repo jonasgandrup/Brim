@@ -110,26 +110,99 @@ enum SwitcherLayout {
     }
 }
 
+/// The switcher's key tap, on a thread of its own. Every key pressed on the Mac passes through it, so while the
+/// switcher is closed everything but its shortcut goes straight on, without waiting for Brim's main thread.
+final class SwitcherKeyTap: @unchecked Sendable {
+    /// Handed between the tap's thread and the main thread while the other one waits, so never touched by both at once.
+    private struct Handoff<Value>: @unchecked Sendable { let value: Value }
+    /// Tab with the switcher's modifier, and no other modifier.
+    static func isTrigger(code: Int64, flags: CGEventFlags, modifier: CGEventFlags) -> Bool {
+        code == 48 && flags.contains(modifier)
+            && ![CGEventFlags.maskCommand, .maskAlternate, .maskControl].contains { $0 != modifier && flags.contains($0) }
+    }
+    private let lock = NSLock()
+    private var engaged = false
+    private var modifier = CGEventFlags.maskCommand
+    private var port: CFMachPort?
+    private var runLoop: CFRunLoop?
+    /// On the main thread: the shortcut, and every key while the switcher is in use.
+    private let handler: @MainActor (CGEventType, CGEvent) -> Bool
+    private let onDisabled: @MainActor () -> Void
+    init(handler: @escaping @MainActor (CGEventType, CGEvent) -> Bool, onDisabled: @escaping @MainActor () -> Void) {
+        self.handler = handler; self.onDisabled = onDisabled
+    }
+    var running: Bool { lock.withLock { port != nil } }
+    func update(engaged: Bool, modifier: CGEventFlags) { lock.withLock { self.engaged = engaged; self.modifier = modifier } }
+
+    /// False when macOS refuses the tap (Accessibility or Input Monitoring is off).
+    func start() -> Bool {
+        guard !running else { return true }
+        let mask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
+        let callback: CGEventTapCallBack = { _, type, event, context in
+            guard let context else { return Unmanaged.passUnretained(event) }
+            return Unmanaged<SwitcherKeyTap>.fromOpaque(context).takeUnretainedValue().receive(type: type, event: event) ? nil : Unmanaged.passUnretained(event)
+        }
+        guard let port = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
+            eventsOfInterest: CGEventMask(mask), callback: callback, userInfo: Unmanaged.passUnretained(self).toOpaque()),
+              let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0) else { return false }
+        lock.withLock { self.port = port }
+        let ready = DispatchSemaphore(value: 0)
+        let handoff = Handoff(value: (port, source))
+        let thread = Thread { [self] in
+            let (port, source) = handoff.value
+            let loop = CFRunLoopGetCurrent()
+            CFRunLoopAddSource(loop, source, .commonModes)
+            lock.withLock { runLoop = loop }
+            ready.signal()
+            CGEvent.tapEnable(tap: port, enable: true)
+            // Returns once the tap is invalidated and its source leaves the run loop.
+            CFRunLoopRun()
+        }
+        thread.name = "Brim key tap"; thread.qualityOfService = .userInteractive
+        thread.start()
+        ready.wait()
+        return true
+    }
+    func stop() {
+        let (port, loop) = lock.withLock { () -> (CFMachPort?, CFRunLoop?) in
+            defer { self.port = nil; self.runLoop = nil }
+            return (self.port, self.runLoop)
+        }
+        if let port { CGEvent.tapEnable(tap: port, enable: false); CFMachPortInvalidate(port) }
+        if let loop { CFRunLoopStop(loop) }
+    }
+    private func receive(type: CGEventType, event: CGEvent) -> Bool {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let port = lock.withLock({ port }) { CGEvent.tapEnable(tap: port, enable: true) }
+            DispatchQueue.main.async { [onDisabled] in MainActor.assumeIsolated { onDisabled() } }
+            return false
+        }
+        let (engaged, modifier) = lock.withLock { (self.engaged, self.modifier) }
+        guard engaged || (type == .keyDown && Self.isTrigger(code: event.getIntegerValueField(.keyboardEventKeycode), flags: event.flags, modifier: modifier)) else { return false }
+        let handoff = Handoff(value: event)
+        return DispatchQueue.main.sync { MainActor.assumeIsolated { handler(type, handoff.value) } }
+    }
+}
+
 @MainActor @Observable
 final class WindowSwitcher {
     var windows: [SwitcherWindow] = []
     /// Type-to-search: `/` or F while the switcher is open. The modifier can then be released.
     private(set) var query = ""
-    private(set) var searching = false
+    private(set) var searching = false { didSet { syncKeyTap() } }
     var shown: [SwitcherWindow] {
         query.isEmpty ? windows : windows.filter { SwitcherFilter.matches(query: query, title: $0.title, app: $0.app.localizedName ?? "") }
     }
     var onVisibilityChanged: (Bool) -> Void = { _ in }
     var selected = 0
-    var visible = false
+    var visible = false { didSet { syncKeyTap() } }
     var status = String(localized: "Off")
     private var panel: NSPanel?
-    private var tap: CFMachPort?
-    private var runLoopSource: CFRunLoopSource?
+    @ObservationIgnored private var keyTap: SwitcherKeyTap?
     private var captureTask: Task<Void, Never>?
     private var preferences: Preferences?
-    private var swallowedTab = false
-    private var awaitingPresentation = false
+    private var swallowedTab = false { didSet { syncKeyTap() } }
+    private var awaitingPresentation = false { didSet { syncKeyTap() } }
     private var activateWhenReady = false
     private var pendingSteps = 0
     /// Same source of truth as the rest of the app, so a stale preflight flag can't hide thumbnails.
@@ -139,11 +212,17 @@ final class WindowSwitcher {
     private var activationObserver: NSObjectProtocol?
     private func noteActivated(_ pid: pid_t) { recentApps.removeAll { $0 == pid }; recentApps.insert(pid, at: 0); if recentApps.count > 64 { recentApps.removeLast() } }
 
+    private var modifier: CGEventFlags {
+        switch preferences?.shortcut ?? .command { case .option: .maskAlternate; case .control: .maskControl; case .command: .maskCommand }
+    }
+    /// The tap reads only these two things, so it can let every other key through on its own.
+    private func syncKeyTap() { keyTap?.update(engaged: visible || searching || awaitingPresentation || swallowedTab, modifier: modifier) }
     func configure(preferences: Preferences) {
         self.preferences = preferences
         guard preferences.switcherEnabled else { stop(); status = String(localized: "Off"); return }
         guard AXIsProcessTrusted() else { stop(); status = String(localized: "Accessibility permission required"); return }
-        guard tap == nil else { return }
+        syncKeyTap()
+        guard keyTap?.running != true else { return }
         if let front = NSWorkspace.shared.frontmostApplication?.processIdentifier, recentApps.isEmpty { noteActivated(front) }
         if activationObserver == nil {
             activationObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
@@ -151,43 +230,22 @@ final class WindowSwitcher {
                 MainActor.assumeIsolated { self?.noteActivated(pid) }
             }
         }
-        let mask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
-        let callback: CGEventTapCallBack = { _, type, event, context in
-            guard let context else { return Unmanaged.passUnretained(event) }
-            let handled = MainActor.assumeIsolated {
-                let controller = Unmanaged<WindowSwitcher>.fromOpaque(context).takeUnretainedValue()
-                return controller.handle(type: type, event: event)
-            }
-            return handled ? nil : Unmanaged.passUnretained(event)
-        }
-        tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
-            eventsOfInterest: CGEventMask(mask), callback: callback, userInfo: Unmanaged.passUnretained(self).toOpaque())
-        guard let tap else { status = String(localized: "Could not intercept shortcut. Check Accessibility and Input Monitoring."); return }
-        runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
+        let keyTap = keyTap ?? SwitcherKeyTap(handler: { [weak self] type, event in self?.handle(type: type, event: event) ?? false },
+                                              onDisabled: { [weak self] in self?.dismiss(activate: false) })
+        self.keyTap = keyTap
+        syncKeyTap()
+        guard keyTap.start() else { status = String(localized: "Could not intercept shortcut. Check Accessibility and Input Monitoring."); return }
         status = String(localized: "Ready")
     }
     func stop() {
         awaitingPresentation = false; activateWhenReady = false; pendingSteps = 0
         dismiss(activate: false)
-        if let tap { CGEvent.tapEnable(tap: tap, enable: false); CFMachPortInvalidate(tap) }
-        if let runLoopSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes) }
-        tap = nil; runLoopSource = nil; swallowedTab = false
+        keyTap?.stop(); swallowedTab = false
         if let activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(activationObserver) }
         activationObserver = nil
     }
     private func handle(type: CGEventType, event: CGEvent) -> Bool {
-        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            dismiss(activate: false)
-            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
-            return false
-        }
-        let modifier: CGEventFlags = switch preferences?.shortcut ?? .command {
-        case .option: .maskAlternate
-        case .control: .maskControl
-        case .command: .maskCommand
-        }
+        let modifier = self.modifier
         let otherHeld = [CGEventFlags.maskCommand, .maskAlternate, .maskControl].filter { $0 != modifier }.contains { event.flags.contains($0) }
         let held = event.flags.contains(modifier)
         let code = event.getIntegerValueField(.keyboardEventKeycode)

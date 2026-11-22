@@ -56,12 +56,6 @@ extension BrimAppModel {
                 detail: blocked.isEmpty ? String(localized: "All island shortcuts are registered.") : String(localized: "Taken by another app: \(blocked.joined(separator: ", ")). Pick other modifiers in Island settings."),
                 actionTitle: blocked.isEmpty ? nil : String(localized: "Change…"), action: { [weak self] in self?.openSettings(page: .notch) }))
         }
-        if preferences.notchEnabled && preferences.autoHideFocus {
-            let monitor = autoHide
-            items.append(SetupItem(id: "focus", title: String(localized: "Focus Status"), state: monitor.focusAuthorized ? .ready : (monitor.focusDenied ? .attention : .ready),
-                detail: monitor.focusAuthorized ? String(localized: "The island hides while a Focus is on.") : (monitor.focusDenied ? String(localized: "Focus access is off, so Brim can’t tell when a Focus is on.") : String(localized: "Waiting for your answer.")),
-                actionTitle: monitor.focusDenied ? String(localized: "Open Settings…") : nil, action: { [permissions] in permissions.openPrivacy("Privacy_Focus") }))
-        }
         if preferences.notchEnabled && preferences.liveTransfers {
             let problem = notch.transfers.accessProblem
             items.append(SetupItem(id: "transfers", title: String(localized: "Downloads Folder"), state: problem == nil ? .ready : .attention,
@@ -127,10 +121,10 @@ extension BrimAppModel {
             "Scale format recognized: \(yes(!scale.formatUnrecognized))",
             "Island: \(yes(preferences.notchEnabled)) · switcher: \(yes(preferences.switcherEnabled)) (\(switcher.status))",
             "Tool shortcuts unavailable: \(toolShortcuts.unavailable.isEmpty ? "none" : toolShortcuts.unavailable.joined(separator: ", "))",
-            "Live transfers: \(yes(preferences.liveTransfers)) · hide on Focus: \(yes(preferences.autoHideFocus)) · hide on sharing: \(yes(preferences.autoHideSharing)) · auto-hidden now: \(notch.autoHideReason ?? "no")",
+            "Live transfers: \(yes(preferences.liveTransfers))",
             "Screenshot shelf: \(yes(preferences.screenshotShelf)) · keep shelf: \(yes(preferences.keepShelf)) · calendar: \(notch.calendar.access)",
             "Accessory batteries: \(yes(preferences.bluetoothBatteries)) (\(notch.bluetooth.devices.count) connected)",
-            "Low battery warning: \(preferences.lowBatteryAlert == 0 ? "off" : "\(preferences.lowBatteryAlert)%") · follow active display: \(yes(preferences.followActiveDisplay)) · Now Playing helper: \(NowPlayingHelper.shared.enabled ? "resident" : "one-shot")"
+            "Low battery warning: \(preferences.lowBatteryAlert == 0 ? "off" : "\(preferences.lowBatteryAlert)%") · follow active display: \(yes(preferences.followActiveDisplay)) · Now Playing helper: \(NowPlayingHelper.shared.trusted ? "resident" : "one-shot reads, resident announcements")"
         ]
         lines.append("Needs attention: " + (setupItems.filter { $0.state == .attention }.map(\.title).joined(separator: ", ").nonEmpty ?? "nothing"))
         return lines.joined(separator: "\n")

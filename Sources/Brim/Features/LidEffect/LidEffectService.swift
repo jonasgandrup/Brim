@@ -78,7 +78,10 @@ final class LidEffectService {
     private var captureTask: Task<Void, Never>?
     private var panel: NSPanel?
     private var observers: [NSObjectProtocol] = []
-    private var suspended = false
+    /// While the Mac is locked the hinge isn't read at all; the loop waits here until it's unlocked.
+    private var suspended = false { didSet { if !suspended { wakeReader() } } }
+    private var resume: CheckedContinuation<Void, Never>?
+    private func wakeReader() { resume?.resume(); resume = nil }
     private var captureAttempted = false
     private var captureRetryAfter = Date.distantPast
     private var generation = 0
@@ -105,7 +108,8 @@ final class LidEffectService {
             while !Task.isCancelled {
                 guard let self, self.generation == currentGeneration else { break }
                 if self.suspended {
-                    try? await Task.sleep(for: .milliseconds(250)); continue
+                    await withCheckedContinuation { self.resume = $0 }
+                    continue
                 }
                 if let angle = await reader.read() {
                     guard !Task.isCancelled, self.generation == currentGeneration else { break }
@@ -127,7 +131,7 @@ final class LidEffectService {
     }
     func stop() {
         setupProbeTask?.cancel(); setupProbeTask = nil; captureCheck = .unverified
-        generation += 1; task?.cancel(); task = nil
+        generation += 1; task?.cancel(); task = nil; suspended = false; wakeReader()
         captureTask?.cancel(); captureTask = nil
         panel?.orderOut(nil); panel = nil; progress = 0; snapshot = nil
         angle = nil; referenceAngle = nil; status = String(localized: "Off"); captureAttempted = false

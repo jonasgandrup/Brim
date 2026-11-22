@@ -145,10 +145,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.removeAllItems()
         let notch = model.notch
         let ready = model.preferences.notchEnabled && !notch.presentationMode
-        if let reason = notch.autoHideReason {
-            add(String(localized: "Island hidden automatically · \(reason)")).isEnabled = false
-            menu.addItem(.separator())
-        }
         // Without this, a missing approval looks like the switcher simply showing apps: macOS's own ⌘Tab carries on.
         if model.preferences.switcherEnabled && !AXIsProcessTrusted() {
             add(String(localized: "Window Switcher Needs Permission…"), action: #selector(openPermissions), symbol: "exclamationmark.triangle")

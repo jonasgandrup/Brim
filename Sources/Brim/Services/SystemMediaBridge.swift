@@ -63,8 +63,8 @@ enum NowPlayingHelperLine: Equatable {
 
 /// One long-lived scripting process answers Now Playing reads over stdin/stdout, instead of a new
 /// `osascript` launch per poll. Requests are answered in order. It also says when playback changes, so Brim
-/// reads then instead of asking every few seconds. A hung or crashed helper is replaced on the next read,
-/// and a periodic one-shot comparison turns the helper off if it ever disagrees.
+/// reads then instead of asking at all. A helper that hangs or quits comes back by itself, and a periodic
+/// one-shot comparison stops trusting its answers if it ever disagrees.
 final class NowPlayingHelper: @unchecked Sendable {
     static let shared = NowPlayingHelper()
     private let lock = NSLock()
@@ -74,31 +74,49 @@ final class NowPlayingHelper: @unchecked Sendable {
     private var pending: [(id: Int, continuation: CheckedContinuation<String?, Never>)] = []
     private var nextID = 0
     private var served = 0
-    /// Until when the helper is off after failing its check. It gets another chance later: one bad moment shouldn't
-    /// cost a scripting launch per read for as long as Brim runs.
-    private var retryAt: TimeInterval = 0
-    static let retryAfter: TimeInterval = 1800
-    private var disabled: Bool { ProcessInfo.processInfo.systemUptime < retryAt }
+    /// Until when the helper's answers aren't used after failing its check. It keeps running for its announcements, so
+    /// Brim still reads only when something changes, through a one-shot launch. Trusted again later: one bad moment
+    /// shouldn't cost a scripting launch per change for as long as Brim runs.
+    private var distrustedUntil: TimeInterval = 0
+    static let distrustFor: TimeInterval = 1800
+    private var trustedLocked: Bool { ProcessInfo.processInfo.systemUptime >= distrustedUntil }
     private var lastVerified: TimeInterval = -.infinity
     /// Bounds memory growth inside the scripting runtime.
     private let recycleAfter = 600
     private var listening = false
     private var changeHandler: (@Sendable () -> Void)?
+    /// Brim is relying on the announcements, so a helper that quits or hangs is started again without being asked.
+    private var keepAlive = false
+    private var launchedAt: TimeInterval = 0
+    private var quickExits = 0
 
-    var enabled: Bool { lock.withLock { !disabled } }
-    /// Already up and able to take a request.
-    var isRunning: Bool { lock.withLock { !disabled && process?.isRunning == true } }
+    var trusted: Bool { lock.withLock { trustedLocked } }
+    /// Already up and trusted with a request.
+    var isRunning: Bool { lock.withLock { trustedLocked && process?.isRunning == true } }
     /// True while a running helper announces changes, so asking every few seconds isn't needed.
-    var announcesChanges: Bool { lock.withLock { listening && !disabled } }
+    var announcesChanges: Bool { lock.withLock { listening } }
     /// Called, off the main thread, when the helper sees playback change in any player.
     var onChange: (@Sendable () -> Void)? {
         get { lock.withLock { changeHandler } }
         set { lock.withLock { changeHandler = newValue } }
     }
-    func disable(reason: String) {
-        Log.media.error("Now Playing helper disabled: \(reason, privacy: .public)")
-        let failed = lock.withLock { retryAt = ProcessInfo.processInfo.systemUptime + Self.retryAfter; return tearDownLocked() }
+    /// Starts over with a fresh process, used only for its announcements until it's trusted again.
+    func distrust(reason: String) {
+        Log.media.error("Now Playing helper answers not trusted: \(reason, privacy: .public)")
+        let failed = lock.withLock { distrustedUntil = ProcessInfo.processInfo.systemUptime + Self.distrustFor; let failed = tearDownLocked(); relaunchLaterLocked(); return failed }
         failed.forEach { $0.resume(returning: nil) }
+    }
+    /// Keeps a helper up to announce changes while nothing asks it anything.
+    func listen() { lock.withLock { _ = launchIfNeededLocked() } }
+    /// Starts the helper now and keeps it up until `stop()`, so changes are announced with nothing asking every so often.
+    func keepListening() { lock.withLock { keepAlive = true; _ = launchIfNeededLocked() } }
+    /// One that keeps quitting right away waits longer each time, up to a minute.
+    private func relaunchLaterLocked() {
+        guard keepAlive else { return }
+        quickExits = ProcessInfo.processInfo.systemUptime - launchedAt < 30 ? min(quickExits + 1, 6) : 0
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + min(60, Double(1 << quickExits))) { [weak self] in
+            self?.lock.withLock { if self?.keepAlive == true { _ = self?.launchIfNeededLocked() } }
+        }
     }
     /// True for a new helper's first answer, then every ten minutes: time to compare it against a fresh one-shot
     /// read. Each one-shot is a whole scripting launch, so this stays rare.
@@ -113,7 +131,7 @@ final class NowPlayingHelper: @unchecked Sendable {
         guard let line = try? JSONSerialization.data(withJSONObject: arguments) else { return nil }
         return await withCheckedContinuation { continuation in
             let id: Int? = lock.withLock {
-                guard !disabled, let input = launchIfNeededLocked() else { return nil }
+                guard let input = launchIfNeededLocked() else { return nil }
                 nextID += 1
                 pending.append((nextID, continuation))
                 do { try input.write(contentsOf: line + Data([0x0A])) } catch {
@@ -129,7 +147,7 @@ final class NowPlayingHelper: @unchecked Sendable {
         let failed: [CheckedContinuation<String?, Never>] = lock.withLock {
             guard pending.contains(where: { $0.id == id }) else { return [] }
             Log.media.notice("Now Playing helper didn’t answer in time; restarting it")
-            return tearDownLocked()
+            let failed = tearDownLocked(); relaunchLaterLocked(); return failed
         }
         failed.forEach { $0.resume(returning: nil) }
     }
@@ -149,9 +167,10 @@ final class NowPlayingHelper: @unchecked Sendable {
         process.terminationHandler = { [weak self] ended in self?.ended(ended) }
         do { try process.run() } catch {
             Log.media.error("Couldn’t start the Now Playing helper: \(error.localizedDescription, privacy: .public)")
-            return nil
+            relaunchLaterLocked(); return nil
         }
         self.process = process; self.input = stdin.fileHandleForWriting; served = 0; buffer.removeAll(); lastVerified = -.infinity
+        launchedAt = ProcessInfo.processInfo.systemUptime
         return input
     }
     private func receive(_ chunk: Data) {
@@ -163,7 +182,8 @@ final class NowPlayingHelper: @unchecked Sendable {
                 let line = String(decoding: buffer[buffer.startIndex..<newline], as: UTF8.self)
                 buffer.removeSubrange(buffer.startIndex...newline)
                 switch NowPlayingHelperLine(line) {
-                case .listening: listening = true
+                // A new helper missed whatever happened before it started, so it counts as a change too.
+                case .listening: listening = true; changed = changeHandler
                 case .changed: changed = changeHandler
                 case .ignored: break
                 case .reply(let text):
@@ -179,7 +199,7 @@ final class NowPlayingHelper: @unchecked Sendable {
     private func ended(_ process: Process) {
         let failed: [CheckedContinuation<String?, Never>] = lock.withLock {
             guard process === self.process else { return [] }
-            return tearDownLocked()
+            let failed = tearDownLocked(); relaunchLaterLocked(); return failed
         }
         failed.forEach { $0.resume(returning: nil) }
     }
@@ -192,7 +212,7 @@ final class NowPlayingHelper: @unchecked Sendable {
         process = nil; input = nil; buffer.removeAll(); listening = false
         return waiting
     }
-    func stop() { let failed = lock.withLock { tearDownLocked() }; failed.forEach { $0.resume(returning: nil) } }
+    func stop() { let failed = lock.withLock { keepAlive = false; return tearDownLocked() }; failed.forEach { $0.resume(returning: nil) } }
 }
 
 enum SystemMediaBridge {
@@ -424,14 +444,14 @@ enum SystemMediaBridge {
     }
     private static func read(_ arguments: [String]) async -> SystemMediaSnapshot? {
         let helper = NowPlayingHelper.shared
-        guard helper.enabled else { return await oneShotSnapshot(arguments) }
+        guard helper.trusted else { helper.listen(); return await oneShotSnapshot(arguments) }
         guard let fromHelper = decode(await helper.read(arguments)) else { return await oneShotSnapshot(arguments) }
         guard helper.dueForVerification(), let fresh = await oneShotSnapshot(arguments), !agrees(fromHelper, fresh) else { return fromHelper }
-        // Playback can change between the two reads, so one mismatch proves nothing: compare a second pair. Turning the
-        // helper off sends every later read through a scripting launch of its own.
+        // Playback can change between the two reads, so one mismatch proves nothing: compare a second pair. Not trusting
+        // the helper sends every later read through a scripting launch of its own.
         guard let again = decode(await helper.read(arguments)), let confirm = await oneShotSnapshot(arguments) else { return fresh }
         if agrees(again, confirm) { return again }
-        helper.disable(reason: "a long-lived read disagreed with a fresh one, twice")
+        helper.distrust(reason: "a long-lived read disagreed with a fresh one, twice")
         return confirm
     }
     /// The parts that would make the island show the wrong thing. Position naturally drifts between reads.

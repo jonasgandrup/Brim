@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import EventKit
 
 /// The next timed event in the next day, read locally with EventKit. Opt-in; nothing leaves the Mac.
@@ -22,6 +22,12 @@ struct NextEvent: Equatable, Sendable {
     static func pick(from events: [Candidate], now: Date) -> NextEvent? {
         events.filter { !$0.allDay && $0.end > now }.sorted { $0.start < $1.start }.first
             .map { NextEvent(id: $0.id, title: $0.title, start: $0.start, end: $0.end, meetingURL: $0.meetingURL) }
+    }
+    /// Between calendar edits only the clock moves things on: look again five minutes before the event, when it ends,
+    /// and hourly as the next day's window moves forward.
+    static func nextLook(after event: NextEvent?, now: Date) -> TimeInterval {
+        let moments = [event?.start.addingTimeInterval(-300), event?.end, now.addingTimeInterval(3600)].compactMap { $0 }
+        return (moments.filter { $0 > now }.min() ?? now.addingTimeInterval(3600)).timeIntervalSince(now) + 0.5
     }
 }
 
@@ -55,7 +61,8 @@ enum MeetingLink {
     @ObservationIgnored var onSoon: (NextEvent) -> Void = { _ in }
     private var store: EKEventStore?
     private var task: Task<Void, Never>?
-    private var observer: NSObjectProtocol?
+    private var observers: [NSObjectProtocol] = []
+    private var lookTask: Task<Void, Never>?
     private var announced: Set<String> = []
 
     func start() {
@@ -69,19 +76,22 @@ enum MeetingLink {
             guard let self, !Task.isCancelled else { return }
             self.access = granted ? .granted : .denied
             guard granted else { Log.calendar.notice("Calendar access denied"); return }
-            self.observer = NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: store, queue: .main) { [weak self] _ in
+            // Told when the calendar, the clock or the day changes, or the Mac wakes; otherwise asleep until the next event.
+            for name in [Notification.Name.EKEventStoreChanged, .NSSystemClockDidChange, .NSCalendarDayChanged] {
+                self.observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.refresh() }
+                })
+            }
+            self.observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.refresh() }
-            }
-            while !Task.isCancelled {
-                self.refresh()
-                try? await Task.sleep(for: .seconds(30))
-            }
+            })
+            self.refresh()
         }
     }
     func stop() {
-        task?.cancel(); task = nil; store = nil; next = nil; access = .off; announced.removeAll()
-        if let observer { NotificationCenter.default.removeObserver(observer) }
-        observer = nil
+        task?.cancel(); task = nil; lookTask?.cancel(); lookTask = nil; store = nil; next = nil; access = .off; announced.removeAll()
+        observers.forEach { NotificationCenter.default.removeObserver($0); NSWorkspace.shared.notificationCenter.removeObserver($0) }
+        observers.removeAll()
     }
     func refresh() {
         guard let store, access == .granted else { return }
@@ -94,6 +104,13 @@ enum MeetingLink {
         let pick = NextEvent.pick(from: events, now: now)
         if pick != next { next = pick }
         announceIfSoon(pick, at: now)
+        let wait = NextEvent.nextLook(after: pick, now: now)
+        lookTask?.cancel()
+        lookTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(wait))
+            guard !Task.isCancelled else { return }
+            self?.refresh()
+        }
     }
     /// Tells the island once per occurrence, five minutes ahead.
     func announceIfSoon(_ event: NextEvent?, at now: Date) {

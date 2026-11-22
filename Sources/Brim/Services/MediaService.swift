@@ -25,16 +25,13 @@ final class MediaService {
     var refreshing = false
     /// Music and Spotify over Apple Events, which makes macOS ask for Automation access. Off until someone agrees.
     var playerAccess = false {
-        didSet { if playerAccess != oldValue, pollTask != nil { artworkKey = ""; refresh() } }
+        didSet { if playerAccess != oldValue, started { artworkKey = ""; refresh() } }
     }
     /// macOS isn't sharing what's playing, so Music and Spotify are the only way left.
     var offersPlayerAccess: Bool { !playerAccess && !systemAvailable && message != nil }
     /// Music or Spotify is playing without artwork, which only they can supply.
     var offersArtworkAccess: Bool { !playerAccess && artwork == nil && source.map { ["com.apple.Music", "com.spotify.client"].contains($0) } == true }
     let sleepTimer = MediaSleepTimer()
-    /// True while the playback scrubber is visible. Only used when the helper isn't announcing changes: then playback
-    /// is checked every second for the scrubber, and every two seconds otherwise.
-    @ObservationIgnored var wantsFrequentUpdates: () -> Bool = { true }
     private(set) var players: [MediaPlayer] = []
     private(set) var pinnedPlayer: MediaPlayer?
     private(set) var selectionLoading = false
@@ -165,33 +162,31 @@ final class MediaService {
     private var generation = 0
     private var observers: [NSObjectProtocol] = []
     private var updateTask: Task<Void, Never>?
-    private var pollTask: Task<Void, Never>?
+    private var started = false
     private var artworkTask: Task<Void, Never>?
     private var commandTask: Task<Void, Never>?
     private var artworkKey = ""
     func start() {
-        guard pollTask == nil else { return }
+        guard !started else { return }
+        started = true
         for name in ["com.apple.Music.playerInfo", "com.spotify.client.PlaybackStateChanged"] {
             observers.append(DistributedNotificationCenter.default().addObserver(forName: .init(name), object: nil, queue: .main) { [weak self] _ in
                 // The player announced a change itself, so what's on the island is worth reading again.
                 Task { @MainActor in self?.playbackChanged() }
             })
         }
-        NowPlayingHelper.shared.onChange = { [weak self] in Task { @MainActor in self?.playbackChanged() } }
-        refresh()
-        pollTask = Task { [weak self] in
-            while !Task.isCancelled {
-                // The helper says when anything changes, and the position moves on locally, so this is only a safety
-                // net. Without the helper's announcements, playback is asked about every few seconds instead.
-                let announced = NowPlayingHelper.shared.announcesChanges
-                try? await Task.sleep(for: .seconds(announced ? 30 : self?.playing == true ? (self?.wantsFrequentUpdates() == true ? 1 : 2) : 3))
-                guard !Task.isCancelled else { return }
-                // Nobody sees the island with the display asleep; the first read after waking catches up.
-                if CGDisplayIsAsleep(CGMainDisplayID()) != 0 { continue }
-                self?.refresh()
-            }
+        // Nothing asks what's playing on a timer: the helper announces every change, Music and Spotify announce their
+        // own, and the position moves on locally. Waking up is the one moment worth a look of its own.
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
+            wakeObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.playbackChanged() }
+            })
         }
+        NowPlayingHelper.shared.onChange = { [weak self] in Task { @MainActor in self?.playbackChanged() } }
+        NowPlayingHelper.shared.keepListening()
+        refresh()
     }
+    private var wakeObservers: [NSObjectProtocol] = []
     private var changeTask: Task<Void, Never>?
     /// Something changed: read now, or as soon as the read or command already under way is done.
     private func playbackChanged() {
@@ -324,8 +319,9 @@ final class MediaService {
         generation += 1
         sleepTimer.cancel(); selectionLoading = false
         updateTask?.cancel(); updateTask = nil; refreshing = false
-        pollTask?.cancel(); pollTask = nil; artworkTask?.cancel(); commandTask?.cancel()
+        started = false; artworkTask?.cancel(); commandTask?.cancel()
         observers.forEach { DistributedNotificationCenter.default().removeObserver($0) }; observers.removeAll()
+        wakeObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }; wakeObservers.removeAll()
         changeTask?.cancel(); changeTask = nil
         NowPlayingHelper.shared.onChange = nil; NowPlayingHelper.shared.stop()
         commandPending = false; chooser.forget()
@@ -353,6 +349,7 @@ final class MediaService {
         // Discard a read started before this click, rather than painting stale
         // playing/paused state over the command's eventual result.
         updateTask?.cancel(); refreshing = false
+        commandTask?.cancel()
         commandPending = true
         commandTask = Task { [weak self] in
             let result = await transport(request, usesSystem)
@@ -362,11 +359,25 @@ final class MediaService {
             if result == .submitted {
                 self.message = nil
                 try? await Task.sleep(for: .milliseconds(250))
-                if !Task.isCancelled { self.refresh() }
+                guard !Task.isCancelled else { return }
+                self.refresh()
+                if action == .play || action == .pause { await self.noticeIfIgnored(action, by: item, generation: currentGeneration) }
             } else {
                 self.message = result.stale ? String(localized: "The player changed. Try again on the current track.") : String(localized: "This player didn’t accept the command. Open it to control playback.")
                 if result.stale { self.refresh() }
             }
         }
+    }
+    /// A player can take a command and do nothing with it. Chrome does that for a background tab it has put to sleep,
+    /// and leaves the media keys unanswered too, so say so rather than leave the button looking broken.
+    private func noticeIfIgnored(_ action: MediaPlaybackAction, by item: MediaItemIdentity, generation expected: Int) async {
+        let wanted = action == .play
+        for _ in 0..<20 {
+            try? await Task.sleep(for: .milliseconds(100))
+            guard !Task.isCancelled, generation == expected, source == item.source, playing != wanted else { return }
+        }
+        for _ in 0..<10 where refreshing || commandPending { try? await Task.sleep(for: .milliseconds(100)) }
+        guard !Task.isCancelled, generation == expected, source == item.source, playing != wanted, !refreshing, !commandPending else { return }
+        message = String(localized: "\(sourceName) didn’t respond. Open it to control playback.")
     }
 }

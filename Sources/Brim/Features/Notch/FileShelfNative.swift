@@ -171,14 +171,16 @@ final class ShelfCollectionItem: NSCollectionViewItem {
 }
 
 final class ShelfFileTile: NSView {
-    var url: URL? { didSet { toolTip = url?.lastPathComponent; needsDisplay = true } }
+    /// The icon is looked up once per file, not on every redraw.
+    var url: URL? { didSet { guard url != oldValue else { return }; icon = url.map { NSWorkspace.shared.icon(forFile: $0.path) }; toolTip = url?.lastPathComponent; needsDisplay = true } }
+    private var icon: NSImage?
     var selected = false { didSet { needsDisplay = true } }
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
         (selected ? NSColor.controlAccentColor.withAlphaComponent(0.35) : NSColor.white.withAlphaComponent(0.06)).setFill()
         NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 12, yRadius: 12).fill()
-        guard let url else { return }
-        NSWorkspace.shared.icon(forFile: url.path).draw(in: NSRect(x: (bounds.width - 38) / 2, y: 8, width: 38, height: 38), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        guard let url, let icon else { return }
+        icon.draw(in: NSRect(x: (bounds.width - 38) / 2, y: 8, width: 38, height: 38), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
         let paragraph = NSMutableParagraphStyle(); paragraph.alignment = .center; paragraph.lineBreakMode = .byTruncatingMiddle
         (url.lastPathComponent as NSString).draw(in: NSRect(x: 4, y: 54, width: bounds.width - 8, height: 30), withAttributes: [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.white, .paragraphStyle: paragraph])
     }

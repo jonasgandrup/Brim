@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import ImageIO
 
 struct ClipboardPin: Identifiable, Equatable {
     enum Payload: Equatable { case text(String), link(URL), image(Data) }
@@ -74,7 +75,8 @@ struct ClipboardPinStore: Sendable {
             case "link": return URL(string: entry.value).map { ClipboardPin(id: entry.id, payload: .link($0)) }
             case "image":
                 // Only a plain file name inside the store; never follow a path out of it.
-                guard !entry.value.contains("/"), let image = try? Data(contentsOf: directory.appendingPathComponent(entry.value)) else { return nil }
+                // Mapped, not read: the image stays on disk until it's copied or dragged out.
+                guard !entry.value.contains("/"), let image = try? Data(contentsOf: directory.appendingPathComponent(entry.value), options: .alwaysMapped) else { return nil }
                 return ClipboardPin(id: entry.id, payload: .image(image))
             default: return nil
             }
@@ -87,7 +89,24 @@ struct ClipboardPinStore: Sendable {
     static let linkSchemes: Set<String> = ["https", "http", "mailto"]
     static func isSupportedLink(_ url: URL) -> Bool { linkSchemes.contains(url.scheme?.lowercased() ?? "") }
     private static let totalImageBytes = 60_000_000
-    private(set) var pins: [ClipboardPin] = [] { didSet { if pins != oldValue { try? persistence?.save(pins) } } }
+    private(set) var pins: [ClipboardPin] = [] {
+        didSet {
+            guard pins != oldValue else { return }
+            try? persistence?.save(pins)
+            let ids = Set(pins.map(\.id)); thumbnails = thumbnails.filter { ids.contains($0.key) }
+        }
+    }
+    /// Small previews of image pins, made once rather than decoding the full image on every redraw.
+    @ObservationIgnored private var thumbnails: [ClipboardPin.ID: NSImage] = [:]
+    func thumbnail(for pin: ClipboardPin) -> NSImage? {
+        if let image = thumbnails[pin.id] { return image }
+        guard case .image(let data) = pin.payload, let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 216] as CFDictionary) else { return nil }
+        let thumbnail = NSImage(cgImage: image, size: NSSize(width: image.width / 2, height: image.height / 2))
+        thumbnails[pin.id] = thumbnail
+        return thumbnail
+    }
     /// When set, pins survive relaunches in Application Support.
     @ObservationIgnored var persistence: ClipboardPinStore? {
         didSet {
@@ -207,7 +226,7 @@ struct ClipboardShelfView: View {
     private func card(_ pin: ClipboardPin) -> some View {
         let copied = shelf.justCopied == pin.id
         return VStack(alignment: .leading, spacing: 6) {
-            if case .image(let data) = pin.payload, let image = NSImage(data: data) {
+            if let image = shelf.thumbnail(for: pin) {
                 Image(nsImage: image).resizable().scaledToFit().frame(width: 94, height: 54).opacity(copied ? 0.35 : 1)
                     .overlay { if copied { Image(systemName: "checkmark").font(.system(size: 18, weight: .semibold)).foregroundStyle(.green) } }
             } else {

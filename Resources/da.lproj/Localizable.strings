@@ -27,7 +27,6 @@
 "1-hour timer" = "Timer på 1 time";
 "1-minute timer" = "Timer på 1 minut";
 "25 min focus · 5 min break · long break after 4" = "25 min fokus · 5 min pause · lang pause efter 4";
-"A brief note when a Focus turns on or off." = "En kort besked, når et fokus slås til eller fra.";
 "A built-in Force Touch trackpad is required" = "Kræver et indbygget Force Touch-pegefelt";
 "A compatible MacBook hinge sensor is required." = "Kræver en kompatibel hængselsensor i en MacBook.";
 "A file with that name already exists." = "Der findes allerede et arkiv med det navn.";
@@ -157,7 +156,6 @@
 "Drop Files Here" = "Slip arkiver her";
 "Drop files on the island, then drag them out anywhere." = "Slip arkiver på øen, og træk dem ud hvor som helst.";
 "Duo" = "Duo";
-"During Focus" = "Under fokus";
 "Island" = "Øen";
 "Island preview" = "Eksempel på øen";
 "Island settings" = "Indstillinger for øen";
@@ -182,14 +180,8 @@
 "Finished" = "Færdig";
 "Focus" = "Fokus";
 "Focus Session" = "Fokussession";
-"Focus access is off, so Brim can’t tell when a Focus is on." = "Adgang til fokus er slået fra, så Brim kan ikke se, hvornår et fokus er slået til.";
-"Focus access is off. Allow Brim in System Settings → Privacy & Security → Focus." = "Adgang til fokus er slået fra. Tillad Brim i Systemindstillinger → Anonymitet og sikkerhed → Fokus.";
-"Focus is on" = "Fokus er slået til";
-"Focus Off" = "Fokus fra";
-"Focus On" = "Fokus til";
 "Focus sessions" = "Fokussessioner";
 "Focus started" = "Fokus startet";
-"Focus Status" = "Fokusstatus";
 "Focus · session %lld of %lld" = "Fokus · session %1$lld af %2$lld";
 "Fold" = "Fold";
 "Follow the Active Display" = "Følg den aktive skærm";
@@ -201,8 +193,6 @@
 "Half Size" = "Halv størrelse";
 "Haptic Feedback" = "Haptisk feedback";
 "Held reading · set zero for a new measurement" = "Fastholdt måling · nulstil for en ny måling";
-"Hidden right now: %@." = "Skjult lige nu: %@.";
-"Hide Automatically" = "Skjul automatisk";
 "Hinge readings unavailable. Effect paused." = "Hængslets målinger er ikke tilgængelige. Effekten er sat på pause.";
 "Hinge Sensor" = "Hængselsensor";
 "Hinge sensor access unavailable (%d)." = "Der er ikke adgang til hængselsensoren (%d).";
@@ -214,8 +204,6 @@
 "in %@" = "om %@";
 "In progress" = "I gang";
 "Include Minimized Windows" = "Medtag minimerede vinduer";
-"Including Do Not Disturb." = "Også Forstyr ikke.";
-"Island hidden automatically · %@" = "Øen er skjult automatisk · %@";
 "Island section" = "Sektion på øen";
 "Join" = "Deltag";
 "Join %@" = "Deltag via %@";
@@ -252,7 +240,6 @@
 "Media playing" = "Medier afspilles";
 "Media sleep timer" = "Sovetimer til medier";
 "Menu Bar Status" = "Status på menulinjen";
-"Mirroring, Zoom and Screen Sharing." = "Synkron visning, Zoom og Skærmdeling.";
 "Modifier Keys" = "Ændringstaster";
 "Move between windows, not just apps." = "Skift mellem vinduer, ikke kun apps.";
 "Moves to the display you’re working on." = "Flytter til den skærm, du arbejder på.";
@@ -297,7 +284,6 @@
 "Window Switcher Needs Permission…" = "Vinduesskifter kræver tilladelse…";
 "Every window, with a preview, on ⌘ Tab." = "Alle vinduer med forhåndsvisning på ⌘ Tab.";
 "Choose how much Brim shows. You can change it anytime." = "Vælg, hvor meget Brim viser. Du kan altid ændre det.";
-"Browser meetings can’t be detected. Use Hide Island from the menu bar instead." = "Møder i browseren kan ikke registreres. Brug Skjul øen fra menulinjen i stedet.";
 "Now Playing isn’t available." = "Spiller nu er ikke tilgængelig.";
 "Use Music & Spotify" = "Brug Musik og Spotify";
 "Music & Spotify" = "Musik og Spotify";
@@ -411,7 +397,6 @@
 "Round complete · take %lld minutes" = "Runden er fuldført · hold %lld minutters pause";
 "Running" = "Kører";
 "Scale" = "Vægt";
-"Screen is shared" = "Skærmen deles";
 "Screen Recording" = "Skærmoptagelse";
 "Screen Recording permission is needed for Brim to fold your desktop." = "Brim skal have tilladelse til skærmoptagelse for at folde skrivebordet.";
 "Screenshot" = "Skærmbillede";
@@ -431,7 +416,6 @@
 "Brim asks for a permission only when a feature you turned on needs it. Nothing leaves your Mac." = "Brim beder kun om en tilladelse, når en funktion, du har slået til, har brug for den. Intet forlader din Mac.";
 "Brim can’t read the Downloads folder." = "Brim kan ikke læse mappen Overførsler.";
 "Brim island" = "Brim-øen";
-"Brim learns only whether a Focus is on, not which one." = "Brim ved kun, om et fokus er slået til, ikke hvilket.";
 "Brim notices only that the connection dropped or returned, never which network you’re on." = "Brim registrerer kun, at forbindelsen forsvandt eller kom tilbage, aldrig hvilket netværk du bruger.";
 "Brim reads the clipboard only when you ask." = "Brim læser kun udklipsholderen, når du beder om det.";
 "Brim Settings" = "Brim-indstillinger";
@@ -475,8 +459,6 @@
 "The archive couldn’t be created. Check file access and available disk space." = "Arkivet kunne ikke oprettes. Kontroller adgangen til arkiverne og den ledige plads.";
 "The built-in display is unavailable. Open your MacBook and try again." = "Den indbyggede skærm er ikke tilgængelig. Åbn din MacBook, og prøv igen.";
 "The desktop gently recedes and dims." = "Skrivebordet trækker sig blidt tilbage og dæmpes.";
-"The island hides while a Focus is on." = "Øen skjules, mens et fokus er slået til.";
-"The island steps aside when it should." = "Øen træder til side, når den skal.";
 "The new file couldn’t be saved. Check that the folder is writable." = "Det nye arkiv kunne ikke gemmes. Kontroller, at der kan skrives i mappen.";
 "The player changed. Try again on the current track." = "Afspilleren er skiftet. Prøv igen på det aktuelle nummer.";
 "The screen tips back as the lid closes, softening and darkening toward its edges." = "Skærmen vipper bagud, mens låget lukkes, og bliver blødere og mørkere ud mod kanterne.";
@@ -484,6 +466,7 @@
 "This Mac can’t write that format." = "Denne Mac kan ikke skrive det format.";
 "This Mac does not expose a compatible continuous hinge-angle sensor." = "Denne Mac har ikke en kompatibel sensor til hængslets vinkel.";
 "This macOS version’s trackpad data isn’t recognized. Readings are paused." = "Pegefeltsdata fra denne version af macOS genkendes ikke. Målingerne er sat på pause.";
+"%@ didn’t respond. Open it to control playback." = "%@ reagerede ikke. Åbn den for at styre afspilningen.";
 "This player didn’t accept the command. Open it to control playback." = "Afspilleren accepterede ikke kommandoen. Åbn den for at styre afspilningen.";
 "This player doesn’t support seeking" = "Denne afspiller understøtter ikke spoling";
 "This renames the file on disk." = "Dette omdøber arkivet på disken.";
@@ -529,7 +512,6 @@
 "When power connects or the battery reaches your target." = "Når strømmen tilsluttes, eller batteriet når dit mål.";
 "When a file lands or a timer ends, never just from moving the pointer. Felt only while a finger rests on a Force Touch trackpad." = "Når et arkiv lander, eller en timer slutter, aldrig kun ved at flytte markøren. Mærkes kun, mens en finger hviler på et Force Touch-pegefelt.";
 "Where sound is playing, Low Power Mode, and going offline." = "Hvor lyden afspilles, strømsparetilstand og mistet forbindelse.";
-"While Sharing Your Screen" = "Mens du deler din skærm";
 "Window previews and the lid fold can capture the desktop." = "Vinduesminiaturer og lågfold kan optage skrivebordet.";
 "Window Switcher" = "Vinduesskifter";
 "Window switcher preview" = "Eksempel på vinduesskifter";

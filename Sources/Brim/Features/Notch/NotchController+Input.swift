@@ -11,8 +11,9 @@ extension NotchController {
         guard systemMenuDepth == 0 else { return }
         switch event.type {
         case .leftMouseDown:
+            // Read before a drag can start writing to it. Watching for files begins only once the mouse moves:
+            // a plain click costs nothing more.
             dragStartChangeCount = NSPasteboard(name: .drag).changeCount
-            startDragPolling()
             // With nothing on screen the panel lets clicks through, so a click on the bare notch is noticed here.
             if presentation == .hidden, containsPointer(NSEvent.mouseLocation) { openInContext() }
         case .leftMouseDragged: startDragPolling()

@@ -49,8 +49,6 @@
 	<string>Brim reads your calendar on this Mac to show your next event in the island. Nothing is stored or sent anywhere.</string>
 	<key>NSDownloadsFolderUsageDescription</key>
 	<string>Brim shows downloads that are still arriving in your Downloads folder as a progress ring in the island. It only looks at file names and sizes, and nothing leaves your Mac.</string>
-	<key>NSFocusStatusUsageDescription</key>
-	<string>Brim can hide the island while a Focus is on. It only learns whether a Focus is active, never which one or why.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSPrincipalClass</key>

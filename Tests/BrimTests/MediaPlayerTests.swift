@@ -433,9 +433,10 @@ private actor PlaybackFeed {
     media.stop()
 }
 
-@Test func aDisabledHelperStaysOutOfTheWay() {
+@Test func aDistrustedHelperIsNoLongerAskedAnything() {
     let helper = NowPlayingHelper()
-    #expect(helper.enabled)
-    helper.disable(reason: "test")
-    #expect(!helper.enabled)
+    #expect(helper.trusted)
+    helper.distrust(reason: "test")
+    #expect(!helper.trusted)
+    #expect(!helper.isRunning)
 }
